@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Aug 13 16:00:24 2025
+
+@author: carl
+"""
+
+from silx.gui import qt
+from silx.gui.qt import Qt
+import silx.gui.colors
+from element import ElementSettings
+from imagecompose import ImageSettings
+from h5py import Dataset
+import numpy as np
+
+class ExhaleListWidget(qt.QListWidget):
+    "Base class for the lists below"
+    itemUnwanted = qt.Signal(qt.QListWidgetItem)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSortingEnabled(True)
+
+    def keyPressEvent(self, event):
+        if (event.matches(qt.QKeySequence.Delete) or
+            event.matches(qt.QKeySequence.Backspace)):
+            event.accept()
+            if self.currentItem():
+                self.itemUnwanted.emit(self.currentItem())
+        else:
+            super().keyPressEvent(event)
+
+
+class ElementListWidget(ExhaleListWidget):
+    "List of elements that can be selected, with h5 path as data"
+    H5_PATH_ROLE = Qt.UserRole + 1
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSelectionMode(
+            qt.QAbstractItemView.SelectionMode.SingleSelection)
+        self.setDragDropMode(qt.QAbstractItemView.DragDropMode.DragDrop)
+        self.setDefaultDropAction(Qt.MoveAction)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+
+    def dropEvent(self, event : qt.QDropEvent):
+        if type(event.source()) == type(self):
+            event.accept()
+            print("drop OK")
+            super().dropEvent(event)
+
+    def addElement(self, name : str, dataset : Dataset):
+        item = qt.QListWidgetItem(
+            qt.QIcon.fromTheme("applications-education-science"), name)
+        path = (dataset.file.filename, dataset.name)
+        item.setData(self.H5_PATH_ROLE, path)
+        item.setCheckState(Qt.CheckState.Unchecked)
+        self.addItem(item)
+
+    def addElementFromSettings(self, element : ElementSettings):
+        self.addElement(element.name, element.h5)
+
+
+class ImageListWidget(ExhaleListWidget):
+    "List of images with editable names and an integer as data"
+    IMG_NUM_ROLE = Qt.UserRole + 3
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSelectionMode(
+            qt.QAbstractItemView.SelectionMode.SingleSelection)
+        self.setDragDropMode(qt.QAbstractItemView.DragDropMode.InternalMove)
+        self.setDefaultDropAction(Qt.MoveAction)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+
+    def dropEvent(self, event : qt.QDropEvent):
+        # event.mimeData().dumpObjectTree()
+        print("imglist drop")
+        print(event.source())
+        super().dropEvent(event)
+
+    def addImage(self, num : int, imageSettings : ImageSettings):
+        "Add image to this list by id and settings object"
+        item = qt.QListWidgetItem(
+            qt.QIcon.fromTheme("view-list-icons"), imageSettings.name)
+        item.setData(ImageListWidget.IMG_NUM_ROLE, num)
+        item.setFlags(Qt.ItemFlag.ItemIsSelectable |
+                      Qt.ItemFlag.ItemIsEditable |
+                      Qt.ItemFlag.ItemIsDragEnabled |
+                      Qt.ItemFlag.ItemIsEnabled |
+                      Qt.ItemFlag.ItemNeverHasChildren)
+        self.addItem(item)
+        self.setCurrentItem(item)
+
+class ImageElementBox(qt.QHBoxLayout):
+    "Layout with widgets for an element in an image"
+    colorChanged = qt.Signal(list)    # RGB in [0,1]
+
+    def __init__(self, rgb):
+        super().__init__()
+        butt = qt.QPushButton("  ")
+        butt.setMinimumWidth(15)
+        butt.setMaximumWidth(30)
+        butt.setSizePolicy(qt.QSizePolicy.Policy.Preferred,
+                           qt.QSizePolicy.Policy.Preferred)
+        self.dialog = qt.QColorDialog()
+        def picked():
+            self.setColor(self.dialog.currentColor())
+        def pick():
+            self.dialog.open(picked)
+        butt.clicked.connect(pick)
+        self.colorButton = butt
+        # self.label = qt.QLabel(label)
+        self.combo = qt.QComboBox()
+        self.combo.addItem("(none)", userData=None)
+        self.edit = qt.QPushButton("Show")
+        self.edit.setCheckable(True)
+        self.setColor(rgb)
+
+        self.addWidget(butt, 0)
+        self.addWidget(self.combo, 10)
+        self.addWidget(self.edit, 0)
+
+    def setColor(self, color):
+        if isinstance(color, np.ndarray):
+            color = silx.gui.colors.asQColor(color)
+        self.colorButton.setPalette(qt.QPalette(color))
+        self.dialog.setCurrentColor(color)
+        self.colorChanged.emit(
+            [color.redF(), color.greenF(), color.blueF()])
+
+    def setWidgetsEnabled(self, enabled : bool):
+        self.colorButton.setEnabled(enabled)
+        self.combo.setEnabled(enabled)
+        self.edit.setEnabled(enabled)
+
