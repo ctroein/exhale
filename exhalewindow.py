@@ -16,9 +16,7 @@ import numpy as np
 # from typing import Optional
 # from collections.abc import Iterable
 from functools import partial
-
 import importlib
-from pkg_resources import resource_filename
 
 import silx.io
 from silx.gui import qt, icons, hdf5
@@ -36,18 +34,19 @@ from listwidgets import ImageElementBox
 
 import napari
 # from napari.qt import QtViewer
+from cluster_analysis import xrf_main
+from cluster_analysis.xrf_interface import init_xrf_interface
 
 # Rebuild UI code on the fly; useful while developing with Spyder+Kite
-ui_files = (resource_filename(__name__, "resources/exhale_qt.ui"),
-            resource_filename(__name__, "exhale_qt.py"))
+resdir = importlib.resources.files("resources")
+ui_files = (resdir.joinpath("exhale_qt.ui"), resdir.joinpath("../exhale_qt.py"))
 if os.path.getmtime(ui_files[0]) > os.path.getmtime(ui_files[1]):
     print("Recompiling UI")
     uic = importlib.import_module(qt.BINDING + ".uic")
     with open(ui_files[1], 'w') as f:
         uic.compileUi(ui_files[0], f)
     # Alternative: load UI straight from XML
-    # Ui_ExhaleWindow = uic.loadUiType(resource_filename(
-    #     __name__, "resources/exhale_qt.ui"))[0]
+    # Ui_ExhaleWindow = uic.loadUiType(resdir.joinpath("exhale_qt.ui"))[0]
 
 from exhale_qt import Ui_ExhaleWindow
 from listwidgets import ElementListWidget, ImageListWidget
@@ -98,8 +97,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.imageSettings = {} # id -> ImageSettings
         self.currentImage = None # ImageSettings
 
-        self._create_dataTab()
-        self._create_analysisTab()
+        self.create_dataTab()
+        self.create_analysisTab()
 
         # Groups to be searched/expanded after load
         self._h5GroupsToExpand = []
@@ -108,8 +107,19 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         "Some last-second cleanup so we can exit cleanly"
         self.napviewer.close()
 
-    def _create_analysisTab(self):
-        "Init data analysis tab with Napari viewer"
+    # All about the clustering tab
+
+    def create_analysisTab(self):
+        "Prepare data analysis tab with Napari viewer"
+        self.napviewer = None
+        def tab_check():
+            if (self.tabWidget.currentWidget() == self.analysisTab and
+                self.napviewer is None):
+                self.initialize_analysisTab()
+        self.tabWidget.currentChanged.connect(tab_check)
+
+    def initialize_analysisTab(self):
+        "Actually initialize the data analysis tab"
         viewer = napari.viewer.Viewer(show=False)
         viewer.theme = 'light'
         self.napviewer = viewer
@@ -120,9 +130,16 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         lo.addWidget(self.napwidget)
         self.analysisTab.setLayout(lo)
 
+        init_xrf_interface(self, viewer)
+
         # self.napworker = napari.qt.create_worker()
-        dat = np.random.rand(100,100)
+        dat = np.random.rand(10, 10)
         viewer.add_image(dat)
+
+
+
+
+    # All about the data/elements/images tab
 
     def setImageControlsEnabled(self, enabled : bool):
         "Enable/disable inputs that are relevant to composing an image"
@@ -223,8 +240,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         im.setColorscheme(Colorschemes(self.composeColors.currentIndex()))
         im.layout = Layouts(self.composeLayout.currentIndex())
         self.imageSettings[num] = im
-        # This is supposed to add the item at the end but for me it's added
-        # at the bottom. I wonder if that's a bug.
         self.imageList.addImage(num, im)
 
     def updateComposedImage(self):
@@ -276,8 +291,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             with qt.QSignalBlocker(box.combo):
                 box.combo.setCurrentIndex(ix)
 
-
-    def _create_dataTab(self):
+    def create_dataTab(self):
         "Set up everything in the elements/images tab"
 
         def clear_and_open():
@@ -521,30 +535,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         #         im.setSize(wh, self.composeSize[wh].value())
         # self.composeSize = (self.composeWidth, self.composeHeight)
         # self.composeWidth.valueChanged.connect(pdf_wh_ch)
-
-        # def elements_ch():
-        #     if im := self.currentImage:
-        #         elems = [self.elementSettings[iel.item(row).data(
-        #             ElementListWidget.H5_PATH_ROLE)]
-        #             for row in range(iel.count())]
-        #         im.setElements(elems)
-        #         self.updateComposedImage()
-
-        # iel.model().dataChanged.connect(elements_ch)
-        # iel.model().rowsRemoved.connect(elements_ch)
-
-        # def pick_element(item):
-        #     print("avail:", self.elementSettings)
-        #     iel.addElementFromSettings(self.elementSettings[
-        #         item.data(ElementListWidget.H5_PATH_ROLE)])
-        #     elements_ch()
-        #     # TODO: figure out all about colors
-        # self.composeElementList.itemActivated.connect(pick_element)
-
-        # def unpick_element(item):
-        #     iel.takeItem(iel.row(item))
-        #     elements_ch()
-        # iel.itemUnwanted.connect(unpick_element)
 
         def save_im():
             im = self.currentImage
@@ -1000,8 +990,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             if not app:
                 app = qt.QApplication(sys.argv)
             add_clipboard_to_figures()
-            app.setWindowIcon(qt.QIcon(
-                resource_filename(__name__, "resources/lungs.ico")))
+            app.setWindowIcon(qt.QIcon(str(resdir.joinpath("lungs.ico"))))
             window = windowclass()
             window.show()
             window.post_setup(**windowparams)
@@ -1016,5 +1005,4 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             input()
         if not isChild :
             sys.exit(res)
-
 

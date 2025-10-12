@@ -94,6 +94,8 @@ class ImageListWidget(ExhaleListWidget):
                       Qt.ItemFlag.ItemIsDragEnabled |
                       Qt.ItemFlag.ItemIsEnabled |
                       Qt.ItemFlag.ItemNeverHasChildren)
+        # This is supposed to add the item at the bottom of the list but
+        # for me it's usually (but not always) added at the top. Weird.
         self.addItem(item)
         self.setCurrentItem(item)
 
