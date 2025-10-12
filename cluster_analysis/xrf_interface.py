@@ -7,11 +7,11 @@ Created on Sun Oct 12 22:38:36 2025
 import os
 import numpy as np
 from skimage import io, morphology
-from magicgui import magic_factory
+from magicgui import magic_factory, magicgui
+from magicgui.widgets import Label
 # import napari
 from silx.gui import qt
 from silx.gui.qt import Qt
-
 
 def init_xrf_interface(parent, viewer):
     "Initialize a napari viewer"
@@ -20,7 +20,7 @@ def init_xrf_interface(parent, viewer):
     labels_dict = {}
     df_full = None
     rootdir = "/tmp"
-
+    print("xrf gui init")
 
     tooltip = qt.QLabel(parent)
     tooltip.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
@@ -38,10 +38,10 @@ def init_xrf_interface(parent, viewer):
     # tooltip.hide()
 
     # The main magicgui widget
-    @magic_factory(
+    @magicgui(
         auto_call=True,
         sample={"choices": ["one", "two"]},
-        element={"choices": ["aa", "bb"]}
+        element={"choices": ["aa", "bb"]},
         # sample={"choices": lambda w: list(image_dict.keys())},
         # element={"choices": lambda w: list(image_dict[next(iter(image_dict))].keys())}
     )
@@ -143,6 +143,12 @@ def init_xrf_interface(parent, viewer):
         labels_layer_nuclei.mouse_move_callbacks.append(on_mouse_move)
         labels_layer_membrane.mouse_move_callbacks.append(on_mouse_move)
 
+    ssel_gui = sample_selector
+    print("Created GUI", ssel_gui)
+    ssel_gui.insert(0, Label(value="This is magicgui\nand napari inside\na PyQt application"))
+
     # Add widget to viewer
-    viewer.window.add_dock_widget(sample_selector(), area="right")
+    # Does not work with qtviewer (not using napari's main window)
+    # viewer.window.add_dock_widget(ssel_gui, area="right")
+    return ssel_gui
 

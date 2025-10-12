@@ -125,17 +125,19 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.napviewer = viewer
         self.napwidget = napari.qt.QtViewer(viewer)
 
+        dockwidget = init_xrf_interface(self, viewer)
+
         lo = qt.QHBoxLayout()
         lo.setContentsMargins(0, 0, 0, 0)
-        lo.addWidget(self.napwidget)
+        dockwidget.native.setSizePolicy(
+            qt.QSizePolicy.Preferred, qt.QSizePolicy.Maximum)
+        lo.addWidget(dockwidget.native, 0)#, alignment=Qt.AlignmentFlag.AlignCenter)
+        lo.addWidget(self.napwidget, 1)
         self.analysisTab.setLayout(lo)
 
-        init_xrf_interface(self, viewer)
-
         # self.napworker = napari.qt.create_worker()
-        dat = np.random.rand(10, 10)
-        viewer.add_image(dat)
-
+        # dat = np.random.rand(10, 10)
+        # viewer.add_image(dat)
 
 
 
