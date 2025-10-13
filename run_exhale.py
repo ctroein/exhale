@@ -11,8 +11,8 @@ from exhalewindow import ExhaleWindow
 
 def main():
     parser = argparse.ArgumentParser(
-            description='Graphical application for processing of "\
-                "EXHALE lung images.')
+        description="""EXHALE, Efficient X-ray Hub Aiding Lung Explorations.
+            Graphical application for processing of XRF lung images.""")
     parser.add_argument('files', metavar='file', nargs='*',
                         help='initial input files to load')
     parser.add_argument('-p', '--params', metavar='file.pjs', dest='paramFile',
