@@ -7,20 +7,27 @@ Created on Sun Oct 12 22:38:36 2025
 import os
 import numpy as np
 from skimage import io, morphology
-from magicgui import magic_factory, magicgui
+from magicgui import magicgui
 from magicgui.widgets import Label
-# import napari
+import napari.viewer
 from silx.gui import qt
 from silx.gui.qt import Qt
 
-def init_xrf_interface(parent, viewer):
+class XrfSettings():
+    def __init__(self):
+        self.image_dict = {}
+        self.labels_dict = {}
+        self.df_full = None
+
+
+def init_xrf_interface(parent : qt.QWidget, viewer : napari.viewer.Viewer,
+                       settings : XrfSettings):
     "Initialize a napari viewer"
 
-    image_dict = {}
-    labels_dict = {}
+    # image_dict = {}
+    # labels_dict = {}
     df_full = None
     rootdir = "/tmp"
-    print("xrf gui init")
 
     tooltip = qt.QLabel(parent)
     tooltip.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
@@ -46,8 +53,8 @@ def init_xrf_interface(parent, viewer):
         # element={"choices": lambda w: list(image_dict[next(iter(image_dict))].keys())}
     )
     def sample_selector(sample: str, element: str):
-        sub_image_dict = image_dict[sample]
-        sub_labels_dict = labels_dict[sample]
+        sub_image_dict = settings.image_dict[sample]
+        sub_labels_dict = settings.labels_dict[sample]
         nuclei_labels = sub_labels_dict['nuclei_labels']
         membrane_labels = sub_labels_dict['membrane_labels']
 
@@ -143,12 +150,12 @@ def init_xrf_interface(parent, viewer):
         labels_layer_nuclei.mouse_move_callbacks.append(on_mouse_move)
         labels_layer_membrane.mouse_move_callbacks.append(on_mouse_move)
 
-    ssel_gui = sample_selector
-    print("Created GUI", ssel_gui)
-    ssel_gui.insert(0, Label(value="This is magicgui\nand napari inside\na PyQt application"))
+    print("Created GUI", sample_selector)
+    sample_selector.insert(0, Label(
+        value="This is magicgui\nand napari inside\na PyQt application"))
 
     # Add widget to viewer
     # Does not work with qtviewer (not using napari's main window)
     # viewer.window.add_dock_widget(ssel_gui, area="right")
-    return ssel_gui
+    return sample_selector.native
 

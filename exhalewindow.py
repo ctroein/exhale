@@ -35,7 +35,7 @@ from listwidgets import ImageElementBox
 import napari
 # from napari.qt import QtViewer
 from cluster_analysis import xrf_main
-from cluster_analysis.xrf_interface import init_xrf_interface
+from cluster_analysis.xrf_interface import init_xrf_interface, XrfSettings
 
 # Rebuild UI code on the fly; useful while developing with Spyder+Kite
 resdir = importlib.resources.files("resources")
@@ -53,6 +53,7 @@ from listwidgets import ElementListWidget, ImageListWidget
 
 class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
     "Main window of this thing"
+    selectedElementsChanged = qt.Signal() # The set of selected elements changed
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -105,7 +106,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
     def cleanup(self):
         "Some last-second cleanup so we can exit cleanly"
-        self.napviewer.close()
+        if self.napviewer:
+            self.napviewer.close()
 
     # All about the clustering tab
 
@@ -125,15 +127,24 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.napviewer = viewer
         self.napwidget = napari.qt.QtViewer(viewer)
 
-        dockwidget = init_xrf_interface(self, viewer)
-
-        lo = qt.QHBoxLayout()
-        lo.setContentsMargins(0, 0, 0, 0)
-        dockwidget.native.setSizePolicy(
+        self.dockwidget = init_xrf_interface(self, viewer, XrfSettings())
+        self.dockwidget.setSizePolicy(
             qt.QSizePolicy.Preferred, qt.QSizePolicy.Maximum)
-        lo.addWidget(dockwidget.native, 0)#, alignment=Qt.AlignmentFlag.AlignCenter)
-        lo.addWidget(self.napwidget, 1)
-        self.analysisTab.setLayout(lo)
+
+        vb = qt.QVBoxLayout()
+        vb.addWidget(qt.QLabel("This is a QLabel"))
+        abut = qt.QPushButton("Analyze element maps")
+        def abut_txt():
+            n = len(self.selectedElements.difference(...))
+            abut.setText(f"Analyze {n} element maps")
+        # vb.addWidget()
+        vb.addWidget(self.dockwidget, 0)#, alignment=Qt.AlignmentFlag.AlignTop)
+
+        hb = qt.QHBoxLayout()
+        hb.setContentsMargins(0, 0, 0, 0)
+        hb.addLayout(vb, 0)
+        hb.addWidget(self.napwidget, 1)
+        self.analysisTab.setLayout(hb)
 
         # self.napworker = napari.qt.create_worker()
         # dat = np.random.rand(10, 10)
@@ -317,6 +328,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             path = item.data(ElementListWidget.H5_PATH_ROLE)
             ensure_exists(path)
             self.selectedElements.add(path)
+            self.selectedElementsChanged.emit()
             sync_settings_and_compose()
         el = self.elementList
         el.itemActivated.connect(select_element)
@@ -327,6 +339,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             item.setCheckState(Qt.CheckState.Unchecked)
             path = item.data(ElementListWidget.H5_PATH_ROLE)
             self.selectedElements.discard(path)
+            self.selectedElementsChanged.emit()
             sync_settings_and_compose()
         el.itemUnwanted.connect(deselect_element)
 
