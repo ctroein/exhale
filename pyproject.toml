@@ -23,8 +23,11 @@ dependencies = [
 [tool.setuptools_scm]
 
 [tool.setuptools.packages.find]
-include = ['*.ui', '*.ico', '*.svg', '*.json', '*.h5']
-where = ['exhale']
+include = ['exhale']
+where = ['.']
+
+[tool.setuptools.package-data]
+"exhale" = ['*.ui', '*.ico', '*.svg', '*.json', '*.h5']
 
 #[tool.setuptools.dynamic]
 #version = {attr = "appversion.exhale_version"}
