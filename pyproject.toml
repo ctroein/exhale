@@ -23,14 +23,14 @@ dependencies = [
 [tool.setuptools_scm]
 
 [tool.setuptools.packages.find]
-include = ['exhale']
-where = ['.']
+#include = ['exhale']
+#where = ['.']
 
 [tool.setuptools.package-data]
 "exhale" = ['*.ui', '*.ico', '*.svg', '*.json', '*.h5']
 
-#[tool.setuptools.dynamic]
-#version = {attr = "appversion.exhale_version"}
+[tool.setuptools.dynamic]
+version = {attr = "exhale.appversion.exhale_version"}
 
 [project.urls]
 Homepage="https://github.com/ctroein/exhale"

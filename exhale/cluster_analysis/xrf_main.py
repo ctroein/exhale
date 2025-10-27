@@ -19,7 +19,7 @@ def init_model():
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
     model = StarDist2D(None, "2D_versatile_fluo_copy",
-                       basedir=importlib.resources.files("resources"))
+                       basedir=importlib.resources.files("exhale.resources"))
 
 
 def process_xrf(path, img, image_dict, keys):

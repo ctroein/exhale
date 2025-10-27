@@ -1,0 +1,51 @@
+{% set name = "exhale" %}
+{% set version = environ.get("GIT_DESCRIBE_TAG", "0.0.0") %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  path: exhale
+
+build:
+  noarch: python
+  script: "{{ PYTHON }} -m pip install . --no-deps -vv"
+
+requirements:
+  host:
+    - python >=3.8
+    - pip
+    - setuptools >=77.0.3
+    - setuptools-scm
+  run:
+    - python >=3.8
+    - numpy
+    - scipy
+    - matplotlib
+    - scikit-learn
+    - pandas
+    - h5py
+    - napari
+    - magicgui
+    - silx
+    - csbdeep
+    - pyside6
+
+test:
+  imports:
+    - exhale
+  commands:
+    - exhale --help
+  requires:
+    - pytest
+
+about:
+  home: https://github.com/ctroein/exhale
+  license: MIT
+  license_file: LICENSE
+  summary: "EXHALE, Efficient X-ray Hub Aiding Lung Explorations"
+
+extra:
+  recipe-maintainers:
+    - ctroein

@@ -20,8 +20,8 @@ import importlib
 
 import silx.io
 from silx.gui import qt, icons, hdf5
-from silx.gui.qt import Qt, QFileDialog
-from silx.gui.plot import PlotWidget
+from silx.gui.qt import Qt
+# from silx.gui.plot import PlotWidget
 from silx.gui.plot.items.core import ItemChangedType
 from silx.app.view.DataPanel import DataPanel
 
@@ -31,13 +31,14 @@ from .imagecompose import ImageSettings, Layouts, Colorschemes
 from .copyfigure import add_clipboard_to_figures
 from .appversion import exhale_version
 from .listwidgets import ImageElementBox
+from .listwidgets import ElementListWidget, ImageListWidget
 
 import napari
 # from napari.qt import QtViewer
 from .cluster_analysis.xrf_interface import XrfViewer
 
 # Rebuild UI code on the fly; useful while developing with Spyder+Kite
-resdir = importlib.resources.files("resources")
+resdir = importlib.resources.files("exhale.resources")
 ui_files = (resdir.joinpath("exhale_qt.ui"), resdir.joinpath("../exhale_qt.py"))
 if os.path.getmtime(ui_files[0]) > os.path.getmtime(ui_files[1]):
     print("Recompiling UI")
@@ -47,8 +48,7 @@ if os.path.getmtime(ui_files[0]) > os.path.getmtime(ui_files[1]):
     # Alternative: load UI straight from XML
     # Ui_ExhaleWindow = uic.loadUiType(resdir.joinpath("exhale_qt.ui"))[0]
 
-from exhale_qt import Ui_ExhaleWindow
-from listwidgets import ElementListWidget, ImageListWidget
+from .exhale_qt import Ui_ExhaleWindow
 
 class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
     "Main window of this thing"

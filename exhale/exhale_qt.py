@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file '/home/carl/src/exhale/exhale/resources/exhale_qt.ui'
+# Form implementation generated from reading ui file 'exhale_qt.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.9
 #
@@ -247,5 +247,5 @@ class Ui_ExhaleWindow(object):
         self.actionSaveProject.setShortcut(_translate("ExhaleWindow", "Ctrl+S"))
         self.actionLoadData.setText(_translate("ExhaleWindow", "Load Data"))
         self.actionLoadData.setShortcut(_translate("ExhaleWindow", "Ctrl+L"))
-from listwidgets import ElementListWidget, ImageListWidget
+from exhale.listwidgets import ElementListWidget, ImageListWidget
 from silx.gui.plot.PlotWidget import PlotWidget

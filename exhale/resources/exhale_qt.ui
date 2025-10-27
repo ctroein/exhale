@@ -391,7 +391,7 @@
   <customwidget>
    <class>ElementListWidget</class>
    <extends>QListWidget</extends>
-   <header>listwidgets</header>
+   <header>exhale.listwidgets</header>
   </customwidget>
   <customwidget>
    <class>PlotWidget</class>
@@ -402,7 +402,7 @@
   <customwidget>
    <class>ImageListWidget</class>
    <extends>QListWidget</extends>
-   <header>listwidgets</header>
+   <header>exhale.listwidgets</header>
   </customwidget>
  </customwidgets>
  <tabstops>
