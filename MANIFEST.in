@@ -1,4 +1,1 @@
-include resources/2D_versatile_fluo_copy
-include resources/*.svg
-include resources/*.ui
-include resources/*.ico
+recursive-include exhale/resources *

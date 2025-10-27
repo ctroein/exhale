@@ -17,19 +17,20 @@ readme="README.md"
 requires-python = ">= 3.8"
 dependencies = [
     'numpy', 'scipy', 'matplotlib', 'scikit-learn', 'pandas', 'h5py', 'napari',
-    'magicgui', 'silx', 'csbdeep'
+    'silx', 'csbdeep', 'pyqt5'
 ]
 
 [tool.setuptools_scm]
 
-[tool.setuptools.packages]
-find = {include = ['*.ui', '*.ico', '*.svg', '*.json', '*.h5']}
+[tool.setuptools.packages.find]
+include = ['*.ui', '*.ico', '*.svg', '*.json', '*.h5']
+where = ['exhale']
 
-[tool.setuptools.dynamic]
-version = {attr = "appversion.exhale_version"}
+#[tool.setuptools.dynamic]
+#version = {attr = "appversion.exhale_version"}
 
 [project.urls]
 Homepage="https://github.com/ctroein/exhale"
 
-[project.gui-scripts]
-run_exhale = "run_exhale"
+[project.scripts]
+exhale = "exhale:main"

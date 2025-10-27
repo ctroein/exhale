@@ -7,11 +7,13 @@ Main entry point for EXHALE GUI.
 
 Configuration for Nuitka packaging:
 # nuitka-project-if: {OS} in ("Windows"):
-#    nuitka-project: --mode=onefile --windows-icon-from-ico=resources/lungs.ico
+#    nuitka-project: --mode=onefile
+#    nuitka-project:  --windows-icon-from-ico=resources/lungs.ico
 #    nuitka-project: --onefile-windows-splash-screen-image={MAIN_DIRECTORY}/resources/splash.jpg
 # nuitka-project-if: {OS} in ("Linux"):
-#    nuitka-project: --mode=standalone --linux-icon=resources/lungs.ico
-# nuitka-project: --enable-plugin=pyqt5
+#    nuitka-project: --mode=standalone
+#    nuitka-project: --linux-icon=resources/lungs.ico
+# nu itka-project: --enable-plugin=pyqt5
 # nu itka-project: --include-data-dir=resources=resources
 
 """
