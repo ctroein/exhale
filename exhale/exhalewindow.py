@@ -25,16 +25,16 @@ from silx.gui.plot import PlotWidget
 from silx.gui.plot.items.core import ItemChangedType
 from silx.app.view.DataPanel import DataPanel
 
-from exceptiondialog import ExceptionDialog
-from element import ElementSettings, Normalizers
-from imagecompose import ImageSettings, Layouts, Colorschemes
-from copyfigure import add_clipboard_to_figures
-from appversion import exhale_version
-from listwidgets import ImageElementBox
+from .exceptiondialog import ExceptionDialog
+from .element import ElementSettings, Normalizers
+from .imagecompose import ImageSettings, Layouts, Colorschemes
+from .copyfigure import add_clipboard_to_figures
+from .appversion import exhale_version
+from .listwidgets import ImageElementBox
 
 import napari
 # from napari.qt import QtViewer
-from cluster_analysis.xrf_interface import XrfViewer
+from .cluster_analysis.xrf_interface import XrfViewer
 
 # Rebuild UI code on the fly; useful while developing with Spyder+Kite
 resdir = importlib.resources.files("resources")

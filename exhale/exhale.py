@@ -19,7 +19,7 @@ Configuration for Nuitka packaging:
 """
 
 import argparse
-from exhalewindow import ExhaleWindow
+from .exhalewindow import ExhaleWindow
 import tempfile, os
 
 # Use this code to signal the splash screen removal.

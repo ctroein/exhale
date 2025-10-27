@@ -9,8 +9,6 @@ Created on Thu Nov 21 11:41:29 2019
 import io
 import matplotlib.pyplot as plt
 from silx.gui import qt
-# from PyQt5.QtWidgets import QApplication
-# from PyQt5.QtGui import QImage
 
 
 def add_clipboard_to_figures():

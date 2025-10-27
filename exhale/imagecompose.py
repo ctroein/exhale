@@ -9,8 +9,8 @@ Created on Fri Aug 15 19:07:15 2025
 
 import numpy as np
 from enum import Enum
-from element import ElementSettings
 
+from .element import ElementSettings
 
 class Layouts(Enum):
     "Ways of laying out images to be composed"

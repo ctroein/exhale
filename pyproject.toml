@@ -36,4 +36,4 @@ where = ['.']
 Homepage="https://github.com/ctroein/exhale"
 
 [project.scripts]
-exhale = "exhale:main"
+exhale = "exhale.exhale:main"

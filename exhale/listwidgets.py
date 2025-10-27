@@ -9,10 +9,11 @@ Created on Wed Aug 13 16:00:24 2025
 from silx.gui import qt
 from silx.gui.qt import Qt
 import silx.gui.colors
-from element import ElementSettings
-from imagecompose import ImageSettings
 from h5py import Dataset
 import numpy as np
+
+from .element import ElementSettings
+from .imagecompose import ImageSettings
 
 class ExhaleListWidget(qt.QListWidget):
     "Base class for the lists below"

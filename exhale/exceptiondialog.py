@@ -9,8 +9,6 @@ Created on Wed Dec  4 14:45:19 2019
 import sys
 import traceback
 from silx.gui import qt
-# from PyQt5.QtWidgets import QMessageBox
-# from PyQt5.QtCore import Qt
 
 class ExceptionDialog:
     def install(qwin):
