@@ -20,7 +20,7 @@ import importlib
 
 import silx.io
 from silx.gui import qt, icons, hdf5
-from silx.gui.qt import Qt
+from silx.gui.qt import Qt, QApplication
 # from silx.gui.plot import PlotWidget
 from silx.gui.plot.items.core import ItemChangedType
 from silx.app.view.DataPanel import DataPanel
@@ -57,7 +57,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.settings = qt.QSettings('CIPA', 'Exhale')
-        qt.qApp.installEventFilter(self)
+        QApplication.instance().installEventFilter(self)
         self.setupUi(self)
         self.setWindowTitle(f'Exhale {exhale_version}')
 
@@ -784,7 +784,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
         The depth is fixed to avoid infinite loop with recurssive links.
         """
-        qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
+        QApplication.instance().setOverrideCursor(qt.Qt.WaitCursor)
 
         indexes = self._treeView.selectionModel().selectedIndexes()
         model = self._treeView.model()
@@ -806,7 +806,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 for row in range(model.rowCount(index)):
                     childIndex = model.index(row, 0, index)
                     indexes.append((childIndex, depth + 1))
-        qt.QApplication.restoreOverrideCursor()
+        QApplication.instance().restoreOverrideCursor()
 
     def _collapseAllSelected(self):
         """Collapse all selected items of the tree.
@@ -916,7 +916,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
     def close_file(self):
         """Close selected items in silx view"""
-        qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
+        QApplication.instance().setOverrideCursor(qt.Qt.WaitCursor)
 
         selection = self._treeView.selectionModel()
         indexes = selection.selectedIndexes()
@@ -942,7 +942,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         for h5 in h5files:
             model.removeH5pyObject(h5)
 
-        qt.QApplication.restoreOverrideCursor()
+        QApplication.instance().restoreOverrideCursor()
 
     # End Silx stuff
 
@@ -1007,17 +1007,17 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 if selmp and args.mpmethod:
                     multiprocessing.set_start_method(args.mpmethod)
 
-            app = qt.QApplication.instance()
+            app = QApplication.instance()
             if not app:
-                app = qt.QApplication(sys.argv)
+                app = QApplication(sys.argv)
             add_clipboard_to_figures()
             app.setWindowIcon(qt.QIcon(str(resdir.joinpath("lungs.ico"))))
             window = windowclass()
             window.show()
             window.post_setup(**windowparams)
             if not isChild:
-                qt.qApp.lastWindowClosed.connect(qt.qApp.quit);
-                qt.qApp.aboutToQuit.connect(window.cleanup)
+                app.lastWindowClosed.connect(app.quit);
+                app.aboutToQuit.connect(window.cleanup)
                 res = app.exec_()
 
         except Exception:
