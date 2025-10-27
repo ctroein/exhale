@@ -21,11 +21,11 @@ def init_model():
     model = StarDist2D(None, "2D_versatile_fluo_copy",
                        basedir=importlib.resources.files("resources"))
 
-def process_xrf(filename, image_dict, keys):
-    img = io.imread(filename)
+
+def process_xrf(path, img, image_dict, keys):
 
     # Determine which channel/key this file belongs to
-    matching_key = next((x for x in keys if x in filename), None)
+    matching_key = next((x for x in keys if x in path), None)
     if matching_key is None:
         return image_dict
 
@@ -210,7 +210,7 @@ def combine_results_legacy(image_dict, sample):
 
     labels_nuclei = nuclei_image_dict['nuclei_labels']
     labels_membrane = nuclei_image_dict['membrane_labels']
-    labels_background = nuclei_image_dict['expanded_labels']
+    # labels_background = nuclei_image_dict['expanded_labels']
 
     tissue_threshold = tissue_image_dict['tissue_threshold']
     tissue_labels = measure.label(tissue_threshold, connectivity=2)

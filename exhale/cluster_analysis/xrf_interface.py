@@ -4,83 +4,69 @@
 Created on Sun Oct 12 22:38:36 2025
 """
 
-import os
 import numpy as np
-from skimage import io, morphology
-from magicgui import magicgui
-from magicgui.widgets import Label
+from skimage import morphology
+
 import napari.viewer
 from silx.gui import qt
 from silx.gui.qt import Qt
+from .xrf_main import process_xrf
 
-class XrfSettings():
-    def __init__(self):
+class XrfViewer():
+    def __init__(self, parent : qt.QWidget, viewer : napari.viewer.Viewer):
         self.image_dict = {}
         self.labels_dict = {}
         self.df_full = None
+        self.viewer = viewer
+
+        tooltip = qt.QLabel(parent)
+        tooltip.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        tooltip.setAttribute(Qt.WA_ShowWithoutActivating)
+        tooltip.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        tooltip.setStyleSheet("""
+            background-color: white;
+            border: 1px solid black;
+            color: black;
+            font-size: 12px;
+            padding: 5px;
+        """)
+        tooltip.setSizePolicy(qt.QSizePolicy.Preferred, qt.QSizePolicy.Preferred)
+        tooltip.adjustSize()
+        self.tooltip = tooltip
+        # tooltip.hide()
+
+    def run_analysis(self, path, data):
+        # Q @ Tom: Are keys just different elements that are given special treatment?
+        keys = None
+        process_xrf(path, data, self.image_dict, keys)
 
 
-def init_xrf_interface(parent : qt.QWidget, viewer : napari.viewer.Viewer,
-                       settings : XrfSettings):
-    "Initialize a napari viewer"
-
-    # image_dict = {}
-    # labels_dict = {}
-    df_full = None
-    rootdir = "/tmp"
-
-    tooltip = qt.QLabel(parent)
-    tooltip.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-    tooltip.setAttribute(Qt.WA_ShowWithoutActivating)
-    tooltip.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-    tooltip.setStyleSheet("""
-        background-color: white;
-        border: 1px solid black;
-        color: black;
-        font-size: 12px;
-        padding: 5px;
-    """)
-    tooltip.setSizePolicy(qt.QSizePolicy.Preferred, qt.QSizePolicy.Preferred)
-    tooltip.adjustSize()
-    # tooltip.hide()
-
-    # The main magicgui widget
-    @magicgui(
-        auto_call=True,
-        sample={"choices": ["one", "two"]},
-        element={"choices": ["aa", "bb"]},
-        # sample={"choices": lambda w: list(image_dict.keys())},
-        # element={"choices": lambda w: list(image_dict[next(iter(image_dict))].keys())}
-    )
-    def sample_selector(sample: str, element: str):
-        sub_image_dict = settings.image_dict[sample]
-        sub_labels_dict = settings.labels_dict[sample]
+    def sample_selector(self, sample: str, element: str, p_img : np.ndarray):
+        sub_image_dict = self.image_dict[sample]
+        sub_labels_dict = self.labels_dict[sample]
         nuclei_labels = sub_labels_dict['nuclei_labels']
         membrane_labels = sub_labels_dict['membrane_labels']
 
-        df_results_nuclei = df_full[(df_full['samples']==sample)&(df_full['region']=='nuclei')]
-        df_results_membrane = df_full[(df_full['samples']==sample)&(df_full['region']=='membrane')]
+        df_full = self.df_full
+        df_results_nuclei = df_full[(df_full['samples']==sample) &
+                                    (df_full['region']=='nuclei')]
+        df_results_membrane = df_full[(df_full['samples']==sample) &
+                                      (df_full['region']=='membrane')]
 
         # clear layers
-        viewer.layers.clear()
-
-        # load p_img if available
-        path = os.path.join(rootdir, sample)
-        for subdir, dirs, files in os.walk(path):
-            for file in files:
-                if "wP_" in file:
-                    filename = os.path.join(subdir, file)
-                    p_img = io.imread(filename)
-                    viewer.add_image(p_img)
+        self.viewer.layers.clear()
+        self.viewer.add_image(p_img)
 
         # base layers
         img_shape = sub_image_dict['Ca']['log_image'].shape
-        image_layer = viewer.add_image(np.zeros(img_shape), name="image")
-        cluster_layer = viewer.add_image(np.zeros(img_shape), name="cluster")
+        image_layer = self.viewer.add_image(np.zeros(img_shape), name="image")
+        cluster_layer = self.viewer.add_image(np.zeros(img_shape), name="cluster")
 
         # labels
-        labels_layer_nuclei = viewer.add_labels(morphology.erosion(nuclei_labels), name='Nuclei', opacity=0.5)
-        labels_layer_membrane = viewer.add_labels(membrane_labels, name='Membrane', opacity=0.5)
+        labels_layer_nuclei = self.viewer.add_labels(
+            morphology.erosion(nuclei_labels), name='Nuclei', opacity=0.5)
+        labels_layer_membrane = self.viewer.add_labels(
+            membrane_labels, name='Membrane', opacity=0.5)
 
         # update image on element selection
         def update_image(element_name):
@@ -93,7 +79,8 @@ def init_xrf_interface(parent : qt.QWidget, viewer : napari.viewer.Viewer,
 
             cluster_layer.data = cluster_data
             cluster_layer.name = element_name + "_cluster"
-            cluster_layer.contrast_limits = (np.min(cluster_data), np.min(cluster_data) + 1)
+            cluster_layer.contrast_limits = (
+                np.min(cluster_data), np.min(cluster_data) + 1)
             cluster_layer.visible = False
             cluster_layer.opacity = 0.4
             cluster_layer.colormap = 'green'
@@ -102,9 +89,9 @@ def init_xrf_interface(parent : qt.QWidget, viewer : napari.viewer.Viewer,
 
         # tooltip callback
         def on_mouse_move(layer, event):
-            pos = viewer.cursor.position
+            pos = self.viewer.cursor.position
             if pos is None:
-                tooltip.hide()
+                self.tooltip.hide()
                 return
 
             coords = tuple(int(round(c)) for c in pos)
@@ -120,15 +107,15 @@ def init_xrf_interface(parent : qt.QWidget, viewer : napari.viewer.Viewer,
                 info = df_results_membrane[df_results_membrane['label'] == value_membrane]
                 label_value = value_membrane
             else:
-                tooltip.hide()
+                self.tooltip.hide()
                 return
 
-            viewer.layers.selection.active = active_layer
+            self.viewer.layers.selection.active = active_layer
             info_text = f"Label: {label_value}\n"
 
             if not info.empty:
-                pos = viewer.window.qt_viewer.cursor().pos()
-                tooltip.move(pos.x() + 20, pos.y() + 20)
+                pos = self.viewer.window.qt_viewer.cursor().pos()
+                self.tooltip.move(pos.x() + 20, pos.y() + 20)
                 for item in sub_image_dict:
                     df_element = info[info['element'] == item]
                     if not df_element.empty:
@@ -141,21 +128,13 @@ def init_xrf_interface(parent : qt.QWidget, viewer : napari.viewer.Viewer,
                             f"Size: {sizes}\n"
                             f"Intensity: {intensities}\n\n"
                         )
-                tooltip.setText(info_text)
-                tooltip.adjustSize()
-                tooltip.show()
+                self.tooltip.setText(info_text)
+                self.tooltip.adjustSize()
+                self.tooltip.show()
             else:
-                tooltip.hide()
+                self.tooltip.hide()
 
         labels_layer_nuclei.mouse_move_callbacks.append(on_mouse_move)
         labels_layer_membrane.mouse_move_callbacks.append(on_mouse_move)
 
-    print("Created GUI", sample_selector)
-    sample_selector.insert(0, Label(
-        value="This is magicgui\nand napari inside\na PyQt application"))
-
-    # Add widget to viewer
-    # Does not work with qtviewer (not using napari's main window)
-    # viewer.window.add_dock_widget(ssel_gui, area="right")
-    return sample_selector.native
 

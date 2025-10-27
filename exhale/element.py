@@ -43,7 +43,6 @@ class ElementSettings():
     def __init__(self, h5 : h5py.Dataset):
         self._h5id = h5.id
         self.path = (h5.file.filename, h5.name)
-        print("created path",self.path)
         self.name = h5.name.rsplit('/', 1).pop()
         self.data = self.h5[()]
         self.dataRange = (self.data.min(), self.data.max())

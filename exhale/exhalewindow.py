@@ -34,8 +34,7 @@ from listwidgets import ImageElementBox
 
 import napari
 # from napari.qt import QtViewer
-from cluster_analysis import xrf_main
-from cluster_analysis.xrf_interface import init_xrf_interface, XrfSettings
+from cluster_analysis.xrf_interface import XrfViewer
 
 # Rebuild UI code on the fly; useful while developing with Spyder+Kite
 resdir = importlib.resources.files("resources")
@@ -122,27 +121,35 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
     def initialize_analysisTab(self):
         "Actually initialize the data analysis tab"
+
         viewer = napari.viewer.Viewer(show=False)
         viewer.theme = 'light'
         self.napviewer = viewer
         self.napwidget = napari.qt.QtViewer(viewer)
 
-        self.dockwidget = init_xrf_interface(self, viewer, XrfSettings())
-        self.dockwidget.setSizePolicy(
-            qt.QSizePolicy.Preferred, qt.QSizePolicy.Maximum)
+        self.xrf_viewer = XrfViewer(self, viewer)
 
-        vb = qt.QVBoxLayout()
-        vb.addWidget(qt.QLabel("This is a QLabel"))
+        dock = qt.QVBoxLayout()
+        dock.addWidget(qt.QLabel("XRF Analysis"))
         abut = qt.QPushButton("Analyze element maps")
         def abut_txt():
-            n = len(self.selectedElements.difference(...))
+            analyzed = self.xrf_viewer.image_dict.keys()
+            n = len(self.selectedElements.difference(analyzed))
             abut.setText(f"Analyze {n} element maps")
-        # vb.addWidget()
-        vb.addWidget(self.dockwidget, 0)#, alignment=Qt.AlignmentFlag.AlignTop)
+        dock.addWidget(abut, 0)
+        self.selectedElementsChanged.connect(abut_txt)
+        def analyze():
+            analyzed = self.xrf_viewer.image_dict.keys()
+            new = self.selectedElements.difference(analyzed)
+            for path in new:
+                self.xrf_viewer.run_analysis(
+                    path, self.elementSettings[path].data)
+        abut.clicked.connect(analyze)
+        dock.addStretch()
 
         hb = qt.QHBoxLayout()
         hb.setContentsMargins(0, 0, 0, 0)
-        hb.addLayout(vb, 0)
+        hb.addLayout(dock, 0)
         hb.addWidget(self.napwidget, 1)
         self.analysisTab.setLayout(hb)
 
@@ -533,7 +540,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
         def sel_img(curr, prev):
             "Active image changed"
-            print("image selected", curr)
             if curr is not None:
                 self.showComposedImage(
                     curr.data(ImageListWidget.IMG_NUM_ROLE))
