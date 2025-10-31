@@ -37,10 +37,12 @@ import napari
 # from napari.qt import QtViewer
 from .cluster_analysis.xrf_interface import XrfViewer
 
-# Rebuild UI code on the fly; useful while developing with Spyder+Kite
-resdir = importlib.resources.files("exhale.resources")
-ui_files = (resdir.joinpath("exhale_qt.ui"), resdir.joinpath("../exhale_qt.py"))
-if os.path.getmtime(ui_files[0]) > os.path.getmtime(ui_files[1]):
+resdir = importlib.resources.files("exhale").joinpath("resources")
+# Rebuild UI code on the fly; useful while developing
+ui_files = (resdir.joinpath("exhale_qt.ui"),
+            os.path.join(os.path.dirname(__file__), "exhale_qt.py"))
+if (os.path.exists(ui_files[0]) and os.path.exists(ui_files[1]) and
+    os.path.getmtime(ui_files[0]) > os.path.getmtime(ui_files[1])):
     print("Recompiling UI")
     uic = importlib.import_module(qt.BINDING + ".uic")
     with open(ui_files[1], 'w') as f:
