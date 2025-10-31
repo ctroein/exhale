@@ -1,136 +1,64 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import sys
+import os
 from os.path import abspath, join, dirname, pardir
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT, BUNDLE
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.compat import is_linux
+
+#sys.modules['FixTk'] = None
+
 import napari
-import importlib
 
-sys.modules['FixTk'] = None
-
-NAPARI_ROOT = dirname(napari.__file__)
-BUNDLE_ROOT = abspath(join(NAPARI_ROOT, pardir, 'bundle'))
-
-
-def get_version():
-    if sys.platform != 'win32':
-        return None
-    from PyInstaller.utils.win32.versioninfo import (
-        VSVersionInfo,
-        FixedFileInfo,
-        StringFileInfo,
-        StringTable,
-        StringStruct,
-        VarFileInfo,
-        VarStruct,
-    )
-    from datetime import datetime
-
-    ver_str = napari.__version__
-    version = ver_str.replace("+", '.').split('.')
-    version = [int(p) for p in version if p.isnumeric()]
-    version += [0] * (4 - len(version))
-
-    return VSVersionInfo(
-        ffi=FixedFileInfo(
-            filevers=tuple(version)[:4], prodvers=tuple(version)[:4],
-        ),
-        kids=[
-            StringFileInfo(
-                [
-                    StringTable(
-                        '040904E4',
-                        [
-                            StringStruct('CompanyName', 'napari'),
-                            StringStruct('FileDescription', 'napari'),
-                            StringStruct('FileVersion', ver_str),
-                            StringStruct('InternalName', 'napari'),
-                            StringStruct(
-                                'LegalCopyright',
-                                f'napari {datetime.now().year}. All rights reserved.',
-                            ),
-                            StringStruct('OriginalFilename', 'napari.exe'),
-                            StringStruct('ProductName', 'napari'),
-                            StringStruct('ProductVersion', ver_str),
-                        ],
-                    )
-                ]
-            ),
-            VarFileInfo([VarStruct(u'Translation', [0x409, 1252])]),
-        ],
-    )
-
-
-def keep(x):
-    if any(x.endswith(e) for e in ('.DS_Store', '.qrc', '~', '.xcf')):
-        return False
-    if any(i in x for i in ('.mypy_cache', 'plugins/_tests/fixtures')):
-        return False
-    return True
-
-
-#exhdata = [f for f in collect_data_files('exhale', subdir='resources') if keep(f[0])]
-#if not exhdata:
-#    raise RuntimeError("Missing exhale resources; try pip -install -e .")
-#exhdata = []
-
-#import vispy, vispy.glsl, vispy.io
-#import fabio
-
-DATA_FILES = (
-#    [(os.path.dirname(vispy.glsl.__file__), os.path.join("vispy", "glsl")),
-#    (os.path.join(os.path.dirname(vispy.io.__file__), "_data"), os.path.join("vispy", "io", "_data")),
-#    (os.path.dirname(freetype.__file__), os.path.join("freetype")),
-#    ] +
-    [f for f in collect_data_files('napari') if keep(f[0])]
-#    exhdata
-    )
-
+BUNDLE_ROOT = abspath(join(dirname(napari.__file__), pardir, 'bundle'))
 
 a = Analysis(
     ['../run_exhale.py'],
     pathex=[],
     binaries=[],
-    hiddenimports=(['pkg_resources.py2_warn', 'importlib', 'napari.conftest']
-#        + ['fabio.'+c for c,_ in fabio.fabioformats._default_codecs]
-#        + ['vispy.ext._bundled.six', 'vispy.app.backends._pyqt5',
-#        'freetype'
-        ),
+    hiddenimports=['pkg_resources.py2_warn', 'importlib'],
     hooksconfig={},
     runtime_hooks=[],
-    datas=DATA_FILES,
-    hookspath=[join(BUNDLE_ROOT, 'hooks')] +
-        [os.path.join(os.path.dirname(sys.argv[0]), 'hooks')],
+    datas=[],
+    hookspath=[join(BUNDLE_ROOT, 'hooks'),
+        join(dirname(sys.argv[0]), 'hooks')],
     excludes=[
-        'FixTk',
-        'tcl',
-        'tk',
-        '_tkinter',
-        'tkinter',
-        'Tkinter',
+#        'FixTk', 'tcl', 'tk', '_tkinter', 'tkinter', 'Tkinter',
+        'torch', 'tensorflow', 'nvidia'
     ],
     noarchive=False,
     optimize=0,
 )
-pyz = PYZ(a.pure)
+#pyz = PYZ(a.pure)
 
+splash = Splash('exhale_splash.jpg',
+                binaries=a.binaries,
+                datas=a.datas,
+                text_pos=(10, 50),
+                text_size=10,
+                text_color='white')
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-#    exclude_binaries=True,
+onefile = not is_linux
+
+toexec = [splash.binaries] if not is_linux else []
+tocoll = [splash.binaries] if is_linux else []
+
+strip = True
+strip = is_linux and strip
 
 exe = EXE(
     pyz,
     a.scripts,
-#    a.binaries,
-#    a.datas,
+    splash
+    *toexec,
     [],
     exclude_binaries=True,
     name='exhale',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    strip=strip,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
@@ -140,16 +68,14 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='exhale/resources/lungs.ico',
-    splash='exhale/resources/exhale_splash.jpg',
+    icon=join(pardir, 'exhale', 'resources', 'lungs.ico'),
 )
 
 
 coll = COLLECT(
     exe,
-    a.binaries,
-    a.datas,
-    strip=False,
+    *tocoll,
+    strip=strip,
     upx=True,
     upx_exclude=[],
     name='exhale',

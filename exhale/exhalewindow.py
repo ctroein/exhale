@@ -1016,6 +1016,21 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             app.setWindowIcon(qt.QIcon(str(resdir.joinpath("lungs.ico"))))
             window = windowclass()
             window.show()
+
+            try:
+                # Control the splash screen if run through pyinstaller
+                import pyi_splash
+
+                # Update the text on the splash screen
+                pyi_splash.update_text("Breathe!")
+
+                # Close the splash screen. It does not matter when the call
+                # to this function is made, the splash screen remains open until
+                # this function is called or the Python program is terminated.
+                pyi_splash.close()
+            except:
+                ...
+
             window.post_setup(**windowparams)
             if not isChild:
                 app.lastWindowClosed.connect(app.quit);
