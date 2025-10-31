@@ -17,19 +17,18 @@ a = Analysis(
     pathex=[],
     binaries=[],
     hiddenimports=['pkg_resources.py2_warn', 'importlib'],
-    hooksconfig={},
+    hooksconfig={"matplotlib": {"backends": "Agg"}},
     runtime_hooks=[],
     datas=[],
     hookspath=[join(BUNDLE_ROOT, 'hooks'),
         join(dirname(sys.argv[0]), 'hooks')],
     excludes=[
 #        'FixTk', 'tcl', 'tk', '_tkinter', 'tkinter', 'Tkinter',
-        'torch', 'tensorflow', 'nvidia'
+        'torch', 'tensorflow', 'nvidia', 'numba', 'matplotlib.TkAgg'
     ],
     noarchive=False,
     optimize=0,
 )
-#pyz = PYZ(a.pure)
 
 splash = Splash('exhale_splash.jpg',
                 binaries=a.binaries,
@@ -42,16 +41,16 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
 onefile = not is_linux
 
-toexec = [splash.binaries] if not is_linux else []
-tocoll = [splash.binaries] if is_linux else []
+toexec = [splash.binaries] if onefile else []
+tocoll = [splash.binaries] if not onefile else []
 
-strip = True
-strip = is_linux and strip
+strip = False
+#strip = is_linux and strip
 
 exe = EXE(
     pyz,
+    splash,
     a.scripts,
-    splash
     *toexec,
     [],
     exclude_binaries=True,

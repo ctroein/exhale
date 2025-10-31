@@ -28,7 +28,6 @@ from silx.app.view.DataPanel import DataPanel
 from .exceptiondialog import ExceptionDialog
 from .element import ElementSettings, Normalizers
 from .imagecompose import ImageSettings, Layouts, Colorschemes
-from .copyfigure import add_clipboard_to_figures
 from .appversion import exhale_version
 from .listwidgets import ImageElementBox
 from .listwidgets import ElementListWidget, ImageListWidget
@@ -1012,7 +1011,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             app = QApplication.instance()
             if not app:
                 app = QApplication(sys.argv)
-            add_clipboard_to_figures()
             app.setWindowIcon(qt.QIcon(str(resdir.joinpath("lungs.ico"))))
             window = windowclass()
             window.show()
