@@ -5,14 +5,18 @@ import os
 from os.path import abspath, join, dirname, pardir
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT, BUNDLE, Splash
 from PyInstaller.compat import is_linux
+
+exhale_version = ""
 try:
     from exhale.appversion import exhale_version
-except ModuleNotFoundError as e:
-    print("WARNING: Failed to get exhale version.\n"
-          "Install exhale with 'pip install -e .'")
-    exhale_version = "EXHALE"
-
-#sys.modules['FixTk'] = None
+except ModuleNotFoundError:
+    sys.path.insert(0, join(dirname(sys.argv[0]), pardir))
+    try:
+        from exhale.appversion import exhale_version
+    except:
+        print("WARNING: Failed to get exhale version.")
+    del sys.path[0]
+print("Building EXHALE", exhale_version)
 
 import napari
 BUNDLE_ROOT = abspath(join(dirname(napari.__file__), pardir, 'bundle'))
@@ -49,7 +53,7 @@ if do_splash:
     splash = Splash('exhale_splash.jpg',
                     binaries=a.binaries,
                     datas=a.datas,
-                    text_pos=(10, 40),
+                    text_pos=(15, 30),
                     text_size=11,
                     text_color='#a070ff',
                     text_default=f"Loading EXHALE {exhale_version}")
