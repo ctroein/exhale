@@ -21,7 +21,7 @@ a = Analysis(
     ['../run_exhale.py'],
     pathex=[],
     binaries=[],
-    hiddenimports=['pkg_resources.py2_warn', 'importlib'],
+    hiddenimports=['pkg_resources.py2_warn', 'importlib', 'freetype'],
     hooksconfig={"matplotlib": {"backends": "Agg"}},
     runtime_hooks=[],
     datas=[],
@@ -30,7 +30,8 @@ a = Analysis(
     excludes=[
 #        'FixTk', 'tcl', 'tk', '_tkinter', 'tkinter', 'Tkinter',
         'torch', 'tensorflow', 'nvidia', 'numba', 'matplotlib.TkAgg',
-        'hdf5plugin', 'pyarrow', 'babel'
+        'hdf5plugin', 'pyarrow', 'babel', 'yapf_third_party',
+        'zmq'
     ],
     noarchive=False,
     optimize=0,
@@ -39,7 +40,7 @@ a = Analysis(
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
 do_splash = True
-onefile = True#not is_linux
+onefile = False
 strip = False
 
 strip = is_linux and strip
