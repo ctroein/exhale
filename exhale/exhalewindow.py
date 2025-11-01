@@ -991,6 +991,13 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
     @classmethod
     def run_application(windowclass, parser=None, parameters=[],
                         isChild=False):
+        try:
+            import pyi_splash
+            # Update the text on the splash screen
+            pyi_splash.update_text(f"Initializing EXHALE {exhale_version}")
+        except:
+            ...
+
         signal.signal(signal.SIGINT, signal.SIG_DFL)
         res = 1
         try:
@@ -1016,15 +1023,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             window.show()
 
             try:
-                # Control the splash screen if run through pyinstaller
-                import pyi_splash
-
-                # Update the text on the splash screen
-                pyi_splash.update_text("Breathe!")
-
-                # Close the splash screen. It does not matter when the call
-                # to this function is made, the splash screen remains open until
-                # this function is called or the Python program is terminated.
+                # Close the splash screen.
                 pyi_splash.close()
             except:
                 ...
@@ -1038,6 +1037,10 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         except Exception:
             traceback.print_exc()
             print('Press enter to quit')
+            try:
+                pyi_splash.close()
+            except:
+                ...
             input()
         if not isChild :
             sys.exit(res)

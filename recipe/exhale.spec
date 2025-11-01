@@ -3,13 +3,18 @@
 import sys
 import os
 from os.path import abspath, join, dirname, pardir
-from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT, BUNDLE
+from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT, BUNDLE, Splash
 from PyInstaller.compat import is_linux
+try:
+    from exhale.appversion import exhale_version
+except ModuleNotFoundError as e:
+    print("WARNING: Failed to get exhale version.\n"
+          "Install exhale with 'pip install -e .'")
+    exhale_version = "EXHALE"
 
 #sys.modules['FixTk'] = None
 
 import napari
-
 BUNDLE_ROOT = abspath(join(dirname(napari.__file__), pardir, 'bundle'))
 
 a = Analysis(
@@ -24,36 +29,42 @@ a = Analysis(
         join(dirname(sys.argv[0]), 'hooks')],
     excludes=[
 #        'FixTk', 'tcl', 'tk', '_tkinter', 'tkinter', 'Tkinter',
-        'torch', 'tensorflow', 'nvidia', 'numba', 'matplotlib.TkAgg'
+        'torch', 'tensorflow', 'nvidia', 'numba', 'matplotlib.TkAgg',
+        'hdf5plugin', 'pyarrow', 'babel'
     ],
     noarchive=False,
     optimize=0,
 )
 
-splash = Splash('exhale_splash.jpg',
-                binaries=a.binaries,
-                datas=a.datas,
-                text_pos=(10, 50),
-                text_size=10,
-                text_color='white')
-
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-onefile = not is_linux
-
-toexec = [splash.binaries] if onefile else []
-tocoll = [splash.binaries] if not onefile else []
-
+do_splash = True
+onefile = True#not is_linux
 strip = False
-#strip = is_linux and strip
+
+strip = is_linux and strip
+
+if do_splash:
+    splash = Splash('exhale_splash.jpg',
+                    binaries=a.binaries,
+                    datas=a.datas,
+                    text_pos=(10, 40),
+                    text_size=11,
+                    text_color='#a070ff',
+                    text_default=f"Loading EXHALE {exhale_version}")
+
+    toexec = ([a.scripts, a.binaries, a.datas, splash, splash.binaries]
+              if onefile else [splash, a.scripts])
+    tocoll = [a.binaries, a.datas, splash.binaries] if not onefile else []
+else:
+    toexec = [a.binaries, a.datas] if onefile else []
+    tocoll = [a.binaries, a.datas] if not onefile else []
 
 exe = EXE(
     pyz,
-    splash,
-    a.scripts,
     *toexec,
     [],
-    exclude_binaries=True,
+    exclude_binaries=not onefile,
     name='exhale',
     debug=False,
     bootloader_ignore_signals=False,
@@ -70,12 +81,12 @@ exe = EXE(
     icon=join(pardir, 'exhale', 'resources', 'lungs.ico'),
 )
 
-
-coll = COLLECT(
-    exe,
-    *tocoll,
-    strip=strip,
-    upx=True,
-    upx_exclude=[],
-    name='exhale',
-)
+if not onefile:
+    coll = COLLECT(
+        exe,
+        *tocoll,
+        strip=strip,
+        upx=True,
+        upx_exclude=[],
+        name='exhale',
+    )
