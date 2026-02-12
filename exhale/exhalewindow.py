@@ -17,6 +17,7 @@ import numpy as np
 # from collections.abc import Iterable
 from functools import partial
 import importlib
+import re
 
 import silx.io
 from silx.gui import qt, icons, hdf5
@@ -26,11 +27,14 @@ from silx.gui.plot.items.core import ItemChangedType
 from silx.app.view.DataPanel import DataPanel
 
 from .exceptiondialog import ExceptionDialog
-from .element import ElementSettings, Normalizers
-from .imagecompose import ImageSettings, Layouts, Colorschemes
+from .overridecursor import OverrideCursor
+from .elementsettings import ElementSettings, Normalizers
+from .imagesettings import ImageSettings, Layouts, Colorschemes, Scalebars
+from .filesettings import FileSettings
 from .appversion import exhale_version
-from .listwidgets import ImageElementBox
+from .listwidgets import ImageElementBox, ImageHeaderBox
 from .listwidgets import ElementListWidget, ImageListWidget
+from .imagecomposer import compose_image, plot_composed_image
 
 import napari
 # from napari.qt import QtViewer
@@ -38,18 +42,27 @@ from .cluster_analysis.xrf_interface import XrfViewer
 
 resdir = importlib.resources.files("exhale").joinpath("resources")
 # Rebuild UI code on the fly; useful while developing
-ui_files = (resdir.joinpath("exhale_qt.ui"),
-            os.path.join(os.path.dirname(__file__), "exhale_qt.py"))
-if (os.path.exists(ui_files[0]) and os.path.exists(ui_files[1]) and
-    os.path.getmtime(ui_files[0]) > os.path.getmtime(ui_files[1])):
-    print("Recompiling UI")
-    uic = importlib.import_module(qt.BINDING + ".uic")
-    with open(ui_files[1], 'w') as f:
-        uic.compileUi(ui_files[0], f)
+ui_files = [("exhale_qt.ui", "exhale_qt.py"),
+            ("imagedialog.ui", "imagedialog.py")]
+for ui, py in ui_files:
+    uip = resdir.joinpath(ui)
+    py = os.path.join(os.path.dirname(__file__), py)
+    if (os.path.exists(uip) and os.path.exists(py) and
+        os.path.getmtime(uip) > os.path.getmtime(py)):
+        print(f"Recompiling {ui}")
+        uic = importlib.import_module(qt.BINDING + ".uic")
+        with open(py, 'w') as f:
+            uic.compileUi(uip, f)
     # Alternative: load UI straight from XML
-    # Ui_ExhaleWindow = uic.loadUiType(resdir.joinpath("exhale_qt.ui"))[0]
+    # Ui_ExhaleWindow = uic.loadUiType(uip)[0]
 
 from .exhale_qt import Ui_ExhaleWindow
+from .imagedialog import Ui_ImageDialog
+
+class ImageDialog(qt.QDialog, Ui_ImageDialog):
+    def __init__(self, parent=None):
+        qt.QDialog.__init__(self, parent)
+        self.setupUi(self)
 
 class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
     "Main window of this thing"
@@ -66,6 +79,25 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.errorMsg.setSizeGripEnabled(True)
         self.errorMsg.setWindowModality(Qt.WindowModal)
 
+        imd = ImageDialog()
+        self.imageDialog = imd
+        self.composeSettings.clicked.connect(imd.show)
+        self.composeSettings.clicked.connect(imd.raise_)
+        imd.buttonBox.clicked.connect(imd.hide)
+        for n in ["ScalebarColor", "ScalebarBg", "ScalebarBgColor",
+                  "ResValue", "ResUnits", "Fontsize"]:
+            n = "compose" + n
+            self.__dict__[n] = imd.__dict__[n]
+
+        self.actionOpenFile.setIcon(icons.getQIcon("document-open"))
+        self.actionOpenFile.triggered.connect(self.select_and_open_files)
+        self.actionClearFiles.setIcon(icons.getQIcon("close"))
+        self.actionClearFiles.triggered.connect(self.close_all_files)
+        # self.actionLoadProject.setIcon(icons.getQIcon(""))
+        # self.actionLoadProject.triggered.connect(self.load_project)
+        self.actionSaveProject.setIcon(icons.getQIcon("document-save"))
+        # self.actionSaveProject.triggered.connect(self.save_project)
+        # self.actionAbout.setIcon(icons.getQIcon("help"))
         self.actionAbout.triggered.connect(
             lambda: qt.QMessageBox.information(
                 self, "About",
@@ -74,8 +106,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 "swecris.html?project=2023-02821_Vinnova#/'>"
                 "funded by Vinnova</a>.<br>2023-2025."))
 
-        self.__displayIt = None
-
+        # self.__displayIt = None
         self._treeView = hdf5.Hdf5TreeView(self)
         self._treeModel = hdf5.Hdf5TreeModel(self._treeView, ownFiles=False)
         self._create_silx_view()
@@ -83,15 +114,15 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
         """
         Main data classes.
-            _loadedFiles lets us find h5 objects and list/close all open files
-            elementSettings stores color settings for all elements we've viewed
-            a path is (filename, path_in_file)
-            selectedElements holds checkboxed elements, available for images
-            currentElement is the currently selected in the Elements list
-            currentImage is the selected image, exclusive with currentElement
-            imageSettings holds settings for all images
+            path is (filename, path_in_file).
+            fileSettings lets us find h5 objects and list/close all open files.
+            elementSettings stores color settings for all elements we've viewed.
+            selectedElements holds checkboxed elements, available for images.
+            currentElement is the currently selected ElementSettings object.
+            imageSettings holds settings for all images.
+            currentImage is the selected image, exclusive with currentElement.
         """
-        self._loadedFiles = {} # name -> hdf5.File
+        self.fileSettings = {} # name -> FileSettings
         self.elementSettings = {} # path -> ElementSettings
         self.selectedElements = set() # paths of selected elements
         self.currentElement = None # ElementSettings
@@ -102,7 +133,10 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.create_analysisTab()
 
         # Groups to be searched/expanded after load
-        self._h5GroupsToExpand = []
+        self._h5GroupsToLoad = []
+
+    def closeEvent(self, ev):
+        self.imageDialog.close()
 
     def cleanup(self):
         "Some last-second cleanup so we can exit cleanly"
@@ -162,15 +196,33 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
     # All about the data/elements/images tab
 
+    def loadedFileChanged(self):
+        "Update what file is shown in the UI"
+        startgroup = self.loadedFileComboBox.currentData()
+        # print("LFCH", self.loadedFileComboBox.currentText(), startgroup)
+        self.elementList.clear()
+        if startgroup is None:
+            return
+        for k, entity in startgroup.items():
+            # print("Key",k, type(entity))
+            if silx.io.utils.is_dataset(entity):
+                path = (entity.file.filename, entity.name)
+                if es := self.elementSettings.get(path):
+                    ch = path in self.selectedElements
+                    self.elementList.addElement(es.name, entity, checked=ch)
+                else:
+                    self.elementList.addElement(k, entity)
+
     def setImageControlsEnabled(self, enabled : bool):
         "Enable/disable inputs that are relevant to composing an image"
-        self.composeLayout.setEnabled(enabled)
-        self.composeColors.setEnabled(enabled)
-        self.composeShow.setEnabled(enabled)
+        for o in [self.composeLayoutCB, self.composeColors, self.composeSave,
+                  self.composeSettings, self.composeScalebar,
+                  self.composeScalebarColor, self.composeScalebarBg,
+                  self.composeScalebarBgColor,
+                  self.composeResValue, self.composeResUnits]:
+            o.setEnabled(enabled)
         for box in self.imageElementBoxes:
             box.setWidgetsEnabled(enabled)
-        self.composeSave.setEnabled(enabled)
-        self.composeSettings.setEnabled(enabled)
 
     def setElementControlsEnabled(self, enabled : bool):
         "Enable/disable inputs that are relevant to elementsettings"
@@ -254,32 +306,39 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.setImageControlsEnabled(False)
         self.showCurrentElement()
 
+    def storeImageSettings(self, im : ImageSettings):
+        "Copy settings from UI to object"
+        im.setColorscheme(Colorschemes(self.composeColors.currentIndex()))
+        im.setLayout(Layouts(self.composeLayoutCB.currentIndex()))
+        im.setScalebar(Scalebars(self.composeScalebar.currentIndex()))
+        im.setResolution(self.composeResValue.value(),
+                         self.composeResUnits.currentText())
+        im.setScalebarColors(
+            self.composeScalebarColor.color(),
+            self.composeScalebarBgColor.color(),
+            .6 if self.composeScalebarBg.isChecked() else None)
+        im.setFontsize(self.composeFontsize.value())
+
     def createImage(self, name):
         "Add the named composed image to the list of images (and display it?)"
         num = max(self.imageSettings.keys()) + 1 if self.imageSettings else 1
         im = ImageSettings(name)
-        im.setColorscheme(Colorschemes(self.composeColors.currentIndex()))
-        im.layout = Layouts(self.composeLayout.currentIndex())
+        self.storeImageSettings(im)
         self.imageSettings[num] = im
         self.imageList.addImage(num, im)
 
     def updateComposedImage(self):
-        "Recompute and replace/draw the merged image"
+        "Recompute and replace/draw the composed image"
         if im := self.currentImage:
             assert self.currentElement is None
-            m = im.mergedImage()
-            if m is None:
-                self.elementPlot.clear()
-            else:
-                self.elementPlot.addImage(
-                    m, legend='m', origin=(0, 0), copy=False)
+            plot_composed_image(self.elementPlot, im)
 
     def updatePickerColors(self):
         "Update the image element color pickers from the current image"
-        colors = self.currentImage.colors()
-        for i, box in enumerate(self.imageElementBoxes):
+        for i, c in enumerate(self.currentImage.colors()):
+            box = self.imageElementBoxes[i]
             with qt.QSignalBlocker(box):
-                box.setColor(colors[i])
+                box.setColor(c)
 
     def showComposedImage(self, imgnum):
         "Update what composed image is shown"
@@ -290,10 +349,27 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.setImageControlsEnabled(True)
         self.setElementControlsEnabled(False)
 
-        with qt.QSignalBlocker(self.composeLayout):
-            self.composeLayout.setCurrentIndex(im.layout.value)
+        with qt.QSignalBlocker(self.composeLayoutCB):
+            self.composeLayoutCB.setCurrentIndex(im.layout.value)
         with qt.QSignalBlocker(self.composeColors):
             self.composeColors.setCurrentIndex(im.colorscheme.value)
+        with qt.QSignalBlocker(self.composeScalebar):
+            self.composeScalebar.setCurrentIndex(im.scalebar.value)
+        with qt.QSignalBlocker(self.composeScalebarColor):
+            self.composeScalebarColor.setColor(im.scalebarColor)
+        with qt.QSignalBlocker(self.composeScalebarBgColor):
+            self.composeScalebarBgColor.setColor(im.scalebarBgColor)
+        with qt.QSignalBlocker(self.composeScalebarBg):
+            self.composeScalebarBg.setChecked(im.scalebarBgAlpha is not None)
+        with qt.QSignalBlocker(self.composeFontsize):
+            self.composeFontsize.setValue(im.fontsize)
+        with qt.QSignalBlocker(self.composeResValue):
+            self.composeResValue.setValue(im.resolution[0])
+        with qt.QSignalBlocker(self.composeResUnits):
+            self.composeResUnits.setCurrentText(im.resolution[1])
+        with qt.QSignalBlocker(self.imageHeaderBox):
+            self.imageHeaderBox.setColor(im.borderColor)
+            self.imageHeaderBox.border.setValue(im.borderWidth)
         self.updatePickerColors()
         # for wh in range(2):
         #     with qt.QSignalBlocker(self.composeSize[wh]):
@@ -315,25 +391,30 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
     def create_dataTab(self):
         "Set up everything in the elements/images tab"
 
-        def clear_and_open():
-            "Select new file to load"
-            self.close_all_files()
-            self.select_and_open_files()
-        self.loadFileButton.clicked.connect(clear_and_open)
+        self.loadFileButton.clicked.connect(self.select_and_open_files)
+        self.clearFilesButton.clicked.connect(self.close_all_files)
+        self.loadedFileComboBox.currentIndexChanged.connect(
+            self.loadedFileChanged)
 
         def ensure_exists(path):
             "Create element settings if needed"
             if path not in self.elementSettings:
                 filename, fpath = path
-                # TODO: add user-defined default for normalizer and params. Copy the most recent?
-                es = ElementSettings(self._loadedFiles[filename][fpath])
+                # TODO: add user-defined default for normalizer and params?
+                # - Copy the most recent?
+                h5 = self.fileSettings[filename].h5file
+                if not h5:
+                    raise RuntimeError("Attempting to access closed file " +
+                                       filename)
+                es = ElementSettings(h5[fpath])
                 self.elementSettings[es.path] = es
 
         def select_element(item : qt.QListWidgetItem):
-            "Element to be selected (has been checkboxed)"
+            "Element is selected for use (has been checkboxed)"
             item.setCheckState(Qt.CheckState.Checked)
-            # sel.addItem(el.takeItem(el.row(item)))
             path = item.data(ElementListWidget.H5_PATH_ROLE)
+            if path is None:
+                raise TypeError("Missing h5 path in item '{item.text()}'")
             ensure_exists(path)
             self.selectedElements.add(path)
             self.selectedElementsChanged.emit()
@@ -342,8 +423,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         el.itemActivated.connect(select_element)
 
         def deselect_element(item):
-            "Element to be deselected (checkbox was unchecked)"
-            # el.addItem(sel.takeItem(sel.row(item)))
+            "Element is deselected for use (checkbox was unchecked)"
             item.setCheckState(Qt.CheckState.Unchecked)
             path = item.data(ElementListWidget.H5_PATH_ROLE)
             self.selectedElements.discard(path)
@@ -451,12 +531,12 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                         self.setElementControlsEnabled(False)
                     self.updateComposedImage()
                     with qt.QSignalBlocker(self.imageElementButtonGroup):
-                        self.composeShow.setChecked(True)
+                        self.imageHeaderBox.edit.setChecked(True)
 
         def im_element_ch(elementnum, index):
             "An image-element dropdown selection changed"
             if im := self.currentImage:
-                box = self.imageElementBoxes[elementnum]
+                box = self.imageElementBoxes[elementnum + 1]
                 if index == 0: # Unset?
                     im.setElement(elementnum, None)
                 else:
@@ -473,9 +553,25 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                     self.composeColors.setCurrentIndex(im.colorscheme.value)
                 im_element_show(-1)
 
-        self.imageElementBoxes = []
+        def im_border_w_ch(val):
+            "Current image border width changed"
+            if im := self.currentImage:
+                im.setBorderWidth(val)
+                im_element_show(-1)
+        def im_border_c_ch(color):
+            "Current image border color changed"
+            if im := self.currentImage:
+                im.setBorderColor(color)
+                im_element_show(-1)
+
         self.imageElementButtonGroup = qt.QButtonGroup(self)
-        self.imageElementButtonGroup.addButton(self.composeShow, -1)
+        box = ImageHeaderBox()
+        self.imageElementBox.addLayout(box)
+        self.imageElementButtonGroup.addButton(box.edit, -1)
+        box.border.valueChanged.connect(im_border_w_ch)
+        box.colorChanged.connect(im_border_c_ch)
+        self.imageHeaderBox = box
+        self.imageElementBoxes = []
         for i in range(ImageSettings.MAX_ELEMENTS):
             box = ImageElementBox(Colorschemes(0).colors()[i])
             self.imageElementBoxes.append(box)
@@ -513,31 +609,51 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 self, "Delete image",
                 f"Do you want to delete image '{im.name}'?")
             if ans == qt.QMessageBox.StandardButton.Yes:
-                self.imageList.takeItem(self.imageList.row(it))
+                self.elementPlot.clear()
                 del self.imageSettings[num]
                 self.currentImage = None
-                # Todo: if no current image, disable UI components
+                # Delete last, if new image is selected
+                self.imageList.takeItem(self.imageList.row(it))
+                # No current image; disable UI components
+                # self.setImageControlsEnabled(False)
+                # self.elementPlot.clear()
         self.deleteImageButton.clicked.connect(del_img)
 
         def layout_ch():
             "Image layout update"
             if im := self.currentImage:
-                im.layout = Layouts(self.composeLayout.currentIndex())
+                im.setLayout(Layouts(self.composeLayoutCB.currentIndex()))
                 im_element_show(-1)
-        self.composeLayout.currentIndexChanged.connect(layout_ch)
+        self.composeLayoutCB.currentIndexChanged.connect(layout_ch)
         for t in Layouts:
-            self.composeLayout.addItem(t.description)
+            self.composeLayoutCB.addItem(t.description)
 
         def colors_ch():
             "Color scheme update"
-            cs = Colorschemes(self.composeColors.currentIndex())
             if im := self.currentImage:
-                im.setColorscheme(cs)
+                im.setColorscheme(Colorschemes(
+                    self.composeColors.currentIndex()))
                 im_element_show(-1)
                 self.updatePickerColors()
         self.composeColors.currentIndexChanged.connect(colors_ch)
         for c in Colorschemes:
             self.composeColors.addItem(c.description)
+
+        def scalebar_ch():
+            "Scalebar settings update"
+            if im := self.currentImage:
+                self.storeImageSettings(im)
+                im_element_show(-1)
+        self.composeScalebarColor.colorChanged.connect(scalebar_ch)
+        self.composeScalebarBgColor.colorChanged.connect(scalebar_ch)
+        self.composeScalebarBg.toggled.connect(scalebar_ch)
+        for s in Scalebars:
+            self.composeScalebar.addItem(s.description)
+        self.composeScalebar.currentIndexChanged.connect(scalebar_ch)
+        self.composeFontsize.valueChanged.connect(scalebar_ch)
+        self.composeResValue.valueChanged.connect(scalebar_ch)
+        self.composeResUnits.currentIndexChanged.connect(scalebar_ch)
+
 
         def sel_img(curr, prev):
             "Active image changed"
@@ -572,10 +688,10 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             filters.append("All files (*)")
             filename = self.askFileName(
                 title="Save composed image", filter=";;".join(filters),
-                settingname="ImageDir", savesuffix="png",
-                defaultfilename=im.name)
+                settingname="ImageDir", save=True,
+                defaultfilename=im.name+".png")
             if filename is not None:
-                self.composePlot.saveGraph(filename, dpi=im.dpi())
+                compose_image(im, filename)
         self.composeSave.clicked.connect(save_im)
 
         def sync_settings_and_compose():
@@ -585,7 +701,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 if it.checkState() == Qt.CheckState.Checked:
                     path = it.data(ElementListWidget.H5_PATH_ROLE)
                     if path not in self.selectedElements:
-                        print(f"Warn: missed {path} among selected")
+                        print(f"Internal error: checked element {it.text()} "
+                              "missing  from list of selected elements")
                         ensure_exists(path)
                         self.selectedElements.add(path)
 
@@ -611,7 +728,12 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         # el.model().rowsRemoved.connect(sync_settings_and_compose)
 
         # Set everything up before creating the initial image
-        self.createImage("Untitled")
+        # Don't call createImage because we want the default values this once.
+        im = ImageSettings("Untitled")
+        self.imageSettings[1] = im
+        with qt.QSignalBlocker(self.imageList):
+            self.imageList.addImage(1, im)
+        # self.createImage()
 
 
     ## Begin Silx viewer stuff
@@ -626,22 +748,22 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         toolbar.setIconSize(qt.QSize(16, 16))
         toolbar.setStyleSheet("QToolBar { border: 0px }")
 
-        action = qt.QAction("Open", toolbar)
-        action.setIcon(icons.getQIcon("document-open"))
-        action.setToolTip("Open file(s)")
-        action.triggered.connect(self.select_and_open_files)
-        action.setShortcut(qt.QKeySequence(qt.Qt.CTRL | qt.Qt.Key_O))
-        toolbar.addAction(action)
-        self.menuFile.addSeparator()
-        self.menuFile.addAction(action)
+        toolbar.addAction(self.actionOpenFile)
+        # action = qt.QAction("Open file(s)", toolbar)
+        # action.setShortcut(qt.QKeySequence(qt.Qt.CTRL | qt.Qt.Key_L))
+        # self.menuFile.addSeparator()
+        # self.menuFile.addAction(action)
 
-        action = qt.QAction("Close", toolbar)
+        action = qt.QAction("Close file", toolbar)
         action.setIcon(icons.getQIcon("close"))
-        action.setToolTip("Close current file")
-        action.triggered.connect(self.close_file)
-        action.setShortcut(qt.QKeySequence(qt.Qt.CTRL | qt.Qt.Key_W))
+        action.setToolTip("Close current file(s)")
+        action.triggered.connect(self.close_files_silxview)
         toolbar.addAction(action)
-        self.menuFile.addAction(action)
+
+        # action = qt.QAction("Close all files")
+        # action.triggered.connect(self.close_all_files)
+        # action.setShortcut(qt.QKeySequence(qt.Qt.CTRL | qt.Qt.Key_W))
+        # self.menuFile.addAction(action)
 
         toolbar.addSeparator()
 
@@ -668,7 +790,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
         treeModel.sigH5pyObjectLoaded.connect(self._h5FileLoaded)
         treeModel.sigH5pyObjectRemoved.connect(self._h5FileRemoved)
-        # treeModel.sigH5pyObjectSynchronized.connect(self._h5FileSynchonized)
         treeModel.setDatasetDragEnabled(True)
         treeView.setModel(treeModel)
         treeView.setSizePolicy(qt.QSizePolicy.Preferred,
@@ -785,29 +906,27 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
         The depth is fixed to avoid infinite loop with recurssive links.
         """
-        QApplication.instance().setOverrideCursor(qt.Qt.WaitCursor)
+        with OverrideCursor():
+            indexes = self._treeView.selectionModel().selectedIndexes()
+            model = self._treeView.model()
+            while len(indexes) > 0:
+                index = indexes.pop(0)
+                if isinstance(index, tuple):
+                    index, depth = index
+                else:
+                    depth = 0
+                if index.column() != 0:
+                    continue
 
-        indexes = self._treeView.selectionModel().selectedIndexes()
-        model = self._treeView.model()
-        while len(indexes) > 0:
-            index = indexes.pop(0)
-            if isinstance(index, tuple):
-                index, depth = index
-            else:
-                depth = 0
-            if index.column() != 0:
-                continue
+                if depth > 10:
+                    # Avoid infinite loop with recursive links
+                    break
 
-            if depth > 10:
-                # Avoid infinite loop with recursive links
-                break
-
-            if model.hasChildren(index):
-                self._treeView.setExpanded(index, True)
-                for row in range(model.rowCount(index)):
-                    childIndex = model.index(row, 0, index)
-                    indexes.append((childIndex, depth + 1))
-        QApplication.instance().restoreOverrideCursor()
+                if model.hasChildren(index):
+                    self._treeView.setExpanded(index, True)
+                    for row in range(model.rowCount(index)):
+                        childIndex = model.index(row, 0, index)
+                        indexes.append((childIndex, depth + 1))
 
     def _collapseAllSelected(self):
         """Collapse all selected items of the tree.
@@ -846,39 +965,38 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                     return g
         return None
 
-
     def _h5FileLoaded(self, loadedH5):
-        if loadedH5.file.filename == self.__displayIt:
-            self.__displayIt = None
-            self._dataPanel.setData(loadedH5)
-        self._loadedFiles[loadedH5.file.filename] = loadedH5.file
-        self.loadedFileLineEdit.setText(loadedH5.file.filename)
-
-        added = False
-        startgroup = self._findNamedGroup(loadedH5, ["plotselect"])
-        if startgroup is not None:
-            # Expand this group in the silx viewer
-            self._h5GroupsToExpand.append(startgroup)
-            # ...and assume it contains the elements
-            for k, entity in startgroup.items():
-                if silx.io.utils.is_dataset(entity):
-                    self.elementList.addElement(k, entity)
-                    added = True
-        if not added:
+        "Find and queue the data group from a just-loaded file (h5/tiff)"
+        startgroup = None
+        h5grp = "plotselect"
+        tifgrp = "scan_0/measurement/image_0/info"
+        try:
+            startgroup = self._findNamedGroup(loadedH5, [h5grp])
+        except AttributeError as e:
+            print("Warning: Internal silx error when searching in file:", e)
+        if startgroup is None:
+            try:
+                startgroup = loadedH5[tifgrp]
+            except:
+                ...
+        if startgroup is None:
             self.errorMsg.showMessage(
-                "No elements found in input file " +
-                os.path.basename(loadedH5.file.filename), "No elements")
+                "Input file " + os.path.basename(loadedH5.file.filename) +
+                f" contains no '{h5grp}' group with elements"
+                f" or image in '{tifgrp}'",
+                "No elements")
+        else:
+            # Load elements from this group shortly
+            self._h5GroupsToLoad.append(startgroup)
 
     def _h5FileRemoved(self, removedH5):
         fname = removedH5.file.filename
         self._dataPanel.removeDatasetsFrom(removedH5)
         removedH5.close()
-        if fname in self._loadedFiles:
-            del self._loadedFiles[fname]
-
-    # def _h5FileSynchonized(self, removedH5, loadedH5):
-    #     self._dataPanel.replaceDatasetsFrom(removedH5, loadedH5)
-    #     removedH5.close()
+        print("CLOSED FILE", self.fileSettings[fname].h5file)
+        self.fileSettings[fname].h5file = None
+        self.loadedFileComboBox.removeItem(
+            self.loadedFileComboBox.findText(fname))
 
     def select_and_open_files(self):
         "Open files in the silx view"
@@ -893,57 +1011,74 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             settingname="OpenDir", multiple=True)
         if filenames is None:
             return
-        self.open_files(filenames)
+        with OverrideCursor():
+            self.open_files(filenames)
 
     def open_files(self, filenames):
         "Open one or more files"
         for filename in filenames:
-            if self.__displayIt is None:
-                # Store the file to display it (loading could be async)
-                self.__displayIt = filename
+            # if self.__displayIt is None:
+            #     # Store the file to display it (loading could be async)
+            #     self.__displayIt = filename
             self._treeView.findHdf5TreeModel().appendFile(filename)
 
-        if len(self._h5GroupsToExpand) < 3:
-            for startgroup in self._h5GroupsToExpand:
-                self._treeView.setSelectedH5Node(startgroup)
-            self._treeView.setFocus(qt.Qt.OtherFocusReason)
-        self._h5GroupsToExpand = []
+        # Update the file dropdown
+        lastgroup = None
+        for startgroup in self._h5GroupsToLoad:
+            fname = startgroup.file.filename
+            print("Load",fname)
+            if fname not in self.fileSettings:
+                self.fileSettings[fname] = FileSettings(fname, startgroup.file)
+                print("First loaded", fname)
+            elif self.fileSettings[fname].h5file is None:
+                self.fileSettings[fname].set_h5file(startgroup.file)
+                print("reloaded", fname)
+            else:
+                print("Warning: opened already opened file", fname)
+                continue
+            lastgroup = startgroup
+            self.loadedFileComboBox.addItem(fname, startgroup)
+            # Expand the groups in the silx viewer?
+            self._treeView.setSelectedH5Node(startgroup)
+
+        self._h5GroupsToLoad = []
+        # Show elements from the last added file
+        if lastgroup:
+            self.loadedFileComboBox.setCurrentIndex(
+                self.loadedFileComboBox.findText(lastgroup.file.filename))
 
     def close_all_files(self):
         model = self._treeView.findHdf5TreeModel()
-        for file in self._loadedFiles:
-            if file is not None:
-                model.removeH5pyObject(file)
+        for fs in self.fileSettings.values():
+            if fs.is_open():
+                model.removeH5pyObject(fs.h5file)
 
-    def close_file(self):
+    def close_files_silxview(self):
         """Close selected items in silx view"""
-        QApplication.instance().setOverrideCursor(qt.Qt.WaitCursor)
+        with OverrideCursor():
+            selection = self._treeView.selectionModel()
+            indexes = selection.selectedIndexes()
+            selectedItems = []
+            model = self._treeView.model()
+            h5files = set([])
+            while len(indexes) > 0:
+                index = indexes.pop(0)
+                if index.column() != 0:
+                    continue
+                h5 = model.data(
+                    index, role=silx.gui.hdf5.Hdf5TreeModel.H5PY_OBJECT_ROLE)
+                rootIndex = index
+                # Reach the root of the tree
+                while rootIndex.parent().isValid():
+                    rootIndex = rootIndex.parent()
+                rootRow = rootIndex.row()
+                relativePath = self._getRelativePath(model, rootIndex, index)
+                selectedItems.append((rootRow, relativePath))
+                h5files.add(h5.file)
 
-        selection = self._treeView.selectionModel()
-        indexes = selection.selectedIndexes()
-        selectedItems = []
-        model = self._treeView.model()
-        h5files = set([])
-        while len(indexes) > 0:
-            index = indexes.pop(0)
-            if index.column() != 0:
-                continue
-            h5 = model.data(
-                index, role=silx.gui.hdf5.Hdf5TreeModel.H5PY_OBJECT_ROLE)
-            rootIndex = index
-            # Reach the root of the tree
-            while rootIndex.parent().isValid():
-                rootIndex = rootIndex.parent()
-            rootRow = rootIndex.row()
-            relativePath = self._getRelativePath(model, rootIndex, index)
-            selectedItems.append((rootRow, relativePath))
-            h5files.add(h5.file)
-
-        model = self._treeView.findHdf5TreeModel()
-        for h5 in h5files:
-            model.removeH5pyObject(h5)
-
-        QApplication.instance().restoreOverrideCursor()
+            model = self._treeView.findHdf5TreeModel()
+            for h5 in h5files:
+                model.removeH5pyObject(h5)
 
     # End Silx stuff
 
@@ -957,7 +1092,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
 
     def askFileName(self, title, filter=None, settingname=None,
-                    savesuffix=None, multiple=False,
+                    save=False, multiple=False,
                     settingdefault=None,
                     directory=None, defaultfilename=None):
         "Show a file dialog and select one or more files"
@@ -972,9 +1107,17 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 #        if setting and type(setting) is not str:
 #            dialog.restoreState(setting)
         dialog.setOption(qt.QFileDialog.DontUseNativeDialog, True)
-        if savesuffix is not None:
+        if save:
             dialog.setAcceptMode(qt.QFileDialog.AcceptSave)
-            dialog.setDefaultSuffix(savesuffix)
+            # dialog.setDefaultSuffix(savesuffix)
+            def fix_ext(filt):
+                exts = re.findall(r"\.[a-z]*", filt)
+                f = dialog.selectedFiles()[0]
+                if f and exts:
+                    fb, fe = os.path.splitext(f)
+                    if fe not in exts:
+                        dialog.selectFile(fb + exts[0])
+            dialog.filterSelected.connect(fix_ext)
         elif multiple:
             dialog.setFileMode(qt.QFileDialog.ExistingFiles)
         else:
@@ -983,6 +1126,12 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         files = dialog.selectedFiles()
         if not dialog.result() or not files:
             return None
+        if save:
+            exts = re.findall(r"\.[a-z]*", dialog.selectedNameFilter())
+            for i, f in enumerate(files):
+                fb, fe = os.path.splitext(f)
+                if fe not in exts:
+                    files[i] = fb + exts[0]
         if settingname is not None:
             self.settings.setValue(settingname, os.path.dirname(files[0]))
         return files if multiple else files[0]

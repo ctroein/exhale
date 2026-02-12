@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1322</width>
+    <width>1359</width>
     <height>869</height>
    </rect>
   </property>
@@ -38,18 +38,31 @@
        </attribute>
        <layout class="QVBoxLayout" name="verticalLayout_4" stretch="0,1">
         <item>
-         <layout class="QHBoxLayout" name="horizontalLayout_2">
+         <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="0,3,0,1,0">
           <item>
            <widget class="QPushButton" name="loadFileButton">
             <property name="text">
-             <string>Load data</string>
+             <string>&amp;Open file</string>
             </property>
            </widget>
           </item>
           <item>
-           <widget class="QLineEdit" name="loadedFileLineEdit">
-            <property name="readOnly">
-             <bool>true</bool>
+           <widget class="QComboBox" name="loadedFileComboBox"/>
+          </item>
+          <item>
+           <widget class="QLabel" name="label_5">
+            <property name="text">
+             <string>Alias</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="loadedFileAlias"/>
+          </item>
+          <item>
+           <widget class="QPushButton" name="clearFilesButton">
+            <property name="text">
+             <string>Clear files</string>
             </property>
            </widget>
           </item>
@@ -68,7 +81,7 @@
             <item>
              <widget class="QLabel" name="label">
               <property name="text">
-               <string>Elements</string>
+               <string>Elements (check to use)</string>
               </property>
              </widget>
             </item>
@@ -78,49 +91,8 @@
            </layout>
           </widget>
           <widget class="QWidget" name="layoutWidget_2">
-           <layout class="QGridLayout" name="gridLayout_5" rowstretch="0,0,0,1,0,0,0,0,0">
-            <item row="4" column="0">
-             <widget class="QLabel" name="label_2">
-              <property name="text">
-               <string/>
-              </property>
-             </widget>
-            </item>
-            <item row="3" column="0">
-             <widget class="QLabel" name="label_13">
-              <property name="text">
-               <string>Colors</string>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="0">
-             <widget class="QLabel" name="label_12">
-              <property name="text">
-               <string>Layout</string>
-              </property>
-             </widget>
-            </item>
-            <item row="8" column="1">
-             <widget class="QPushButton" name="composeSettings">
-              <property name="text">
-               <string>Settings</string>
-              </property>
-             </widget>
-            </item>
-            <item row="7" column="0">
-             <widget class="QLabel" name="label_10">
-              <property name="text">
-               <string>Something</string>
-              </property>
-             </widget>
-            </item>
-            <item row="3" column="1">
-             <widget class="QComboBox" name="composeColors"/>
-            </item>
-            <item row="5" column="0" colspan="2">
-             <layout class="QVBoxLayout" name="imageElementBox"/>
-            </item>
-            <item row="0" column="0" colspan="2">
+           <layout class="QVBoxLayout" name="verticalLayout" stretch="0,2,0,0,1,0">
+            <item>
              <layout class="QHBoxLayout" name="horizontalLayout_7">
               <item>
                <widget class="QLabel" name="label_9">
@@ -145,7 +117,47 @@
               </item>
              </layout>
             </item>
-            <item row="6" column="0" colspan="2">
+            <item>
+             <widget class="ImageListWidget" name="imageList"/>
+            </item>
+            <item>
+             <layout class="QGridLayout" name="gridLayout">
+              <item row="0" column="0">
+               <widget class="QLabel" name="label_12">
+                <property name="text">
+                 <string>Layout</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QComboBox" name="composeLayoutCB"/>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="label_13">
+                <property name="text">
+                 <string>Colors</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QComboBox" name="composeColors"/>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="label_2">
+                <property name="text">
+                 <string>Scalebar</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QComboBox" name="composeScalebar"/>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QVBoxLayout" name="imageElementBox"/>
+            </item>
+            <item>
              <spacer name="verticalSpacer">
               <property name="orientation">
                <enum>Qt::Vertical</enum>
@@ -158,28 +170,23 @@
               </property>
              </spacer>
             </item>
-            <item row="8" column="0">
-             <widget class="QPushButton" name="composeSave">
-              <property name="text">
-               <string>Export image</string>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="1">
-             <widget class="QComboBox" name="composeLayout"/>
-            </item>
-            <item row="4" column="1">
-             <widget class="QPushButton" name="composeShow">
-              <property name="text">
-               <string>&amp;Show</string>
-              </property>
-              <property name="checkable">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="0" colspan="2">
-             <widget class="ImageListWidget" name="imageList"/>
+            <item>
+             <layout class="QHBoxLayout" name="horizontalLayout_5">
+              <item>
+               <widget class="QPushButton" name="composeSettings">
+                <property name="text">
+                 <string>More settings</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="composeSave">
+                <property name="text">
+                 <string>Export image</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
             </item>
            </layout>
           </widget>
@@ -343,47 +350,83 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1322</width>
+     <width>1359</width>
      <height>36</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
     <property name="title">
-     <string>File</string>
+     <string>&amp;Project</string>
     </property>
+    <addaction name="actionOpenFile"/>
+    <addaction name="actionClearFiles"/>
+    <addaction name="separator"/>
     <addaction name="actionLoadProject"/>
     <addaction name="actionSaveProject"/>
+    <addaction name="separator"/>
+   </widget>
+   <widget class="QMenu" name="menuHelp">
+    <property name="title">
+     <string>&amp;Help</string>
+    </property>
     <addaction name="actionAbout"/>
    </widget>
    <addaction name="menuFile"/>
+   <addaction name="menuHelp"/>
   </widget>
   <action name="actionAbout">
    <property name="text">
-    <string>About</string>
+    <string>&amp;About</string>
+   </property>
+   <property name="toolTip">
+    <string>About EXHALE</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+A</string>
    </property>
   </action>
   <action name="actionLoadProject">
    <property name="text">
-    <string>L&amp;oad Project</string>
+    <string>&amp;Load Project</string>
+   </property>
+   <property name="toolTip">
+    <string>Load EXHALE project</string>
    </property>
    <property name="shortcut">
-    <string>Ctrl+O</string>
+    <string>Ctrl+L</string>
    </property>
   </action>
   <action name="actionSaveProject">
    <property name="text">
     <string>&amp;Save Project</string>
    </property>
+   <property name="toolTip">
+    <string>Save EXHALE project</string>
+   </property>
    <property name="shortcut">
     <string>Ctrl+S</string>
    </property>
   </action>
-  <action name="actionLoadData">
+  <action name="actionOpenFile">
    <property name="text">
-    <string>Load Data</string>
+    <string>&amp;Open File</string>
+   </property>
+   <property name="toolTip">
+    <string>Open one or more HDF5 file(s)</string>
    </property>
    <property name="shortcut">
-    <string>Ctrl+L</string>
+    <string>Ctrl+O</string>
+   </property>
+  </action>
+  <action name="actionClearFiles">
+   <property name="text">
+    <string>Cl&amp;ear Files</string>
+   </property>
+   <property name="toolTip">
+    <string>Close all open data files</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+W</string>
    </property>
   </action>
  </widget>
@@ -407,24 +450,22 @@
  </customwidgets>
  <tabstops>
   <tabstop>tabWidget</tabstop>
+  <tabstop>loadFileButton</tabstop>
+  <tabstop>loadedFileComboBox</tabstop>
+  <tabstop>loadedFileAlias</tabstop>
+  <tabstop>clearFilesButton</tabstop>
+  <tabstop>elementName</tabstop>
+  <tabstop>elementNormalizer</tabstop>
+  <tabstop>elementList</tabstop>
+  <tabstop>imageList</tabstop>
+  <tabstop>addImageButton</tabstop>
+  <tabstop>deleteImageButton</tabstop>
+  <tabstop>elementNormalizeMin</tabstop>
+  <tabstop>elementNormalizeMax</tabstop>
+  <tabstop>elementPercButton</tabstop>
+  <tabstop>elementSDButton</tabstop>
+  <tabstop>gammaValue</tabstop>
  </tabstops>
  <resources/>
- <connections>
-  <connection>
-   <sender>actionLoadData</sender>
-   <signal>triggered()</signal>
-   <receiver>loadFileButton</receiver>
-   <slot>click()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>-1</x>
-     <y>-1</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>72</x>
-     <y>116</y>
-    </hint>
-   </hints>
-  </connection>
- </connections>
+ <connections/>
 </ui>

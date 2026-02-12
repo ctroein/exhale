@@ -10,14 +10,16 @@ Created on Fri Aug 15 19:07:15 2025
 import numpy as np
 from enum import Enum
 
-from .element import ElementSettings
+from .elementsettings import ElementSettings
 
 class Layouts(Enum):
     "Ways of laying out images to be composed"
     MERGED = 0, "Merged only"
-    LEFT = 1, "Images left"
-    TOP = 2, "Images above"
-    SQUARES = 3, "Four squares"
+    IL = 1, "Images left"
+    IR = 2, "Images right"
+    IA = 3, "Images above"
+    IB = 4, "Images below"
+    # SQUARES = 5, "Four squares"
 
     def __new__(cls, *args, **kwds):
         obj = object.__new__(cls)
@@ -65,19 +67,61 @@ class Colorschemes(Enum):
         "Update a (presumably custom) colorscheme"
         self.__colors[self.value] = rgb
 
+class Scalebars(Enum):
+    "Predefined scale bar settings"
+    NONE = 0, "None"
+    LL = 1, "Lower left"
+    LR = 2, "Lower right"
+    UL = 3, "Upper left"
+    UR = 4, "Upper right"
+
+    def __new__(cls, *args, **kwds):
+        obj = object.__new__(cls)
+        obj._value_ = args[0]
+        return obj
+
+    def __init__(self, _, description: str):
+        self._description_ = description
+
+    @property
+    def description(self):
+        return self._description_
+
 class ImageSettings:
     "Settings for an image and its composition"
     MAX_ELEMENTS = 4
 
     def __init__(self, name : str):
         self.name = name
-        self.layout = Layouts.LEFT
+        self.layout = Layouts.IL
+        self.scalebar = Scalebars.LL
+        self.scalebarColor = [1,1,.5]
+        self.scalebarBgColor = [0,0,0]
+        self.scalebarBgAlpha = None
+        self.fontsize = 11
+        self.borderColor = np.zeros(3)
+        self.borderWidth = 3
         self.colorscheme = Colorschemes.RGB
         self.customColors = None
         self.elements = {} # position -> ElementSettings
-        self.pdfSize = [10., 10.]
-        self.pdfKeepDim = 0 # keep width(0) or height(1) when aspect changes
-        self._mergedImage = None
+        self.dpi = 100
+        self.clipColors = True # Hard clip of RGB or rescale by theor. max
+        self.resolution = [100, "nm"]
+        # self.pdfSize = [10., 10.]
+        # self.pdfKeepDim = 0 # keep width(0) or height(1) when aspect changes
+        # self._mergedImage = None
+
+    def setLayout(self, l : Layouts):
+        "Set layout type"
+        if not isinstance(l, Layouts):
+            raise ValueError(f"Expected Layouts, not {type(l)}")
+        self.layout = l
+
+    def setScalebar(self, sb : Scalebars):
+        "Set scalebar position"
+        if not isinstance(sb, Scalebars):
+            raise ValueError(f"Expected Scalebars, not {type(sb)}")
+        self.scalebar = sb
 
     def setColorscheme(self, cs : Colorschemes):
         "Set the colorscheme and possibly copy custom colors"
@@ -87,6 +131,14 @@ class ImageSettings:
         if cs == Colorschemes.CUSTOM:
             self.customColors = cs.colors().copy()
         # TODO: Maybe len(elements) needs to be adjusted
+
+    def setResolution(self, value: float, units: str):
+        "Set the pixel resolution"
+        if units not in ["cm", "mm", "µm", "um", "nm", "pm", "None"]:
+            raise ValueError(f"Invalid length units '{units}'")
+        if value <= 0:
+            raise ValueError("Resolution must be > 0")
+        self.resolution = [value, units]
 
     def colors(self):
         if self.colorscheme == Colorschemes.CUSTOM:
@@ -104,21 +156,36 @@ class ImageSettings:
         self.customColors[num] = rgb
         self.colorscheme.update(self.customColors)
 
-    def dpi(self):
-        "Compute dpi from selected size"
-        return None
+    def setBorderWidth(self, width):
+        self.borderWidth = width
 
-    def aspect(self):
-        "Compute aspect ratio, or None for unknown"
-        return None
+    def setBorderColor(self, rgb):
+        self.borderColor = rgb
 
-    def setSize(self, wh, value):
-        "Set the width or height; the other will be adjusted"
-        self.pdfSize[wh] = value
-        self.pdfKeepDim = wh
-        asp = self.aspect()
-        if asp is not None:
-            self.pdfSize[1 - wh] = value * asp if wh else value / asp
+    def setScalebarColors(self, color, bgcolor, bgalpha):
+        # print("setcolors", color, bgcolor, bgalpha)
+        self.scalebarColor = color
+        self.scalebarBgColor = bgcolor
+        self.scalebarBgAlpha = bgalpha
+
+    def setFontsize(self, size):
+        self.fontsize = size
+
+    # def dpi(self):
+    #     "Compute dpi from selected size"
+    #     return None
+
+    # def aspect(self):
+    #     "Compute aspect ratio, or None for unknown"
+    #     return None
+
+    # def setSize(self, wh, value):
+    #     "Set the width or height; the other will be adjusted"
+    #     self.pdfSize[wh] = value
+    #     self.pdfKeepDim = wh
+    #     asp = self.aspect()
+    #     if asp is not None:
+    #         self.pdfSize[1 - wh] = value * asp if wh else value / asp
 
     def setElement(self, index : int, element : ElementSettings):
         "Copy an element into this image"
@@ -131,24 +198,7 @@ class ImageSettings:
             # Shallow copy; no need to copy the transformed data etc.
             self.elements[index] = element.copy()
 
-    def mergedImage(self):
-        "Update/return the composed image; merge the element images"
-        if not self.elements:
-            self._mergedImage = None
-            return self._mergedImage
-        shapes = np.array([es.data.shape for es in self.elements.values()])
-        shape = np.max(shapes, axis=0)
-        merged = np.zeros(list(shape) + [3])
-        colors = self.colorscheme.colors()
-        maxcolor = colors[list(self.elements.keys())].sum(0)
-        maxcolor[maxcolor <= 0] = 1
-        print("maxcolor", maxcolor)
-        for i, es in self.elements.items():
-            td = es.transformedData()
-            h, w = td.shape
-            merged[:h, :w] = merged[:h, :w] + td[..., None] * colors[i]
-        if True:
-            self._mergedImage = np.minimum(merged, 1.)
-        else:
-            self._mergedImage = merged / maxcolor
-        return self._mergedImage
+
+
+
+
