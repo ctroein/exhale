@@ -95,12 +95,14 @@ class ImageSettings:
         self.name = name
         self.layout = Layouts.IL
         self.scalebar = Scalebars.LL
-        self.scalebarColor = [1,1,.5]
+        self.scalebarColor = [1.,1,0]
         self.scalebarBgColor = [0,0,0]
         self.scalebarBgAlpha = None
         self.fontsize = 11
         self.borderColor = np.zeros(3)
         self.borderWidth = 3
+        self.panelLabels = True
+        self.elementLabels = True
         self.colorscheme = Colorschemes.RGB
         self.customColors = None
         self.elements = {} # position -> ElementSettings
@@ -170,6 +172,11 @@ class ImageSettings:
 
     def setFontsize(self, size):
         self.fontsize = size
+
+    def setLabels(self, panelLabels, elementLabels):
+        self.panelLabels = panelLabels
+        self.elementLabels = elementLabels
+
 
     # def dpi(self):
     #     "Compute dpi from selected size"

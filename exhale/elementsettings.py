@@ -51,6 +51,7 @@ class ElementSettings():
         self.normalizer = Normalizers.LINEAR
         self.gamma = 1
         self.color = None
+        self.setMinmaxByMode('sd')
 
     def copy(self):
         e = type(self).__new__(self.__class__)

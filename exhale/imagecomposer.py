@@ -11,11 +11,10 @@ from silx.gui import qt
 import silx.gui
 import numpy as np
 
-# import matplotlib
-# matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.patches import Rectangle
+from matplotlib import patheffects
 from matplotlib_scalebar.scalebar import ScaleBar
 
 def merged_image(image : ImageSettings):
@@ -39,55 +38,6 @@ def merged_image(image : ImageSettings):
         return np.minimum(merged, 1.)
     return merged / maxcolor
 
-# def compose_image_old(plot : PlotWidget, image : ImageSettings):
-#     "Compose element image with the given elements, layout, colors etc."
-#     plot.clear()
-#     if not image.elements:
-#         return
-
-#     plot.setDataBackgroundColor(silx.gui.colors.asQColor(image.borderColor))
-#     m = merged_image(image)
-#     if image.layout == Layouts.MERGED:
-#         plot.addImage(m, legend='m', origin=(0, 0), copy=False,
-#                       replace=True)
-#         plot.setLimits(0, m.shape[1], 0, m.shape[0])
-#         return
-
-#     elems = image.elements.values()
-#     if image.layout.value < Layouts.SQUARES.value:
-#         bw = image.borderWidth
-#         h = int(image.layout == Layouts.IL or image.layout == Layouts.IR)
-#         r = -1 if image.layout in [Layouts.IR, Layouts.IA] else 1
-#         hws = np.array([e.data.shape for e in elems])
-#         msize = m.shape * len(elems)
-#         # Size of entire area
-#         totsize = [0, 0]
-#         totsize[1-h] = hws[:, 1-h].sum() + bw * (len(elems) + 1)
-#         totsize[h] = hws[:, h].max() + msize[h] + 3 * bw
-
-#         pos = np.array([0, 0])
-#         offs = [0, 0]
-#         pos[h] = totsize[h] if r < 0 else bw
-#         for i, e in enumerate(elems):
-#             pos[h] += r * bw
-#             data = e.transformedData()
-#             orig = pos if r > 0 else pos - data.shape[::-1]
-#             print("origin/pos",orig,pos)
-#             plot.addImage(data, origin=list(orig), copy=False, legend=f'{i}')
-#             pos[h] += r * data.shape[1-h]
-#         pos[1-h] = bw if r < 0 else totsize[h] - msize[h] - bw
-#         pos[h] = (bw * (len(elems) + 1)) // 2
-#         print("merged at",pos)
-#         plot.addImage(m, legend='m', origin=list(pos), copy=False, scale=len(elems))
-#         print("totsize",totsize)
-#         plot.setLimits(0, totsize[0], 0, totsize[1])
-
-#         # plot.resetZoom()
-
-#         # if image.scalebar.value:
-#         #     boffs = m.shape * len(elems) * .05
-#         #     bpos = 111
-
 
 def compose_image(image: ImageSettings, savename=None):
     """
@@ -96,16 +46,13 @@ def compose_image(image: ImageSettings, savename=None):
     if not image.elements:
         raise ValueError("No elements to compose")
 
-    elems = list(image.elements.values())
-    eshapes = np.array([e.data.shape for e in elems])
+    elems = sorted(image.elements.items())
+    eshapes = np.array([e.data.shape for i, e in elems])
 
     merged = merged_image(image)
     mh, mw, _ = merged.shape
     bw = image.borderWidth
-    bc = image.borderColor
 
-    exs = [bw] * len(elems)
-    eys = [bw] * len(elems)
     mscale = 1
     if image.layout in (Layouts.IL, Layouts.IR):
         strip_w = eshapes[:, 1].max()
@@ -115,6 +62,7 @@ def compose_image(image: ImageSettings, savename=None):
         merged_h = strip_h
         W = strip_w + merged_w + 3 * bw
         H = strip_h + 2 * bw
+        exs = [bw] * len(elems)
         if image.layout == Layouts.IR:
             exs = W - bw - eshapes[:, 1]
         eys = np.cumsum(eshapes[:, 0] + bw) - eshapes[0, 0]
@@ -126,37 +74,54 @@ def compose_image(image: ImageSettings, savename=None):
         merged_h = int(round(mh * mscale))
         W = strip_w + 2 * bw
         H = strip_h + merged_h + 3 * bw
+        eys = [bw] * len(elems)
         if image.layout == Layouts.IA:
             eys = H - bw - eshapes[:, 0]
         exs = np.cumsum(eshapes[:, 1] + bw) - eshapes[0, 1]
     elif image.layout == Layouts.MERGED:
         merged_w, merged_h = mw, mh
         W, H = mw + 2 * bw, mh + 2 * bw
-        # rgb = np.clip(merged * 255, 0, 255).astype(np.uint8)
-        # alpha = np.full((*rgb.shape[:2], 1), 255, dtype=np.uint8)
-        # return np.concatenate([rgb, alpha], axis=2)
+        exs, eys = [], []
     else:
+        # TODO: Layouts without merged image
         raise NotImplementedError(image.layout)
 
+    bgcolor = image.borderColor
+    fgcolor = 1 - np.array(bgcolor)
     dpi = image.dpi
-    # fig = plt.figure(figsize=(W / dpi, H / dpi), dpi=dpi)
-    fig = plt.Figure((W / dpi, H / dpi), dpi=dpi)
+    fig = plt.Figure((W / dpi, H / dpi), dpi=dpi, facecolor=bgcolor)
     fig.set_canvas(FigureCanvasAgg(fig))
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_xlim(0, W)
     ax.set_ylim(H, 0)
     ax.axis("off")
 
-    if image.layout in (Layouts.IL, Layouts.IR, Layouts.IA, Layouts.IB):
-        for i, e in enumerate(elems):
-            im = e.transformedData()
-            h, w = im.shape
-            x, y = exs[i], eys[i]
-            ax.imshow(im, origin="lower", cmap="gray",
-                      extent=(x, x + w, y + h, y),
-                      interpolation="nearest")
-            ax.add_patch(Rectangle((x - bw//2, y - bw//2), w + bw, h + bw,
-                         linewidth=bw, edgecolor=bc, facecolor="none"))
+    imcolors = image.colorscheme.colors()
+    fontsize = (H * image.fontsize) / 500
+    labelshift = [.012, .016]
+    outline = [
+        patheffects.Stroke(linewidth=.25*fontsize,
+                           foreground=list(bgcolor) + [.7]),
+        patheffects.Normal()
+        ]
+    for i, (x, y, (eix, e)) in enumerate(zip(exs, eys, elems)):
+        im = e.transformedData()
+        h, w = im.shape
+        ax.imshow(im, origin="lower", cmap="gray",
+                  extent=(x, x + w, y + h, y),
+                  interpolation="nearest")
+        if image.panelLabels:
+            fig.text(
+                x / W + labelshift[0], 1 - y / H - labelshift[1],
+                chr(ord('A') + i),
+                fontsize=fontsize * 1.2, va="top", color=fgcolor,
+                path_effects=outline)
+        if image.elementLabels:
+            fig.text(
+                (x + w) / W - labelshift[0], 1 - y / H - labelshift[1],
+                e.name, fontsize=fontsize, va="top", ha="right",
+                color=imcolors[eix],
+                path_effects=outline)
 
     mx, my = bw, bw
     if image.layout == Layouts.IL:
@@ -166,9 +131,16 @@ def compose_image(image: ImageSettings, savename=None):
     mext = (mx, mx + merged_w, my + merged_h, my)
     ax.imshow(merged, origin="lower", extent=mext,
               interpolation="nearest")
-    ax.add_patch(Rectangle(
-        (mx - bw//2, my - bw//2), merged_w + bw, merged_h + bw,
-        linewidth=bw, edgecolor=bc, facecolor="none"))
+    if image.panelLabels:
+        fig.text(
+            mx / W + labelshift[0], 1 - my / H - labelshift[1],
+            chr(ord('A') + len(elems)),
+            fontsize=fontsize * 1.2, va="top", color=fgcolor,
+            path_effects=outline)
+
+    # ax.add_patch(Rectangle(
+    #     (mx - bw//2, my - bw//2), merged_w + bw, merged_h + bw,
+    #     linewidth=bw, edgecolor=image.borderColor, facecolor="none"))
 
     if image.scalebar != Scalebars.NONE:
         mrect = np.array((mx + bw//2, my + bw//2,
@@ -193,12 +165,12 @@ def compose_image(image: ImageSettings, savename=None):
                 frameon=image.scalebarBgAlpha is not None,
                 scale_loc='bottom',
                 border_pad=.5,
-                font_properties={'size': (H * image.fontsize) / 500})
+                font_properties={'size': fontsize})
             m_ax.add_artist(scalebar)
 
     fig.canvas.draw()
     if savename is not None:
-        fig.savefig(savename)
+        fig.savefig(savename, facecolor=bgcolor)
     buf = np.asarray(fig.canvas.buffer_rgba()).copy()
     if buf.shape != (H, W, 4):
         print("Buffer size mismatch", buf.shape, (H, W, 4))

@@ -30,7 +30,7 @@
     <item>
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>0</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="dataTab">
        <attribute name="title">
@@ -335,6 +335,54 @@
        <attribute name="title">
         <string>Image analysis</string>
        </attribute>
+       <layout class="QHBoxLayout" name="horizontalLayout_6">
+        <item>
+         <widget class="QSplitter" name="analysisSplitter">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="handleWidth">
+           <number>8</number>
+          </property>
+          <property name="childrenCollapsible">
+           <bool>false</bool>
+          </property>
+          <widget class="QWidget" name="verticalLayoutWidget_3">
+           <layout class="QVBoxLayout" name="verticalLayout_7">
+            <item>
+             <widget class="QLabel" name="label_8">
+              <property name="text">
+               <string>Element selection</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="ElementListWidget" name="analysisList"/>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="horizontalLayout_8">
+              <item>
+               <widget class="QPushButton" name="clusterAnalyze">
+                <property name="text">
+                 <string>Analyze</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="clusterSomething">
+                <property name="text">
+                 <string>Options</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="napariWidget" native="true"/>
+         </widget>
+        </item>
+       </layout>
       </widget>
       <widget class="QWidget" name="silxTab">
        <attribute name="title">

@@ -85,7 +85,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.composeSettings.clicked.connect(imd.raise_)
         imd.buttonBox.clicked.connect(imd.hide)
         for n in ["ScalebarColor", "ScalebarBg", "ScalebarBgColor",
-                  "ResValue", "ResUnits", "Fontsize"]:
+                  "ResValue", "ResUnits", "Fontsize",
+                  "PanelLabels", "ElementLabels"]:
             n = "compose" + n
             self.__dict__[n] = imd.__dict__[n]
 
@@ -131,6 +132,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
         self.create_dataTab()
         self.create_analysisTab()
+        self.tabWidget.setCurrentIndex(0)
 
         # Groups to be searched/expanded after load
         self._h5GroupsToLoad = []
@@ -143,6 +145,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         if self.napviewer:
             self.napviewer.close()
 
+
     # All about the clustering tab
 
     def create_analysisTab(self):
@@ -154,8 +157,13 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 self.initialize_analysisTab()
         self.tabWidget.currentChanged.connect(tab_check)
 
+        split = self.analysisSplitter
+        # split.addWidget(treewidget)
+        # split.addWidget(self._dataPanel)
+        split.setStretchFactor(1, 3)
+
     def initialize_analysisTab(self):
-        "Actually initialize the data analysis tab"
+        "Initialize the data analysis tab; start Napari etc"
 
         viewer = napari.viewer.Viewer(show=False)
         viewer.theme = 'light'
@@ -184,13 +192,14 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
         hb = qt.QHBoxLayout()
         hb.setContentsMargins(0, 0, 0, 0)
-        hb.addLayout(dock, 0)
+        # hb.addLayout(dock, 0)
         hb.addWidget(self.napwidget, 1)
-        self.analysisTab.setLayout(hb)
+        # self.analysisTab.setLayout(hb)
+        self.napariWidget.setLayout(hb)
 
         # self.napworker = napari.qt.create_worker()
-        # dat = np.random.rand(10, 10)
-        # viewer.add_image(dat)
+        dat = np.random.rand(10, 10)
+        viewer.add_image(dat)
 
 
 
@@ -316,8 +325,10 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         im.setScalebarColors(
             self.composeScalebarColor.color(),
             self.composeScalebarBgColor.color(),
-            .6 if self.composeScalebarBg.isChecked() else None)
+            .5 if self.composeScalebarBg.isChecked() else None)
         im.setFontsize(self.composeFontsize.value())
+        im.setLabels(self.composePanelLabels.isChecked(),
+                     self.composeElementLabels.isChecked())
 
     def createImage(self, name):
         "Add the named composed image to the list of images (and display it?)"
@@ -367,13 +378,15 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self.composeResValue.setValue(im.resolution[0])
         with qt.QSignalBlocker(self.composeResUnits):
             self.composeResUnits.setCurrentText(im.resolution[1])
+        with qt.QSignalBlocker(self.composePanelLabels):
+            self.composePanelLabels.setChecked(im.panelLabels)
+        with qt.QSignalBlocker(self.composeElementLabels):
+            self.composeElementLabels.setChecked(im.elementLabels)
         with qt.QSignalBlocker(self.imageHeaderBox):
             self.imageHeaderBox.setColor(im.borderColor)
             self.imageHeaderBox.border.setValue(im.borderWidth)
         self.updatePickerColors()
-        # for wh in range(2):
-        #     with qt.QSignalBlocker(self.composeSize[wh]):
-        #         self.composeSize[wh].setValue(im.pdfSize[wh])
+
         # Find the corrent index for each dropdown
         for i, box in enumerate(self.imageElementBoxes):
             ix = 0
@@ -536,7 +549,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         def im_element_ch(elementnum, index):
             "An image-element dropdown selection changed"
             if im := self.currentImage:
-                box = self.imageElementBoxes[elementnum + 1]
+                box = self.imageElementBoxes[elementnum]
                 if index == 0: # Unset?
                     im.setElement(elementnum, None)
                 else:
@@ -653,6 +666,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.composeFontsize.valueChanged.connect(scalebar_ch)
         self.composeResValue.valueChanged.connect(scalebar_ch)
         self.composeResUnits.currentIndexChanged.connect(scalebar_ch)
+        self.composePanelLabels.toggled.connect(scalebar_ch)
+        self.composeElementLabels.toggled.connect(scalebar_ch)
 
 
         def sel_img(curr, prev):
@@ -667,12 +682,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         #     if self.tabWidget.currentWidget() == self.composeTab:
         #         self.updateComposeTab()
         # self.tabWidget.currentChanged.connect(tab_check)
-
-        # def pdf_wh_ch(wh):
-        #     if im := self.currentImage:
-        #         im.setSize(wh, self.composeSize[wh].value())
-        # self.composeSize = (self.composeWidth, self.composeHeight)
-        # self.composeWidth.valueChanged.connect(pdf_wh_ch)
 
         def save_im():
             im = self.currentImage
@@ -1026,13 +1035,13 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         lastgroup = None
         for startgroup in self._h5GroupsToLoad:
             fname = startgroup.file.filename
-            print("Load",fname)
+            # print("Load",fname)
             if fname not in self.fileSettings:
                 self.fileSettings[fname] = FileSettings(fname, startgroup.file)
-                print("First loaded", fname)
+                # print("First loaded", fname)
             elif self.fileSettings[fname].h5file is None:
                 self.fileSettings[fname].set_h5file(startgroup.file)
-                print("reloaded", fname)
+                # print("reloaded", fname)
             else:
                 print("Warning: opened already opened file", fname)
                 continue
