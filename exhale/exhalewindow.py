@@ -84,8 +84,10 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.composeSettings.clicked.connect(imd.show)
         self.composeSettings.clicked.connect(imd.raise_)
         imd.buttonBox.clicked.connect(imd.hide)
+        # Make all the things in imageDialog available in self since it's
+        # only an UI detail that they're offloaded to a dialog.
         for n in ["ScalebarColor", "ScalebarBg", "ScalebarBgColor",
-                  "ResValue", "ResUnits", "Fontsize",
+                  "ResValue", "ResUnits", "Fontsize", "DPI",
                   "PanelLabels", "ElementLabels"]:
             n = "compose" + n
             self.__dict__[n] = imd.__dict__[n]
@@ -129,6 +131,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.currentElement = None # ElementSettings
         self.imageSettings = {} # id -> ImageSettings
         self.currentImage = None # ImageSettings
+        self._composeMeta = None # Mouseover coordinate mapping
 
         self.create_dataTab()
         self.create_analysisTab()
@@ -233,6 +236,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         for box in self.imageElementBoxes:
             box.setWidgetsEnabled(enabled)
 
+
     def setElementControlsEnabled(self, enabled : bool):
         "Enable/disable inputs that are relevant to elementsettings"
         self.elementName.setEnabled(enabled)
@@ -303,6 +307,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         # Replace any other image
         self.elementPlot.addImage(es.transformedData(), legend='e',
                                   replace=True, copy=False)
+        self._composeMeta = None
 
     def editElement(self, elementpath):
         "Big UI update when an element is selected for editing"
@@ -327,6 +332,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self.composeScalebarBgColor.color(),
             .5 if self.composeScalebarBg.isChecked() else None)
         im.setFontsize(self.composeFontsize.value())
+        im.setDPI(self.composeDPI.value())
         im.setLabels(self.composePanelLabels.isChecked(),
                      self.composeElementLabels.isChecked())
 
@@ -342,7 +348,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         "Recompute and replace/draw the composed image"
         if im := self.currentImage:
             assert self.currentElement is None
-            plot_composed_image(self.elementPlot, im)
+            # Remember the coordinate mapping for mouseover
+            self._composeMeta = plot_composed_image(self.elementPlot, im)
 
     def updatePickerColors(self):
         "Update the image element color pickers from the current image"
@@ -374,6 +381,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self.composeScalebarBg.setChecked(im.scalebarBgAlpha is not None)
         with qt.QSignalBlocker(self.composeFontsize):
             self.composeFontsize.setValue(im.fontsize)
+        with qt.QSignalBlocker(self.composeDPI):
+            self.composeDPI.setValue(im.dpi)
         with qt.QSignalBlocker(self.composeResValue):
             self.composeResValue.setValue(im.resolution[0])
         with qt.QSignalBlocker(self.composeResUnits):
@@ -669,7 +678,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.composePanelLabels.toggled.connect(scalebar_ch)
         self.composeElementLabels.toggled.connect(scalebar_ch)
 
-
         def sel_img(curr, prev):
             "Active image changed"
             if curr is not None:
@@ -677,6 +685,28 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                     curr.data(ImageListWidget.IMG_NUM_ROLE))
                 im_element_show(-1)
         self.imageList.currentItemChanged.connect(sel_img)
+
+        def mouse_over_plot(x, y):
+            meta = self._composeMeta
+            im = self.currentImage
+            if meta is None or im is None:
+                return
+            mx, my, mwp, mhp = meta["merged_rect"]
+            mh, mw = meta["merged_shape"]
+            if not (mx <= x < mx + mwp and my <= y < my + mhp):
+                qt.QToolTip.hideText()
+                return
+            ix = int((x - mx) * mw / mwp)
+            iy = int((y - my) * mh / mhp)
+            info = f"Pos ({ix}, {iy}):\n" + "\n".join(
+                [f"{el.name}: {el.data[iy, ix]:.4g}"
+                 for el in im.elements.values()
+                 if iy < el.data.shape[0] and ix < el.data.shape[1]])
+            qt.QToolTip.showText(qt.QCursor.pos(), info, self.elementPlot)
+        def compose_mouse_check(event):
+            if event["event"] == "mouseMoved":
+                mouse_over_plot(event["x"], event["y"])
+        self.elementPlot.sigPlotSignal.connect(compose_mouse_check)
 
         # def tab_check():
         #     if self.tabWidget.currentWidget() == self.composeTab:
@@ -734,7 +764,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                         combo.addItem(self.elementSettings[path].name,
                                       userData=path)
         el.model().dataChanged.connect(sync_settings_and_compose)
-        # el.model().rowsRemoved.connect(sync_settings_and_compose)
 
         # Set everything up before creating the initial image
         # Don't call createImage because we want the default values this once.
@@ -742,7 +771,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.imageSettings[1] = im
         with qt.QSignalBlocker(self.imageList):
             self.imageList.addImage(1, im)
-        # self.createImage()
 
 
     ## Begin Silx viewer stuff

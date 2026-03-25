@@ -10,6 +10,9 @@ from silx.gui.plot import PlotWidget
 from silx.gui import qt
 import silx.gui
 import numpy as np
+from pathlib import Path
+from PIL import Image
+import numpy as np
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -39,7 +42,7 @@ def merged_image(image : ImageSettings):
     return merged / maxcolor
 
 
-def compose_image(image: ImageSettings, savename=None):
+def compose_image(image: ImageSettings, savename=None, return_geometry=False):
     """
     Compose image and return an RGBA uint8 array with exact pixel size.
     """
@@ -88,8 +91,9 @@ def compose_image(image: ImageSettings, savename=None):
 
     bgcolor = image.borderColor
     fgcolor = 1 - np.array(bgcolor)
-    dpi = image.dpi
-    fig = plt.Figure((W / dpi, H / dpi), dpi=dpi, facecolor=bgcolor)
+    screen_dpi = 100
+    fig = plt.Figure((W / screen_dpi, H / screen_dpi), dpi=screen_dpi,
+                     facecolor=bgcolor)
     fig.set_canvas(FigureCanvasAgg(fig))
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_xlim(0, W)
@@ -143,8 +147,9 @@ def compose_image(image: ImageSettings, savename=None):
     #     linewidth=bw, edgecolor=image.borderColor, facecolor="none"))
 
     if image.scalebar != Scalebars.NONE:
-        mrect = np.array((mx + bw//2, my + bw//2,
-                          merged_w - bw, merged_h - bw)) / (W, H, W, H)
+        # mrect = np.array((mx + bw//2, my + bw//2,
+        #                   merged_w - bw, merged_h - bw)) / (W, H, W, H)
+        mrect = np.array((mx, my, merged_w, merged_h)) / (W, H, W, H)
         m_ax = fig.add_axes(mrect)
         m_ax.set_xlim(0, merged_w)
         m_ax.set_ylim(merged_h, 0)
@@ -157,7 +162,7 @@ def compose_image(image: ImageSettings, savename=None):
         dx, units = image.resolution
         if dx is not None and dx > 0 and units != "None":
             scalebar = ScaleBar(
-                dx=dx * mscale, units=units,
+                dx=dx/mscale, units=units,
                 location=mlocs[image.scalebar],
                 color=image.scalebarColor,
                 box_color=image.scalebarBgColor,
@@ -169,16 +174,32 @@ def compose_image(image: ImageSettings, savename=None):
             m_ax.add_artist(scalebar)
 
     fig.canvas.draw()
-    if savename is not None:
-        fig.savefig(savename, facecolor=bgcolor)
     buf = np.asarray(fig.canvas.buffer_rgba()).copy()
-    if buf.shape != (H, W, 4):
-        print("Buffer size mismatch", buf.shape, (H, W, 4))
+
     if savename is not None:
-        from PIL import Image
+        ext = Path(savename).suffix.lower()
         img = Image.fromarray(buf, mode="RGBA")
-        img.save(savename+"_buf.png")
-    # plt.close(fig)
+
+        if ext == ".png":
+            img.save(savename)
+        elif ext == ".pdf":
+            # Flatten alpha onto the chosen background first
+            bg = tuple(int(255 * c) for c in image.borderColor)
+            flat = Image.new("RGB", img.size, bg)
+            flat.paste(img, mask=img.getchannel("A"))
+            flat.save(savename, resolution=float(image.dpi))
+        else:
+            # fallback for other raster formats
+            img.save(savename)
+        # No longer used:
+        # fig.savefig(savename, facecolor=bgcolor)
+
+    if return_geometry:
+        geom = {
+            "merged_rect": (mx, my, merged_w, merged_h),
+            "merged_shape": (mh, mw),
+        }
+        return buf, geom
     return buf
 
 
@@ -187,7 +208,8 @@ def plot_composed_image(plot: PlotWidget, image: ImageSettings):
     plot.clear()
     if not image.elements:
         return
-    rgba = compose_image(image)
+    rgba, geometry = compose_image(image, return_geometry=True)
     plot.addImage(rgba[::-1], origin=(0, 0), scale=(1, 1),
                   legend="c", copy=False, replace=True)
     plot.setLimits(0, rgba.shape[1], 0, rgba.shape[0])
+    return geometry

@@ -106,7 +106,7 @@ class ImageSettings:
         self.colorscheme = Colorschemes.RGB
         self.customColors = None
         self.elements = {} # position -> ElementSettings
-        self.dpi = 100
+        self.dpi = 300
         self.clipColors = True # Hard clip of RGB or rescale by theor. max
         self.resolution = [100, "nm"]
         # self.pdfSize = [10., 10.]
@@ -172,6 +172,9 @@ class ImageSettings:
 
     def setFontsize(self, size):
         self.fontsize = size
+
+    def setDPI(self, dpi):
+        self.dpi = dpi
 
     def setLabels(self, panelLabels, elementLabels):
         self.panelLabels = panelLabels
