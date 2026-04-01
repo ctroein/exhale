@@ -36,7 +36,8 @@ class ElementChannel:
     # ------------------------------------------------------------------
 
     def process(self, min_k: int = 3, max_k: int = 5, n_init: int = 100,
-                max_cluster_size: int = 10_000, min_area: int = 1) -> "ElementChannel":
+                max_cluster_size: int = 10_000, min_area: int = 1,
+                callback = print) -> "ElementChannel":
         """
         Run the full processing pipeline:
           1. Log-transform the raw image.
@@ -58,7 +59,7 @@ class ElementChannel:
         -------
         self  (allows chaining: channel.process().cluster_df)
         """
-        print("EC lt", self.name)
+        callback(f"Processing {self.name}")
         self.log_image = xu.log_transform(self.raw)
         print(" foc")
         n_clusters = xu.find_optimal_k(self.log_image, min_k, max_k, n_init)

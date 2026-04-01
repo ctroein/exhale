@@ -7,6 +7,8 @@ Created on Tue Jan 30 22:33:00 2024
 """
 
 import os
+os.environ.setdefault("QT_OPENGL", "software")
+os.environ.setdefault("VISPY_GL_DEBUG", "0")
 import sys
 import traceback
 # import collections
@@ -37,6 +39,7 @@ from .listwidgets import ElementListWidget, ImageListWidget
 from .imagecomposer import ImageComposer
 from .analysisutils import xrf_analysis, show_sample_in_napari
 
+_LOAD_NAPARI_EARLY = True
 
 resdir = importlib.resources.files("exhale").joinpath("resources")
 # Rebuild UI code on the fly; useful while developing
@@ -161,6 +164,9 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         # split.addWidget(treewidget)
         # split.addWidget(self._dataPanel)
         split.setStretchFactor(1, 3)
+
+        if _LOAD_NAPARI_EARLY:
+            self.initialize_analysisTab()
 
     def initialize_analysisTab(self):
         "Initialize the data analysis tab; start Napari etc"
@@ -1249,12 +1255,15 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
     @classmethod
     def run_application(windowclass, parser=None, parameters=[],
                         isChild=False):
-        try:
-            import pyi_splash
-            # Update the text on the splash screen
-            pyi_splash.update_text(f"Initializing EXHALE {exhale_version}")
-        except:
-            ...
+        pyi_splash = None
+        if "_PYI_SPLASH_IPC" in os.environ:
+            try:
+                import pyi_splash
+                # Update the text on the splash screen
+                pyi_splash.update_text(f"Initializing EXHALE {exhale_version}")
+            except:
+                print("Warning: pyi_splash failed")
+                ...
 
         signal.signal(signal.SIGINT, signal.SIG_DFL)
         res = 1
@@ -1275,6 +1284,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
             app = QApplication.instance()
             if not app:
+                QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True)
                 app = QApplication(sys.argv)
             app.setWindowIcon(qt.QIcon(str(resdir.joinpath("lungs.ico"))))
             window = windowclass()
@@ -1295,10 +1305,11 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         except Exception:
             traceback.print_exc()
             print('Press enter to quit')
-            try:
-                pyi_splash.close()
-            except:
-                ...
+            if pyi_splash is not None:
+                try:
+                    pyi_splash.close()
+                except:
+                    pass
             input()
         if not isChild :
             sys.exit(res)
