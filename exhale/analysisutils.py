@@ -19,10 +19,10 @@ def init_libs():
     # import exhale.resources
     # os.chdir(next(iter(exhale.resources.__path__)))
     from .xrf_refcopy import xrf_utils
-    xrf_utils.load_model(basedir=importlib.resources.files(
-        "exhale").joinpath("resources"))
+    xrf_utils.set_model_basedir(
+        importlib.resources.files("exhale").joinpath("resources"))
     # os.chdir(_cwd)
-    assert xrf_utils.model
+    # assert xrf_utils.model
 
 def xrf_analysis(nuclei_data: ElementSettings, tissue_data: ElementSettings,
                  elements: list, callback=print):

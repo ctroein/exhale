@@ -19,7 +19,9 @@ from csbdeep.utils import normalize
 import tensorflow as tf
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
-model = None
+_model = None
+_model_basedir = '.'
+
 # =============================================================================
 # Image transformation
 # =============================================================================
@@ -50,13 +52,20 @@ def log_transform(img: np.ndarray) -> np.ndarray:
 # Label / mask operations
 # =============================================================================
 
-def load_model(basedir='.'):
-    global model
-    if model is None:
-        model = StarDist2D(None, '2D_versatile_fluo_copy', basedir=basedir)
+def set_model_basedir(path):
+    global _model, _model_basedir
+    if _model is not None and path != _model_basedir:
+        raise RuntimeError("Model already loaded")
+    _model_basedir = path
+
+def load_model():
+    global _model
+    if _model is None:
+        _model = StarDist2D(
+            None, '2D_versatile_fluo_copy', basedir=_model_basedir)
 
 def segment_nuclei(img_nuclei):
-    load_model()
+    model = load_model()
     # Run deep learning segmentation model on nuclei channel
     labels, _ = model.predict_instances(normalize(img_nuclei)) #labels, flows, styles = model.eval(img_nuclei, diameter=None, channels=[0,0]) #
     return labels
