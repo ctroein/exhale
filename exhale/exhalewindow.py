@@ -34,11 +34,9 @@ from .filesettings import FileSettings
 from .appversion import exhale_version
 from .listwidgets import ImageElementBox, ImageHeaderBox
 from .listwidgets import ElementListWidget, ImageListWidget
-from .imagecomposer import compose_image, plot_composed_image
+from .imagecomposer import ImageComposer
+from .analysisutils import xrf_analysis, show_sample_in_napari
 
-import napari
-# from napari.qt import QtViewer
-from .cluster_analysis.xrf_interface import XrfViewer
 
 resdir = importlib.resources.files("exhale").joinpath("resources")
 # Rebuild UI code on the fly; useful while developing
@@ -131,7 +129,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.currentElement = None # ElementSettings
         self.imageSettings = {} # id -> ImageSettings
         self.currentImage = None # ImageSettings
-        self._composeMeta = None # Mouseover coordinate mapping
 
         self.create_dataTab()
         self.create_analysisTab()
@@ -168,41 +165,128 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
     def initialize_analysisTab(self):
         "Initialize the data analysis tab; start Napari etc"
 
+        self.currentXRFSample = None
+
+        import napari
+        # from napari.qt import QtViewer
         viewer = napari.viewer.Viewer(show=False)
         viewer.theme = 'light'
         self.napviewer = viewer
         self.napwidget = napari.qt.QtViewer(viewer)
 
-        self.xrf_viewer = XrfViewer(self, viewer)
-
-        dock = qt.QVBoxLayout()
-        dock.addWidget(qt.QLabel("XRF Analysis"))
-        abut = qt.QPushButton("Analyze element maps")
-        def abut_txt():
-            analyzed = self.xrf_viewer.image_dict.keys()
-            n = len(self.selectedElements.difference(analyzed))
-            abut.setText(f"Analyze {n} element maps")
-        dock.addWidget(abut, 0)
-        self.selectedElementsChanged.connect(abut_txt)
-        def analyze():
-            analyzed = self.xrf_viewer.image_dict.keys()
-            new = self.selectedElements.difference(analyzed)
-            for path in new:
-                self.xrf_viewer.run_analysis(
-                    path, self.elementSettings[path].data)
-        abut.clicked.connect(analyze)
-        dock.addStretch()
-
         hb = qt.QHBoxLayout()
         hb.setContentsMargins(0, 0, 0, 0)
-        # hb.addLayout(dock, 0)
         hb.addWidget(self.napwidget, 1)
-        # self.analysisTab.setLayout(hb)
         self.napariWidget.setLayout(hb)
 
-        # self.napworker = napari.qt.create_worker()
-        dat = np.random.rand(10, 10)
-        viewer.add_image(dat)
+        dds = (self.analysisChNuclei, self.analysisChTissue)
+        def update_dd():
+            "Update the comboboxes for nuclei/tissue"
+            for dd in dds:
+                ddpath = dd.currentData()
+                with qt.QSignalBlocker(dd):
+                    dd.clear()
+                    dd.addItem("None", None)
+                    paths = self.selectedElements
+                    for path in paths:
+                        es = self.elementSettings[path]
+                        dd.addItem(es.name, userData=path)
+                    # Restore previous selections if still present
+                    for i in range(dd.count()):
+                        if dd.itemData(i) == ddpath:
+                            dd.setCurrentIndex(i)
+        self.selectedElementsChanged.connect(update_dd)
+        update_dd()
+
+        # # Set up tooltip
+        # naptt = qt.QLabel(self.napviewer.window.qt_viewer.parent())
+        # naptt.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        # naptt.setAttribute(Qt.WA_ShowWithoutActivating)
+        # naptt.setStyleSheet(
+        #     "background:white; border:1px solid black; color:black; padding:5px;"
+        # )
+        # naptt.setSizePolicy(qt.QSizePolicy.Preferred, qt.QSizePolicy.Preferred)
+        # naptt.hide()
+        # self._napTooltip = naptt
+
+        def rebuild_layer_toggles():
+            while self.analysisLayerBox.count():
+                item = self.analysisLayerBox.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
+
+            for layer in self.napviewer.layers:
+                cb = qt.QCheckBox(layer.name)
+                cb.setChecked(layer.visible)
+                cb.toggled.connect(lambda checked, lyr=layer:
+                                   setattr(lyr, "visible", checked))
+                self.analysisLayerBox.addWidget(cb)
+            self.analysisLayerBox.addStretch()
+
+        from time import strftime
+        def analysis_callback(msg):
+            self.analysisStatus.appendPlainText(strftime("[%T] ") + msg)
+
+        global xrfsamp
+        def run_analysis():
+            ddpaths = [dd.currentData() for dd in dds]
+            element_paths = [p for p in self.selectedElements
+                             if p not in ddpaths]
+            if None in ddpaths:
+                self.errorMsg.showMessage(
+                    "Select channels for nuclei and tissue first.")
+                return
+            if ddpaths[0] == ddpaths[1]:
+                self.errorMsg.showMessage(
+                    "Nuclei and tissue channels must differ.")
+                return
+            # if not element_paths:
+            #     self.errorMsg.showMessage("At least one element is needed "
+            #                               "in addition to nuclei and tissue.")
+            #     return
+            self.analysisStatus.clear()
+            self.currentXRFSample = xrf_analysis(
+                *(self.elementSettings[ddp] for ddp in ddpaths),
+                [self.elementSettings[ep] for ep in element_paths],
+                callback=analysis_callback)
+            show_sample_in_napari(self.currentXRFSample, self.napviewer,
+                                  self.napwidget)
+            rebuild_layer_toggles()
+
+        self.clusterAnalyze.pressed.connect(run_analysis)
+
+
+        # self.xrf_viewer = XrfViewer(self, viewer)
+
+        # dock = qt.QVBoxLayout()
+        # dock.addWidget(qt.QLabel("XRF Analysis"))
+        # abut = qt.QPushButton("Analyze element maps")
+        # def abut_txt():
+        #     analyzed = self.xrf_viewer.image_dict.keys()
+        #     n = len(self.selectedElements.difference(analyzed))
+        #     abut.setText(f"Analyze {n} element maps")
+        # dock.addWidget(abut, 0)
+        # self.selectedElementsChanged.connect(abut_txt)
+        # def analyze():
+        #     analyzed = self.xrf_viewer.image_dict.keys()
+        #     new = self.selectedElements.difference(analyzed)
+        #     for path in new:
+        #         self.xrf_viewer.run_analysis(
+        #             path, self.elementSettings[path].data)
+        # abut.clicked.connect(analyze)
+        # dock.addStretch()
+
+        # hb = qt.QHBoxLayout()
+        # hb.setContentsMargins(0, 0, 0, 0)
+        # # hb.addLayout(dock, 0)
+        # hb.addWidget(self.napwidget, 1)
+        # # self.analysisTab.setLayout(hb)
+        # self.napariWidget.setLayout(hb)
+
+        # # self.napworker = napari.qt.create_worker()
+        # dat = np.random.rand(10, 10)
+        # viewer.add_image(dat)
 
 
 
@@ -348,8 +432,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         "Recompute and replace/draw the composed image"
         if im := self.currentImage:
             assert self.currentElement is None
-            # Remember the coordinate mapping for mouseover
-            self._composeMeta = plot_composed_image(self.elementPlot, im)
+            self.imageComposer.plot_composed_image(self.elementPlot, im)
 
     def updatePickerColors(self):
         "Update the image element color pickers from the current image"
@@ -686,27 +769,24 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 im_element_show(-1)
         self.imageList.currentItemChanged.connect(sel_img)
 
-        def mouse_over_plot(x, y):
-            meta = self._composeMeta
-            im = self.currentImage
-            if meta is None or im is None:
-                return
-            mx, my, mwp, mhp = meta["merged_rect"]
-            mh, mw = meta["merged_shape"]
-            if not (mx <= x < mx + mwp and my <= y < my + mhp):
-                qt.QToolTip.hideText()
-                return
-            ix = int((x - mx) * mw / mwp)
-            iy = int((y - my) * mh / mhp)
-            info = f"Pos ({ix}, {iy}):\n" + "\n".join(
-                [f"{el.name}: {el.data[iy, ix]:.4g}"
-                 for el in im.elements.values()
-                 if iy < el.data.shape[0] and ix < el.data.shape[1]])
-            qt.QToolTip.showText(qt.QCursor.pos(), info, self.elementPlot)
-        def compose_mouse_check(event):
+        self.imageComposer = ImageComposer()
+        def mouse_over_plot(event):
             if event["event"] == "mouseMoved":
-                mouse_over_plot(event["x"], event["y"])
-        self.elementPlot.sigPlotSignal.connect(compose_mouse_check)
+                if not (im := self.currentImage):
+                    return
+                ixy = self.imageComposer.map_coordinates(
+                    self.elementPlot, event["x"], event["y"])
+                if ixy is None:
+                    qt.QToolTip.hideText()
+                    return
+                ix, iy = ixy
+                info = f"Pos ({ix}, {iy}):\n" + "\n".join(
+                    [f"{el.name}: {el.data[iy, ix]:.4g}"
+                     for el in im.elements.values()
+                     if iy < el.data.shape[0] and ix < el.data.shape[1]])
+                qt.QToolTip.showText(
+                    qt.QCursor.pos(), info, self.elementPlot)
+        self.elementPlot.sigPlotSignal.connect(mouse_over_plot)
 
         # def tab_check():
         #     if self.tabWidget.currentWidget() == self.composeTab:
@@ -714,23 +794,15 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         # self.tabWidget.currentChanged.connect(tab_check)
 
         def save_im():
-            im = self.currentImage
-            if not im:
+            if not (im := self.currentImage):
                 return
-            filters = []
-            filters.append("PNG (*.png)")
-            filters.append("PDF (*.pdf)")
-            filters.append("Postscript (*.ps *.eps)")
-            filters.append("TIFF (*.tif *.tiff)")
-            filters.append("SVG (*.svg)")
-            filters.append("JPEG (*.jpg *.jpeg)")
-            filters.append("All files (*)")
+            filters = ImageComposer.get_format_filters()
             filename = self.askFileName(
                 title="Save composed image", filter=";;".join(filters),
                 settingname="ImageDir", save=True,
                 defaultfilename=im.name+".png")
             if filename is not None:
-                compose_image(im, filename)
+                self.imageComposer.compose_image(im, filename)
         self.composeSave.clicked.connect(save_im)
 
         def sync_settings_and_compose():

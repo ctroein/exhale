@@ -108,7 +108,7 @@ class ImageSettings:
         self.elements = {} # position -> ElementSettings
         self.dpi = 300
         self.clipColors = True # Hard clip of RGB or rescale by theor. max
-        self.resolution = [100, "nm"]
+        self.resolution = [200, "nm"]
         # self.pdfSize = [10., 10.]
         # self.pdfKeepDim = 0 # keep width(0) or height(1) when aspect changes
         # self._mergedImage = None
