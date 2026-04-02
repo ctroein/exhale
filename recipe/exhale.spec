@@ -32,7 +32,8 @@ a = Analysis(
     hookspath=[join(BUNDLE_ROOT, 'hooks'),
         join(dirname(sys.argv[0]), 'hooks')],
     excludes=[
-        'FixTk', 'tcl', 'tk', '_tkinter', 'tkinter', 'Tkinter',
+#        'FixTk', 'tcl', 'tk', '_tkinter', 'tkinter', 'Tkinter',
+        'FixTk', '_tkinter', 'Tkinter',
         'torch', 'tensorflow', 'nvidia', 'hdf5plugin',
         'pyarrow', 'babel', 'yapf_third_party', 'zmq', 'astroid',
         'sphinx', 'jedi', 'black', 'pycodestype',
