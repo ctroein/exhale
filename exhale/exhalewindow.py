@@ -175,10 +175,13 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
         import napari
         # from napari.qt import QtViewer
-        viewer = napari.viewer.Viewer(show=False)
+        # viewer = napari.viewer.Viewer(show=False)
+        viewer = napari.Viewer(show=False)
+        viewer.add_image(np.zeros((32, 32), dtype=np.float32), name="test")
         viewer.theme = 'light'
         self.napviewer = viewer
-        self.napwidget = napari.qt.QtViewer(viewer)
+        self.napwidget = viewer.window.qt_viewer
+        # self.napwidget = napari.qt.QtViewer(viewer)
 
         hb = qt.QHBoxLayout()
         hb.setContentsMargins(0, 0, 0, 0)
