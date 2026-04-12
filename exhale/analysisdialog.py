@@ -35,7 +35,7 @@ class Ui_AnalysisDialog(object):
         self.clusterMaxK.setMinimum(1)
         self.clusterMaxK.setMaximum(999)
         self.clusterMaxK.setStepType(QtWidgets.QAbstractSpinBox.AdaptiveDecimalStepType)
-        self.clusterMaxK.setProperty("value", 25)
+        self.clusterMaxK.setProperty("value", 3)
         self.clusterMaxK.setObjectName("clusterMaxK")
         self.horizontalLayout_6.addWidget(self.clusterMaxK)
         self.horizontalLayout_6.setStretch(0, 1)

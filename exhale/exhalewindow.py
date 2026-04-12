@@ -38,6 +38,7 @@ from .appversion import exhale_version
 from .listwidgets import ImageElementBox, ImageHeaderBox
 from .listwidgets import ElementListWidget, ImageListWidget
 from .imagecomposer import ImageComposer
+from .analysisworker import AnalysisWorker
 
 _LOAD_NAPARI_EARLY = True
 
@@ -162,7 +163,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.imageDialog.close()
         if self._analysisWorker is not None:
             self._analysisWorker.abort()
-            self._analysisThread.quit()
+            self._analysisThread.wait()
 
     def cleanup(self):
         "Some last-second cleanup so we can exit cleanly"
@@ -179,6 +180,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         "Prepare data analysis tab with Napari viewer"
         self.naparihelper = None
         self._analysisWorker = None
+        self._analysisThread = None
 
         if _LOAD_NAPARI_EARLY:
             self.initialize_analysisTab()
@@ -191,8 +193,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
     def initialize_analysisTab(self):
         "Initialize the data analysis tab; start Napari etc"
-
-        from .analysisutils import NapariHelper
+        print("init atab")
+        from .naparihelper import NapariHelper
         self.naparihelper = NapariHelper()
 
         self.analysisSplitter.setSizes([100, 500, 150])
@@ -317,7 +319,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                            for row in range(self.analysisElements.count()))
                 if it.checkState() == Qt.CheckState.Checked]
 
-            from .analysisutils import AnalysisWorker
             thread = qt.QThread(self)
             worker = AnalysisWorker(
                 *(self.elementSettings[ddp] for ddp in ddpaths),
@@ -332,23 +333,21 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
             def worker_cleanup():
                 self._analysisWorker.deleteLater()
-                # del self._analysisWorker
                 self._analysisWorker = None
-                self._analysisThread.quit()
+                # self._analysisThread.quit()
                 self._analysisThread = None
-                # thread.quit()
                 set_analysis_busy(False)
 
-            self._ranbefore=0
+            @qt.Slot()
             def on_finished(sample):
                 append_status("Rendering results")
-                if not self._ranbefore:
-                    self.naparihelper.set_sample(sample)
-                    self._ranbefore=True
+                self.naparihelper.set_sample(sample)
                 rebuild_layer_toggles()
+                self._analysisThread = thread
                 append_status("Done")
                 worker_cleanup()
 
+            @qt.Slot()
             def on_failed(details):
                 if details == "":
                     append_status("Interrupted")
@@ -361,12 +360,12 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             worker.finished.connect(on_finished)
             worker.failed.connect(on_failed)
             thread.started.connect(worker.run)
-            thread.finished.connect(worker.deleteLater)
+            # thread.finished.connect(worker.deleteLater)
             thread.finished.connect(thread.deleteLater)
             thread.destroyed.connect(lambda: print("Thread object deleted"))
             worker.destroyed.connect(lambda: print("Worker deleted"))
-            self._analysisThread = thread
             self._analysisWorker = worker
+            self._analysisThread = thread
             thread.start()
         self.analysisRun.pressed.connect(run_analysis)
 
