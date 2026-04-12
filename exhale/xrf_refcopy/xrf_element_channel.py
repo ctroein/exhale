@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 from . import xrf_utils as xu
+from collections.abc import Callable
+
 #import xrf_clustering as xc
 
 class ElementChannel:
@@ -37,7 +39,8 @@ class ElementChannel:
 
     def process(self, min_k: int = 3, max_k: int = 5, n_init: int = 100,
                 max_cluster_size: int = 10_000, min_area: int = 1,
-                callback = print) -> "ElementChannel":
+                callback: Callable[[str], None] = None
+                ) -> "ElementChannel":
         """
         Run the full processing pipeline:
           1. Log-transform the raw image.
@@ -59,16 +62,18 @@ class ElementChannel:
         -------
         self  (allows chaining: channel.process().cluster_df)
         """
-        callback(f"Processing {self.name}")
+        if callback is None:
+            callback = lambda x: None
+
+        callback(f"Processing element {self.name}")
         self.log_image = xu.log_transform(self.raw)
-        print(" foc")
-        n_clusters = xu.find_optimal_k(self.log_image, min_k, max_k, n_init)
-        print(" rp")
+        n_clusters = xu.find_optimal_k(self.log_image, min_k, max_k, n_init,
+                                       callback=callback)
         self.cluster_labels, self.cluster_df = self._run_pipeline(
             self.log_image, n_clusters, self.raw,
-            max_cluster_size=max_cluster_size, min_area=min_area
+            max_cluster_size=max_cluster_size, min_area=min_area,
+            callback=callback
         )
-        print(" done")
         self._processed = True
         return self
 
@@ -82,16 +87,16 @@ class ElementChannel:
 
     def _run_pipeline(self, log_img: np.ndarray, n_clusters: int,
                       raw_img: np.ndarray, max_cluster_size: int,
-                      min_area: int) -> tuple[np.ndarray, pd.DataFrame]:
-        print("  km")
+                      min_area: int,
+                      callback: Callable[[str], None]
+                      ) -> tuple[np.ndarray, pd.DataFrame]:
+        callback("Running K-means")
         k_labels = xu.run_kmeans(log_img, n_clusters)
-        print("  xscm")
+        callback("Extracting masks")
         mask = xu.extract_small_cluster_mask(k_labels, max_cluster_size)
-        print("  bsi")
+        callback("Building segmented image")
         segmented = xu.build_segmented_image(log_img.shape, mask)
-        print("  crp")
         labels, df = xu.compute_region_properties(segmented, raw_img, min_area)
-        print("  dfl")
         cluster_labels = xu.draw_filtered_labels(labels, df)
         return cluster_labels, df
 

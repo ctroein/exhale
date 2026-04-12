@@ -13,6 +13,7 @@ from skimage import measure
 from skimage.segmentation import expand_labels
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
+from collections.abc import Callable
 
 from stardist.models import StarDist2D
 from csbdeep.utils import normalize
@@ -216,7 +217,8 @@ def compute_region_properties(segmented: np.ndarray, intensity: np.ndarray,
 # =============================================================================
 
 def find_optimal_k(X: np.ndarray, min_k: int = 2, max_k: int = 8,
-                   n_init: int = 100) -> int:
+                   n_init: int = 100,
+                   callback: Callable[[str], None] = None) -> int:
     """
     Find the number of KMeans clusters in [min_k, max_k] that maximises
     the silhouette score on a flattened image.
@@ -238,6 +240,8 @@ def find_optimal_k(X: np.ndarray, min_k: int = 2, max_k: int = 8,
     #X = img.reshape(-1, 1)
     best_score, best_k = -1, min_k
     for k in range(min_k, max_k + 1):
+        if callback is not None:
+            callback(f"Running K-means, k={k}")
         labels = KMeans(
             n_clusters=k, init='k-means++', max_iter=25, n_init=n_init
         ).fit_predict(X)

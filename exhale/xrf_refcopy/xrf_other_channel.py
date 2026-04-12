@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 from skimage import measure
+from collections.abc import Callable
+
 from . import xrf_utils as xu
 
 
@@ -36,8 +38,8 @@ class NucleiChannel:
     # Public API
     # ------------------------------------------------------------------
 
-    def process(self, expansion_px: int = 15,
-                min_area: int = 100) -> "NucleiChannel":
+    def process(self, expansion_px: int = 15, min_area: int = 100,
+                callback: Callable[[str], None] = None) -> "NucleiChannel":
         """
         Run the full nuclei processing pipeline:
           1. Normalise raw image.
@@ -51,21 +53,23 @@ class NucleiChannel:
             How many pixels to expand each nucleus outward to define the membrane ring.
         min_area : int
             Minimum nucleus area in pixels to retain.
+        callback : function
 
         Returns
         -------
         self
         """
+        if callback is None:
+            callback = lambda x: None
         normalised = self._normalise(self.raw)
-        print("NC sn")
+        callback("Segmenting nuclei")
         raw_labels = xu.segment_nuclei(normalised)
-        print(" fn")
+        callback("Filtering nuclei")
         self.nuclei_labels = self._filter_nuclei(raw_labels, self.raw, min_area)
-        print(" cm")
+        callback("Creating membranes")
         self.expanded_labels, self.membrane_labels = xu.create_membrane(
             self.nuclei_labels, expansion_px
         )
-        print(" done")
         self._processed = True
         return self
 
@@ -134,7 +138,8 @@ class TissueChannel:
     # Public API
     # ------------------------------------------------------------------
 
-    def process(self) -> "TissueChannel":
+    def process(self, callback: Callable[[str], None] = None
+                ) -> "TissueChannel":
         """
         Run the tissue processing pipeline:
           1. Log-transform the raw image.
@@ -145,11 +150,11 @@ class TissueChannel:
         -------
         self
         """
-        print("TC lt")
+        if callback is not None:
+            callback("Labeling tissues")
         self.log_image = xu.log_transform(self.raw)
         self.tissue_mask = self.log_image > 0
         self.tissue_labels = measure.label(self.tissue_mask, connectivity=2)
-        print(" done")
         self._processed = True
         return self
 

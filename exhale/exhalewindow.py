@@ -20,6 +20,7 @@ import numpy as np
 from functools import partial
 import importlib
 import re
+from time import strftime
 
 import silx.io
 from silx.gui import qt, icons, hdf5
@@ -37,14 +38,14 @@ from .appversion import exhale_version
 from .listwidgets import ImageElementBox, ImageHeaderBox
 from .listwidgets import ElementListWidget, ImageListWidget
 from .imagecomposer import ImageComposer
-from .analysisutils import xrf_analysis, show_sample_in_napari
 
 _LOAD_NAPARI_EARLY = True
 
 resdir = importlib.resources.files("exhale").joinpath("resources")
 # Rebuild UI code on the fly; useful while developing
 ui_files = [("exhale_qt.ui", "exhale_qt.py"),
-            ("imagedialog.ui", "imagedialog.py")]
+            ("imagedialog.ui", "imagedialog.py"),
+            ("analysisdialog.ui", "analysisdialog.py")]
 for ui, py in ui_files:
     uip = resdir.joinpath(ui)
     py = os.path.join(os.path.dirname(__file__), py)
@@ -59,8 +60,14 @@ for ui, py in ui_files:
 
 from .exhale_qt import Ui_ExhaleWindow
 from .imagedialog import Ui_ImageDialog
+from .analysisdialog import Ui_AnalysisDialog
 
 class ImageDialog(qt.QDialog, Ui_ImageDialog):
+    def __init__(self, parent=None):
+        qt.QDialog.__init__(self, parent)
+        self.setupUi(self)
+
+class AnalysisDialog(qt.QDialog, Ui_AnalysisDialog):
     def __init__(self, parent=None):
         qt.QDialog.__init__(self, parent)
         self.setupUi(self)
@@ -92,6 +99,17 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                   "PanelLabels", "ElementLabels"]:
             n = "compose" + n
             self.__dict__[n] = imd.__dict__[n]
+
+        ad = AnalysisDialog()
+        self.analysisDialog = ad
+        self.analysisOptions.clicked.connect(ad.show)
+        self.analysisOptions.clicked.connect(ad.raise_)
+        ad.buttonBox.clicked.connect(ad.hide)
+        # Make all the things in imageDialog available in self since it's
+        # only an UI detail that they're offloaded to a dialog.
+        for n in ["nucleiExpansion", "nucleiMinArea",
+                  "clusterMinK", "clusterMaxK", "clusterNInit"]:
+            self.__dict__[n] = ad.__dict__[n]
 
         self.actionOpenFile.setIcon(icons.getQIcon("document-open"))
         self.actionOpenFile.triggered.connect(self.select_and_open_files)
@@ -142,50 +160,45 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
     def closeEvent(self, ev):
         self.imageDialog.close()
+        if self._analysisWorker is not None:
+            self._analysisWorker.abort()
+            self._analysisThread.quit()
 
     def cleanup(self):
         "Some last-second cleanup so we can exit cleanly"
-        if self.napviewer:
-            self.napviewer.close()
+        # self.naparihelper = None
+        # if self.naparihelper is not None:
+        #     self.naparihelper.viewer.close()
+        # if self.napviewer:
+        #     self.napviewer.close()
 
 
-    # All about the clustering tab
+    # All about the analysis tab
 
     def create_analysisTab(self):
         "Prepare data analysis tab with Napari viewer"
-        self.napviewer = None
-        def tab_check():
-            if (self.tabWidget.currentWidget() == self.analysisTab and
-                self.napviewer is None):
-                self.initialize_analysisTab()
-        self.tabWidget.currentChanged.connect(tab_check)
-
-        split = self.analysisSplitter
-        # split.addWidget(treewidget)
-        # split.addWidget(self._dataPanel)
-        split.setStretchFactor(1, 3)
+        self.naparihelper = None
+        self._analysisWorker = None
 
         if _LOAD_NAPARI_EARLY:
             self.initialize_analysisTab()
+        else:
+            def tab_check():
+                if (self.tabWidget.currentWidget() == self.analysisTab and
+                    self.naparihelper is None):
+                    self.initialize_analysisTab()
+            self.tabWidget.currentChanged.connect(tab_check)
 
     def initialize_analysisTab(self):
         "Initialize the data analysis tab; start Napari etc"
 
-        self.currentXRFSample = None
+        from .analysisutils import NapariHelper
+        self.naparihelper = NapariHelper()
 
-        import napari
-        # from napari.qt import QtViewer
-        viewer = napari.viewer.Viewer(show=False)
-        # viewer = napari.Viewer(show=False)
-        viewer.add_image(np.zeros((32, 32), dtype=np.float32), name="test")
-        viewer.theme = 'light'
-        self.napviewer = viewer
-        # self.napwidget = viewer.window.qt_viewer
-        self.napwidget = napari.qt.QtViewer(viewer)
-
+        self.analysisSplitter.setSizes([100, 500, 150])
         hb = qt.QHBoxLayout()
         hb.setContentsMargins(0, 0, 0, 0)
-        hb.addWidget(self.napwidget, 1)
+        hb.addWidget(self.naparihelper.qtwidget, 1)
         self.napariWidget.setLayout(hb)
 
         dds = (self.analysisChNuclei, self.analysisChTissue)
@@ -207,16 +220,24 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.selectedElementsChanged.connect(update_dd)
         update_dd()
 
-        # # Set up tooltip
-        # naptt = qt.QLabel(self.napviewer.window.qt_viewer.parent())
-        # naptt.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        # naptt.setAttribute(Qt.WA_ShowWithoutActivating)
-        # naptt.setStyleSheet(
-        #     "background:white; border:1px solid black; color:black; padding:5px;"
-        # )
-        # naptt.setSizePolicy(qt.QSizePolicy.Preferred, qt.QSizePolicy.Preferred)
-        # naptt.hide()
-        # self._napTooltip = naptt
+        def update_elems():
+            "Update the list of elements for analysis"
+            # For the sake of simplicity, we replace everything
+            unsel = set()
+            for row in range(self.analysisElements.count()):
+                it = self.analysisElements.item(row)
+                path = it.data(ElementListWidget.H5_PATH_ROLE)
+                if (it.checkState() == Qt.CheckState.Unchecked and
+                    path in self.selectedElements):
+                        unsel.add(path)
+            # with qt.QSignalBlocker(self.analysisElements):
+            self.analysisElements.clear()
+            for path in self.selectedElements:
+                es = self.elementSettings[path]
+                self.analysisElements.addElement(es.name, es.h5,
+                                                 path not in unsel)
+        self.selectedElementsChanged.connect(update_elems)
+        update_elems()
 
         def rebuild_layer_toggles():
             while self.analysisLayerBox.count():
@@ -225,79 +246,134 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 if w is not None:
                     w.deleteLater()
 
-            for layer in self.napviewer.layers:
+            for i, h in enumerate(("Layer", "Alpha", "Blend")):
+                self.analysisLayerBox.addWidget(qt.QLabel(h), 0, i)
+            blends = {"translucent": "Def", "additive": "Add", "minimum": "Min"}
+            for i, layer in enumerate(self.naparihelper.viewer.layers):
+                row = i + 1
                 cb = qt.QCheckBox(layer.name)
                 cb.setChecked(layer.visible)
                 cb.toggled.connect(lambda checked, lyr=layer:
                                    setattr(lyr, "visible", checked))
-                self.analysisLayerBox.addWidget(cb)
-            self.analysisLayerBox.addStretch()
+                self.analysisLayerBox.addWidget(cb, row, 0)
 
-        from time import strftime
-        def analysis_callback(msg):
+                alpha = qt.QSpinBox()
+                alpha.setRange(0, 100)
+                alpha.setValue(int(layer.opacity * 100))
+                alpha.valueChanged.connect(lambda val, lyr=layer:
+                                           setattr(lyr, "opacity", .01 * val))
+                self.analysisLayerBox.addWidget(alpha, row, 1)
+
+                blend = qt.QComboBox()
+                for bid, bstr in blends.items():
+                    blend.addItem(bstr, userData=bid)
+                blend.currentIndexChanged.connect(
+                    lambda _, lyr=layer, bl=blend:
+                        setattr(lyr, "blending", bl.currentData()))
+                self.analysisLayerBox.addWidget(blend, row, 2)
+
+            # Add a strechable empty row and set the scrollarea width
+            self.analysisLayerBox.addWidget(qt.QWidget(), row + 1, 0)
+            self.analysisLayerBox.setRowStretch(row + 1, 1)
+            w = self.analysisLayerWidget.width()
+            self.scrollArea.setMinimumWidth(w)
+
+        def set_analysis_busy(busy):
+            self.analysisRun.setEnabled(not busy)
+            self.analysisChNuclei.setEnabled(not busy)
+            self.analysisChTissue.setEnabled(not busy)
+            self.analysisProgress.setRange(0, 0 if busy else 1)
+            self.clusterMinK.setEnabled(not busy)
+            self.clusterMaxK.setEnabled(not busy)
+            self.clusterNInit.setEnabled(not busy)
+            self.nucleiExpansion.setEnabled(not busy)
+            self.nucleiMinArea.setEnabled(not busy)
+            self.analysisAbort.setEnabled(busy)
+
+        def append_status(msg):
             self.analysisStatus.appendPlainText(strftime("[%T] ") + msg)
+            self.analysisStatus.ensureCursorVisible()
 
-        global xrfsamp
         def run_analysis():
+            if self._analysisWorker is not None:
+                raise RuntimeError("Analysis worker already running")
+
+            self.analysisStatus.clear()
+            append_status("Initializing")
+
             ddpaths = [dd.currentData() for dd in dds]
-            element_paths = [p for p in self.selectedElements
-                             if p not in ddpaths]
             if None in ddpaths:
                 self.errorMsg.showMessage(
                     "Select channels for nuclei and tissue first.")
                 return
-            if ddpaths[0] == ddpaths[1]:
-                self.errorMsg.showMessage(
-                    "Nuclei and tissue channels must differ.")
-                return
-            # if not element_paths:
-            #     self.errorMsg.showMessage("At least one element is needed "
-            #                               "in addition to nuclei and tissue.")
+
+            # if ddpaths[0] == ddpaths[1]:
+            #     self.errorMsg.showMessage(
+            #         "Nuclei and tissue channels must differ.")
             #     return
-            self.analysisStatus.clear()
-            self.currentXRFSample = xrf_analysis(
+            element_paths = [
+                it.data(ElementListWidget.H5_PATH_ROLE)
+                for it in (self.analysisElements.item(row)
+                           for row in range(self.analysisElements.count()))
+                if it.checkState() == Qt.CheckState.Checked]
+
+            from .analysisutils import AnalysisWorker
+            thread = qt.QThread(self)
+            worker = AnalysisWorker(
                 *(self.elementSettings[ddp] for ddp in ddpaths),
                 [self.elementSettings[ep] for ep in element_paths],
-                callback=analysis_callback)
-            show_sample_in_napari(self.currentXRFSample, self.napviewer,
-                                  self.napwidget)
-            rebuild_layer_toggles()
+                nuclei_expansion_px=self.nucleiExpansion.value(),
+                nuclei_min_area=self.nucleiMinArea.value(),
+                cluster_min_k=self.clusterMinK.value(),
+                cluster_max_k=self.clusterMaxK.value(),
+                cluster_n_init=self.clusterNInit.value())
+            worker.moveToThread(thread)
+            worker.progress.connect(append_status)
 
-        self.clusterAnalyze.pressed.connect(run_analysis)
+            def worker_cleanup():
+                self._analysisWorker.deleteLater()
+                # del self._analysisWorker
+                self._analysisWorker = None
+                self._analysisThread.quit()
+                self._analysisThread = None
+                # thread.quit()
+                set_analysis_busy(False)
 
+            self._ranbefore=0
+            def on_finished(sample):
+                append_status("Rendering results")
+                if not self._ranbefore:
+                    self.naparihelper.set_sample(sample)
+                    self._ranbefore=True
+                rebuild_layer_toggles()
+                append_status("Done")
+                worker_cleanup()
 
-        # self.xrf_viewer = XrfViewer(self, viewer)
+            def on_failed(details):
+                if details == "":
+                    append_status("Interrupted")
+                else:
+                    append_status("Failed")
+                    self.errorMsg.showMessage("<pre>"+details+"</pre>")
+                worker_cleanup()
 
-        # dock = qt.QVBoxLayout()
-        # dock.addWidget(qt.QLabel("XRF Analysis"))
-        # abut = qt.QPushButton("Analyze element maps")
-        # def abut_txt():
-        #     analyzed = self.xrf_viewer.image_dict.keys()
-        #     n = len(self.selectedElements.difference(analyzed))
-        #     abut.setText(f"Analyze {n} element maps")
-        # dock.addWidget(abut, 0)
-        # self.selectedElementsChanged.connect(abut_txt)
-        # def analyze():
-        #     analyzed = self.xrf_viewer.image_dict.keys()
-        #     new = self.selectedElements.difference(analyzed)
-        #     for path in new:
-        #         self.xrf_viewer.run_analysis(
-        #             path, self.elementSettings[path].data)
-        # abut.clicked.connect(analyze)
-        # dock.addStretch()
+            set_analysis_busy(True)
+            worker.finished.connect(on_finished)
+            worker.failed.connect(on_failed)
+            thread.started.connect(worker.run)
+            thread.finished.connect(worker.deleteLater)
+            thread.finished.connect(thread.deleteLater)
+            thread.destroyed.connect(lambda: print("Thread object deleted"))
+            worker.destroyed.connect(lambda: print("Worker deleted"))
+            self._analysisThread = thread
+            self._analysisWorker = worker
+            thread.start()
+        self.analysisRun.pressed.connect(run_analysis)
 
-        # hb = qt.QHBoxLayout()
-        # hb.setContentsMargins(0, 0, 0, 0)
-        # # hb.addLayout(dock, 0)
-        # hb.addWidget(self.napwidget, 1)
-        # # self.analysisTab.setLayout(hb)
-        # self.napariWidget.setLayout(hb)
-
-        # # self.napworker = napari.qt.create_worker()
-        # dat = np.random.rand(10, 10)
-        # viewer.add_image(dat)
-
-
+        def abort_run():
+            if self._analysisWorker:
+                self._analysisWorker.abort()
+        self.analysisAbort.pressed.connect(abort_run)
 
     # All about the data/elements/images tab
 
@@ -532,7 +608,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             ensure_exists(path)
             self.selectedElements.add(path)
             self.selectedElementsChanged.emit()
-            sync_settings_and_compose()
         el = self.elementList
         el.itemActivated.connect(select_element)
 
@@ -542,7 +617,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             path = item.data(ElementListWidget.H5_PATH_ROLE)
             self.selectedElements.discard(path)
             self.selectedElementsChanged.emit()
-            sync_settings_and_compose()
         el.itemUnwanted.connect(deselect_element)
 
         def check_element(item : qt.QListWidgetItem):
@@ -845,6 +919,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                         combo.addItem(self.elementSettings[path].name,
                                       userData=path)
         el.model().dataChanged.connect(sync_settings_and_compose)
+        self.selectedElementsChanged.connect(sync_settings_and_compose)
 
         # Set everything up before creating the initial image
         # Don't call createImage because we want the default values this once.

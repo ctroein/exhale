@@ -2,6 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 from skimage import io, measure
+from collections.abc import Callable
 
 from .xrf_element_channel import ElementChannel
 from .xrf_other_channel import NucleiChannel, TissueChannel
@@ -115,7 +116,8 @@ class XRFSample:
                 nuclei_min_area: int = 100,
                 cluster_min_k: int = 3,
                 cluster_max_k: int = 25,
-                cluster_n_init: int = 50) -> "XRFSample":
+                cluster_n_init: int = 50,
+                callback: Callable[[str], None] = None) -> "XRFSample":
         """
         Process all channels in order: nuclei -> tissue -> elements.
 
@@ -129,6 +131,8 @@ class XRFSample:
             KMeans cluster count search range for element channels.
         cluster_n_init : int
             KMeans initialisations per k.
+        callback : Callable[str]
+            Progress callback function, optional.
 
         Returns
         -------
@@ -136,26 +140,32 @@ class XRFSample:
         """
         if self.nuclei is None or self.tissue is None:
             raise RuntimeError(
-                f"Sample '{self.name}' is missing nuclei ('{self._nuclei_key}') or tissue ('{self._tissue_key}') channel."
+                f"Sample '{self.name}' is missing nuclei ('{self._nuclei_key}')"
+                f" channel or tissue ('{self._tissue_key}') channel."
             )
-        if not self.elements:
-            raise RuntimeError(
-                f"Sample '{self.name}' has no element channels to process."
-            )
+        # if not self.elements:
+        #     raise RuntimeError(
+        #         f"Sample '{self.name}' has no element channels to process."
+        #     )
+        if callback is None:
+            callback = lambda x: None
 
         if self._is_nuclei==True:
             self.nuclei.process(
                 expansion_px=nuclei_expansion_px,
-                min_area=nuclei_min_area
+                min_area=nuclei_min_area,
+                callback=callback
             )
         if self._is_tissue==True:
+            callback("Processing tissue")
             self.tissue.process()
 
         for channel in self.elements.values():
             channel.process(
                 min_k=cluster_min_k,
                 max_k=cluster_max_k,
-                n_init=cluster_n_init
+                n_init=cluster_n_init,
+                callback=callback
             )
 
         self._processed = True
@@ -165,7 +175,7 @@ class XRFSample:
     # Combining results
     # ------------------------------------------------------------------
 
-    def combine(self) -> "XRFSample":
+    def combine(self, callback: Callable[[str], None] = None) -> "XRFSample":
         """
         Assign clusters to regions (nuclei / membrane / background) and
         build the flat results dataframe.
@@ -182,6 +192,8 @@ class XRFSample:
         df_nuclei, df_membrane, df_background = [], [], []
 
         for element_name, channel in self.elements.items():
+            if callback is not None:
+                callback(f"Processing {element_name}")
             temp_df = channel.cluster_df.copy()
             tissue_area, tissue_mean_intensity = self.tissue.compute_tissue_stats(
                 channel.raw
@@ -206,8 +218,11 @@ class XRFSample:
         self._df_membrane = pd.DataFrame(df_membrane)
         self._df_background = pd.DataFrame(df_background)
 
+        if callback is not None:
+            callback("Computing tissue stats")
         tissue_area, _ = self.tissue.compute_tissue_stats(
-            next(iter(self.elements.values())).raw
+            self.tissue.raw
+            # next(iter(self.elements.values())).raw
         )
 
         flat_nuclei = self._flatten(self._df_nuclei, 'nuclei')
