@@ -96,26 +96,3 @@ if not onefile:
         name='exhale',
     )
 
-# Build zip file
-from exhale.appversion import exhale_version
-import shutil
-from pathlib import Path
-import sys
-
-platform = {
-    "win32": "win",
-    "linux": "linux",
-    "darwin": "mac"
-}[sys.platform]
-
-dist_path = Path(DISTPATH) / "exhale"
-zip_name = Path(DISTPATH) / f"exhale-{platform}-{exhale_version}"
-if zip_name.with_suffix(".zip").exists():
-    zip_name.with_suffix(".zip").unlink()
-
-shutil.make_archive(
-    base_name=str(zip_name),
-    format="zip",
-    root_dir=str(dist_path.parent),
-    base_dir=dist_path.name,
-)
