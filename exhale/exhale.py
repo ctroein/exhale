@@ -16,6 +16,8 @@ from .appversion import exhale_version
 def _run_application(pyi_splash=None):
     "Run the EXHALE Qt application"
 
+    import os
+    os.environ["QT_OPENGL"] = "desktop"
     import signal
     import argparse
     import multiprocessing
@@ -48,7 +50,7 @@ def _run_application(pyi_splash=None):
 
     app = QApplication.instance()
     if not app:
-        QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True) # why?
+#        QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True) # why?
         app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(str(resdir.joinpath("lungs.ico"))))
     window = ExhaleWindow()
@@ -68,7 +70,7 @@ def _run_application(pyi_splash=None):
 
 
 def main():
-    "Run the EXHALE "
+    "Run the EXHALE GUI"
 
     pyi_splash = None
     # print("startup: frozen?", getattr(sys, "frozen", False))

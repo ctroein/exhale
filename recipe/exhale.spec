@@ -25,7 +25,7 @@ a = Analysis(
     ['../run_exhale.py'],
     pathex=[],
     binaries=[],
-    hiddenimports=['pkg_resources.py2_warn', 'importlib', 'freetype'],
+    hiddenimports=['pkg_resources.py2_warn', 'importlib', 'freetype', 'stardist'],
     hooksconfig={"matplotlib": {"backends": "Agg"}},
     runtime_hooks=[],
     datas=[],

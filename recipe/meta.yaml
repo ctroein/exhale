@@ -27,10 +27,10 @@ requirements:
     - pandas
     - h5py
     - napari
-    - magicgui
     - silx
     - csbdeep
-    - pyside6
+    - tensorflow
+    - stardist
 
 test:
   imports:
