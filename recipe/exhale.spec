@@ -32,9 +32,8 @@ a = Analysis(
     hookspath=[join(BUNDLE_ROOT, 'hooks'),
         join(dirname(sys.argv[0]), 'hooks')],
     excludes=[
-#        'FixTk', 'tcl', 'tk', '_tkinter', 'tkinter', 'Tkinter',
-        'FixTk', '_tkinter', 'Tkinter',
-        'torch', 'tensorflow', 'nvidia', 'hdf5plugin',
+        'FixTk', 'Tkinter',
+        'torch', 'nvidia', 'hdf5plugin',
         'pyarrow', 'babel', 'yapf_third_party', 'zmq', 'astroid',
         'sphinx', 'jedi', 'black', 'pycodestype',
     ],
@@ -96,3 +95,27 @@ if not onefile:
         upx_exclude=[],
         name='exhale',
     )
+
+# Build zip file
+from exhale.appversion import exhale_version
+import shutil
+from pathlib import Path
+import sys
+
+platform = {
+    "win32": "win",
+    "linux": "linux",
+    "darwin": "mac"
+}[sys.platform]
+
+dist_path = Path(DISTPATH) / "exhale"
+zip_name = Path(DISTPATH) / f"exhale-{platform}-{exhale_version}"
+if zip_name.with_suffix(".zip").exists():
+    zip_name.with_suffix(".zip").unlink()
+
+shutil.make_archive(
+    base_name=str(zip_name),
+    format="zip",
+    root_dir=str(dist_path.parent),
+    base_dir=dist_path.name,
+)

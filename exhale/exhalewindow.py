@@ -9,11 +9,6 @@ Created on Tue Jan 30 22:33:00 2024
 import os
 os.environ.setdefault("QT_OPENGL", "software")
 os.environ.setdefault("VISPY_GL_DEBUG", "0")
-import sys
-import traceback
-# import collections
-import multiprocessing
-import signal
 import numpy as np
 # from typing import Optional
 # from collections.abc import Iterable
@@ -24,7 +19,7 @@ from time import strftime
 
 import silx.io
 from silx.gui import qt, icons, hdf5
-from silx.gui.qt import Qt, QApplication
+from silx.gui.qt import Qt #, QApplication
 # from silx.gui.plot import PlotWidget
 from silx.gui.plot.items.core import ItemChangedType
 from silx.app.view.DataPanel import DataPanel
@@ -80,7 +75,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.settings = qt.QSettings('CIPA', 'Exhale')
-        QApplication.instance().installEventFilter(self)
+        # QApplication.instance().installEventFilter(self) # needed why?
         self.setupUi(self)
         self.setWindowTitle(f'Exhale {exhale_version}')
 
@@ -193,7 +188,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
     def initialize_analysisTab(self):
         "Initialize the data analysis tab; start Napari etc"
-        print("init atab")
         from .naparihelper import NapariHelper
         self.naparihelper = NapariHelper()
 
@@ -332,9 +326,9 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             worker.progress.connect(append_status)
 
             def worker_cleanup():
-                self._analysisWorker.deleteLater()
+                # self._analysisWorker.deleteLater()
                 self._analysisWorker = None
-                # self._analysisThread.quit()
+                self._analysisThread.quit()
                 self._analysisThread = None
                 set_analysis_busy(False)
 
@@ -343,9 +337,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 append_status("Rendering results")
                 self.naparihelper.set_sample(sample)
                 rebuild_layer_toggles()
-                self._analysisThread = thread
-                append_status("Done")
                 worker_cleanup()
+                append_status("Done")
 
             @qt.Slot()
             def on_failed(details):
@@ -1328,66 +1321,4 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self.settings.setValue(settingname, os.path.dirname(files[0]))
         return files if multiple else files[0]
 
-
-    @classmethod
-    def run_application(windowclass, parser=None, parameters=[],
-                        isChild=False):
-        pyi_splash = None
-        if "_PYI_SPLASH_IPC" in os.environ:
-            try:
-                import pyi_splash
-                # Update the text on the splash screen
-                pyi_splash.update_text(f"Initializing EXHALE {exhale_version}")
-            except:
-                print("Warning: pyi_splash failed")
-                ...
-
-        signal.signal(signal.SIGINT, signal.SIG_DFL)
-        res = 1
-        try:
-            progver = f'Exhale {exhale_version}'
-            windowparams = {}
-            if parser is not None:
-                parser.add_argument('--version', action='version',
-                                    version=progver)
-                selmp = multiprocessing.get_start_method(
-                    allow_none=True) is None
-                if selmp:
-                    parser.add_argument('--mpmethod', help='')
-                args = parser.parse_args()
-                windowparams = { k: args.__dict__[k] for k in parameters }
-                if selmp and args.mpmethod:
-                    multiprocessing.set_start_method(args.mpmethod)
-
-            app = QApplication.instance()
-            if not app:
-                QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True)
-                app = QApplication(sys.argv)
-            app.setWindowIcon(qt.QIcon(str(resdir.joinpath("lungs.ico"))))
-            window = windowclass()
-            window.show()
-
-            try:
-                # Close the splash screen.
-                pyi_splash.close()
-            except:
-                ...
-
-            window.post_setup(**windowparams)
-            if not isChild:
-                app.lastWindowClosed.connect(app.quit);
-                app.aboutToQuit.connect(window.cleanup)
-                res = app.exec_()
-
-        except Exception:
-            traceback.print_exc()
-            print('Press enter to quit')
-            if pyi_splash is not None:
-                try:
-                    pyi_splash.close()
-                except:
-                    pass
-            input()
-        if not isChild :
-            sys.exit(res)
 
