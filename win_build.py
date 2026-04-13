@@ -17,7 +17,7 @@ PLATFORM = "win"
 DIST_DIR = Path("dist") / APP_NAME
 ZIP_BASE = Path("dist") / f"{APP_NAME}-{exhale_version}-{PLATFORM}"
 INNO_SCRIPT = Path("recipe") / "exhale.iss"
-NSIS_SCRIPT = Path("recipe") / "exhale.nsi"
+INNO_EXE = r"C:\Users\ctroe\AppData\Local\Programs\Inno Setup 6"
 
 def run(cmd):
     print("+", " ".join(map(str, cmd)))
@@ -35,20 +35,11 @@ def main():
     print("Created", zip_path)
 
     # Inno Setup
-    if INNO_SCRIPT.exists():
-        run([
-            r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-            f"/DMyAppVersion={exhale_version}",
-            str(INNO_SCRIPT),
-        ])
-
-    # NSIS alternative
-    # if NSIS_SCRIPT.exists():
-    #     run([
-    #         r"C:\Program Files (x86)\NSIS\makensis.exe",
-    #         f"/DVERSION={exhale_version}",
-    #         str(NSIS_SCRIPT),
-    #     ])
+    run([
+        INNO_EXE,
+        f"/DMyAppVersion={exhale_version}",
+        str(INNO_SCRIPT),
+    ])
 
 if __name__ == "__main__":
     main()
