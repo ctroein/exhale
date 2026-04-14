@@ -6,22 +6,18 @@ Created on Tue Jan 30 22:33:00 2024
 @author: carl
 """
 
-# Fix for OpenGL problems on Windows
-import os
-os.environ.setdefault("QT_OPENGL", "software")
-os.environ.setdefault("VISPY_GL_DEBUG", "0")
-# Early load tensorflow because of DLL problems on Windows.
-from .xrf_refcopy import xrf_utils
-
 import numpy as np
 # from typing import Optional
 # from collections.abc import Iterable
 from functools import partial
 import importlib
 import re
+import os
 from time import strftime
 
+#from PyQt5 import QtCore, QtGui, QtWidgets
 import silx.io
+from silx.gui import qt
 from silx.gui import qt, icons, hdf5
 from silx.gui.qt import Qt #, QApplication
 # from silx.gui.plot import PlotWidget

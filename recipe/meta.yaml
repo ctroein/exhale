@@ -14,12 +14,13 @@ build:
 
 requirements:
   host:
-    - python >=3.8
+    - python >=3.10
     - pip
     - setuptools >=77.0.3
     - setuptools-scm
+    - bumpversion
   run:
-    - python >=3.8
+    - python >=3.10
     - numpy
     - scipy
     - matplotlib

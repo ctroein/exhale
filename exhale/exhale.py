@@ -16,8 +16,14 @@ from .appversion import exhale_version
 def _run_application(pyi_splash=None):
     "Run the EXHALE Qt application"
 
-    import os
-    os.environ["QT_OPENGL"] = "desktop"
+    import sys
+    if sys.platform == "win32":
+        # Fix for possible OpenGL problems on Windows
+        os.environ.setdefault("QT_OPENGL", "desktop")
+        os.environ.setdefault("VISPY_GL_DEBUG", "0")
+        # Early load tensorflow because of DLL problems on Windows.
+#        from .xrf_refcopy import xrf_utils
+
     import signal
     import argparse
     import multiprocessing

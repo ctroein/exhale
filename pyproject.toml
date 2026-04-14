@@ -15,10 +15,23 @@ authors=[
 ]
 description="EXHALE, Efficient X-ray Hub Aiding Lung Explorations"
 readme="README.md"
-requires-python = ">= 3.8"
+requires-python = ">= 3.10"
 dependencies = [
-    'numpy', 'scipy', 'matplotlib', 'scikit-learn', 'pandas', 'h5py', 'napari',
-    'silx', 'csbdeep', 'pyqt5', 'matplotlib-scalebar'
+    'numpy',
+    'scipy',
+    'matplotlib',
+    'scikit-learn',
+    'pandas',
+    'h5py',
+    'napari',
+    'imageio',
+    'silx',
+    'csbdeep',
+    'pyqt5',
+    'matplotlib-scalebar',
+    "tensorflow==2.15.*; sys_platform == 'win32'",
+    "tensorflow; sys_platform != 'win32'",
+    'stardist',
 ]
 
 [tool.setuptools_scm]

@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import os
 
 from exhale.appversion import exhale_version
 
@@ -17,7 +18,7 @@ PLATFORM = "win"
 DIST_DIR = Path("dist") / APP_NAME
 ZIP_BASE = Path("dist") / f"{APP_NAME}-{exhale_version}-{PLATFORM}"
 INNO_SCRIPT = Path("recipe") / "exhale.iss"
-INNO_EXE = r"C:\Users\ctroe\AppData\Local\Programs\Inno Setup 6"
+INNO_EXE = Path(os.environ["LOCALAPPDATA"]) / "Programs" / "Inno Setup 6" / "ISCC.exe"
 
 def run(cmd):
     print("+", " ".join(map(str, cmd)))
@@ -26,12 +27,11 @@ def run(cmd):
 def main():
     run([sys.executable, "-m", "PyInstaller", "--clean", "recipe/exhale.spec"])
 
-    zip_path = ZIP_BASE.with_suffix(".zip")
+    zip_path = ZIP_BASE.with_suffix(ZIP_BASE.suffix + ".zip")
     if zip_path.exists():
         zip_path.unlink()
-    shutil.make_archive(str(ZIP_BASE), "zip",
-                        root_dir=DIST_DIR.parent,
-                        base_dir=DIST_DIR.name)
+    shutil.make_archive(str(ZIP_BASE), "zip", root_dir=DIST_DIR.parent,
+         base_dir=DIST_DIR.name)
     print("Created", zip_path)
 
     # Inno Setup

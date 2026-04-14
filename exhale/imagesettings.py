@@ -34,17 +34,17 @@ class Layouts(Enum):
     def description(self):
         return self._description_
 
+_COLORSCHEME_COLORS = np.array([
+    [[1,0,0],[0,1,0],[0,0,1],[.7,.7,.7]],
+    [[0,1,1],[1,0,1],[1,1,0],[.7,.7,.7]],
+    [[1,.5,0],[0,1,.5],[.5,0,1],[.5,.5,.5]],
+])
+
 class Colorschemes(Enum):
     "Predefined color schemes"
-    RGB = 0, "RGB"
+    RGB = 0, "RGB"  
     CMY = 1, "CMY"
     CUSTOM = 2, "Custom"
-
-    __colors = np.array([
-        [[1,0,0],[0,1,0],[0,0,1],[.7,.7,.7]],
-        [[0,1,1],[1,0,1],[1,1,0],[.7,.7,.7]],
-        [[1,.5,0],[0,1,.5],[.5,0,1],[.5,.5,.5]]
-        ])
 
     def __new__(cls, *args, **kwds):
         obj = object.__new__(cls)
@@ -61,11 +61,11 @@ class Colorschemes(Enum):
 
     def colors(self):
         "Get rgb values"
-        return self.__colors[self.value]
+        return _COLORSCHEME_COLORS[self.value]
 
     def update(self, rgb):
         "Update a (presumably custom) colorscheme"
-        self.__colors[self.value] = rgb
+        _COLORSCHEME_COLORS[self.value] = rgb
 
 class Scalebars(Enum):
     "Predefined scale bar settings"
