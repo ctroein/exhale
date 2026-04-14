@@ -25,7 +25,7 @@ def run(cmd):
     subprocess.run(cmd, check=True)
 
 def main():
-    run([sys.executable, "-m", "PyInstaller", "--clean", "recipe/exhale.spec"])
+    run([sys.executable, "-m", "PyInstaller", "--clean", "--noconfirm", "recipe/exhale.spec"])
 
     zip_path = ZIP_BASE.with_suffix(ZIP_BASE.suffix + ".zip")
     if zip_path.exists():

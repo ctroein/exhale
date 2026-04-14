@@ -17,6 +17,7 @@ OutputBaseFilename=exhale-{#MyAppVersion}-setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\exhale\resources\lungs.ico
 PrivilegesRequired=lowest
 
 [Languages]
@@ -26,8 +27,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "..\dist\exhale\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\EXHALE"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\EXHALE"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{group}\EXHALE"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\EXHALE"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop icon"; Flags: unchecked

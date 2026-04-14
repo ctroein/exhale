@@ -5,6 +5,7 @@ import os
 from os.path import abspath, join, dirname, pardir
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT, BUNDLE, Splash
 from PyInstaller.compat import is_linux
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 exhale_version = ""
 try:
@@ -25,10 +26,11 @@ a = Analysis(
     ['../run_exhale.py'],
     pathex=[],
     binaries=[],
-    hiddenimports=['pkg_resources.py2_warn', 'importlib', 'freetype', 'stardist'],
+    hiddenimports=['pkg_resources.py2_warn', 'importlib', 'freetype', 'stardist'
+        ] + collect_submodules("imageio"),
     hooksconfig={"matplotlib": {"backends": "Agg"}},
     runtime_hooks=[],
-    datas=[],
+    datas=copy_metadata('imageio'),
     hookspath=[join(BUNDLE_ROOT, 'hooks'),
         join(dirname(sys.argv[0]), 'hooks')],
     excludes=[
