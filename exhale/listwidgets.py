@@ -53,14 +53,19 @@ class ElementListWidget(ExhaleListWidget):
     #         print("drop OK")
     #         super().dropEvent(event)
 
-    def addElement(self, name : str, dataset : Dataset, checked=False):
+    def addElementPath(self, name: str, path, checked=False):
+        "Add element via path (filename, h5path)"
         item = qt.QListWidgetItem(
             qt.QIcon.fromTheme("applications-education-science"), name)
-        path = (dataset.file.filename, dataset.name)
         item.setData(self.H5_PATH_ROLE, path)
         item.setCheckState(Qt.CheckState.Checked if checked
                            else Qt.CheckState.Unchecked)
         self.addItem(item)
+
+    def addElement(self, name: str, dataset: Dataset, checked=False):
+        "Add element from h5 Dataset"
+        path = (dataset.file.filename, dataset.name)
+        self.addElementPath(name, path, checked)
 
     # def addElementFromSettings(self, element : ElementSettings):
     #     self.addElement(element.name, element.h5)

@@ -340,7 +340,7 @@ class Ui_ExhaleWindow(object):
         self.menuBar.addAction(self.menuHelp.menuAction())
 
         self.retranslateUi(ExhaleWindow)
-        self.tabWidget.setCurrentIndex(1)
+        self.tabWidget.setCurrentIndex(0)
         QtCore.QMetaObject.connectSlotsByName(ExhaleWindow)
         ExhaleWindow.setTabOrder(self.tabWidget, self.loadFileButton)
         ExhaleWindow.setTabOrder(self.loadFileButton, self.loadedFileComboBox)

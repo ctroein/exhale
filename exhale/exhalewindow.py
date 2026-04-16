@@ -15,9 +15,8 @@ import re
 import os
 from time import strftime
 
-#from PyQt5 import QtCore, QtGui, QtWidgets
+# Note to users: export QT_API=pyqt5 to force PyQt5 if needed.
 import silx.io
-from silx.gui import qt
 from silx.gui import qt, icons, hdf5
 from silx.gui.qt import Qt #, QApplication
 # from silx.gui.plot import PlotWidget
@@ -34,6 +33,7 @@ from .listwidgets import ImageElementBox, ImageHeaderBox
 from .listwidgets import ElementListWidget, ImageListWidget
 from .imagecomposer import ImageComposer
 from .analysisworker import AnalysisWorker
+from . import projectio
 
 _LOAD_NAPARI_EARLY = True
 
@@ -157,6 +157,9 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.create_analysisTab()
         self.tabWidget.setCurrentIndex(0)
 
+        self.actionLoadProject.triggered.connect(self.load_project)
+        self.actionSaveProject.triggered.connect(self.save_project)
+
         # Groups to be searched/expanded after load
         self._h5GroupsToLoad = []
 
@@ -245,8 +248,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.analysisElements.clear()
         for path in self.selectedElements:
             es = self.elementSettings[path]
-            self.analysisElements.addElement(es.name, es.h5,
-                                             path not in unsel)
+            self.analysisElements.addElementPath(
+                es.name, path, path not in unsel)
 
     def update_layer_controls(self):
         "Update the layer list in the analysis tab"
@@ -836,6 +839,13 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 # self.elementPlot.clear()
         self.deleteImageButton.clicked.connect(del_img)
 
+        def rename_img(item):
+            "Image name modified in list"
+            num = item.data(ImageListWidget.IMG_NUM_ROLE)
+            if num in self.imageSettings:
+                self.imageSettings[num].name = item.text()
+        self.imageList.itemChanged.connect(rename_img)
+
         def layout_ch():
             "Image layout update"
             if im := self.currentImage:
@@ -1215,7 +1225,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         fname = removedH5.file.filename
         self._dataPanel.removeDatasetsFrom(removedH5)
         removedH5.close()
-        print("CLOSED FILE", self.fileSettings[fname].h5file)
         self.fileSettings[fname].h5file = None
         self.loadedFileComboBox.removeItem(
             self.loadedFileComboBox.findText(fname))
@@ -1311,6 +1320,97 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self.open_files(files)
         if paramFile is not None:
             print(f"Should read settings from: {paramFile}")
+
+    def clear_project(self):
+        # Close open files first
+        self.close_all_files()
+
+        # Clear model/state
+        self.fileSettings.clear()
+        self.elementSettings.clear()
+        self.selectedElements.clear()
+        self.imageSettings.clear()
+        self.currentElement = None
+        self.currentImage = None
+
+        # Clear UI
+        self.loadedFileComboBox.clear()
+        self.loadedFileAlias.clear()
+
+        self.elementList.clear()
+        self.analysisElements.clear()
+        self.imageList.clear()
+
+        self.elementPlot.clear()
+        self.elementHistogramPlot.clear()
+        self.elementHistogramPlot.addHistogram(
+            [0], [1, 100], color='gray', fill=True, baseline=0, copy=False)
+
+        # Reset image-analysis / napari state if wanted
+        if self.naparihelper is not None:
+            self.naparihelper.set_sample(None)
+
+        # Let any dependent widgets rebuild
+        self.selectedElementsChanged.emit()
+
+    def refresh_project_ui(self):
+        # Loaded files dropdown
+        self.loadedFileComboBox.clear()
+        for filename, fs in self.fileSettings.items():
+            if fs.h5file is not None:
+                startgroup = self._findNamedGroup(fs.h5file, ["plotselect"])
+                if startgroup is not None:
+                    self.loadedFileComboBox.addItem(filename, startgroup)
+
+        # Rebuild image list
+        self.imageList.clear()
+        for num, im in sorted(self.imageSettings.items()):
+            self.imageList.addImage(num, im)
+
+        # Rebuild element list for current file
+        self.loadedFileChanged()
+
+        # Rebuild any dependent controls
+        self.selectedElementsChanged.emit()
+
+        # Show something sensible
+        if self.imageList.count() > 0:
+            self.imageList.setCurrentRow(0)
+        elif self.elementList.count() > 0:
+            self.elementList.setCurrentRow(0)
+        else:
+            self.setImageControlsEnabled(False)
+            self.setElementControlsEnabled(False)
+
+    PROJECT_FILTERS = ";;".join(["EXHALE projects (*.xhp)", "All files (*)"])
+    def load_project(self):
+        "Load project settings"
+        filename = self.askFileName(
+            title="Load EXHALE project", filter=self.PROJECT_FILTERS,
+            settingname="Project")
+        if not filename:
+            return
+        self.clear_project()
+        try:
+            with OverrideCursor():
+                projectio.load_project(self, filename)
+        except Exception as e:
+            self.errorMsg.showMessage(f"Loading failed:\n{e}")
+        self.refresh_project_ui()
+
+    def save_project(self):
+        "Load project settings"
+        filename = self.askFileName(
+            title="Load EXHALE project", filter=self.PROJECT_FILTERS,
+            settingname="Project", save=True)
+        if not filename:
+            return
+        try:
+            with OverrideCursor():
+                projectio.save_project(self, filename)
+        except Exception as e:
+            self.errorMsg.showMessage(f"Saving failed:\n{e}")
+            return
 
 
     def askFileName(self, title, filter=None, settingname=None,
