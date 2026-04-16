@@ -1,8 +1,14 @@
 import os
 import numpy as np
 import pandas as pd
+import time
 from skimage import io, measure
 from collections.abc import Callable
+
+# from __future__ import annotations
+import json
+from pathlib import Path
+from typing import Any
 
 from .xrf_element_channel import ElementChannel
 from .xrf_other_channel import NucleiChannel, TissueChannel
@@ -315,6 +321,181 @@ class XRFSample:
                 })
         return pd.DataFrame(rows)
 
+
+    # ------------------------------------------------------------------
+    # Data export
+    # ------------------------------------------------------------------
+    def export_results(self, outdir: str | Path, *,
+        save_raw: bool = True,
+        save_cluster_labels: bool = True,
+        save_nuclei_labels: bool = True,
+        save_membrane_labels: bool = True,
+        save_tissue_labels: bool = True,
+        save_tissue_mask: bool = True,
+        add_subdir = True,
+        csv_sep: str = ",",
+    ) -> Path:
+        """
+        Export analysis outputs for this sample.
+
+        Parameters
+        ----------
+        outdir:
+            Output directory. Created if missing.
+        save_raw:
+            Also export raw channel images as TIFF.
+        save_cluster_labels:
+            Export per-element connected-component cluster label images.
+        save_nuclei_labels:
+            Export filtered nuclei labels.
+        save_membrane_labels:
+            Export membrane ring labels.
+        save_tissue_labels:
+            Export connected-component tissue labels.
+        save_tissue_mask:
+            Export binary tissue mask.
+        add_subdir:
+            Save in a subdirectory with timestamp in name.
+        csv_sep:
+            CSV separator.
+
+        Returns
+        -------
+        Path
+            Path to the created sample export directory.
+        """
+        outdir = Path(outdir)
+        if add_subdir:
+            outdir = outdir / time.strftime("export_%F_%H%M%S")
+        outdir.mkdir(parents=True, exist_ok=True)
+
+        masks_dir = "masks"
+        clusters_dir = "clusters"
+        tables_dir = "tables"
+        channels_dir = "channels"
+        for d in (masks_dir, clusters_dir, tables_dir, channels_dir):
+            (outdir / d).mkdir(exist_ok=True)
+
+        manifest: dict[str, Any] = {
+            "sample": self.name,
+            "processed": self._processed,
+            "combined": self._combined,
+            "elements": self.element_names,
+            "files": {},
+            "elem_files": {}
+        }
+
+        def _save(mf: dict, reldir: str, data: np.ndarray | pd.DataFrame,
+                  name: str, elem: str = None) -> None:
+            pref = "" if elem is None else elem + "_"
+            if isinstance(data, np.ndarray):
+                ftype = "tif"
+            elif isinstance(data, pd.DataFrame):
+                ftype = "csv"
+            else:
+                raise ValueError("unknown ftype")
+            p = os.path.join(reldir, pref + name + "." + ftype)
+            if ftype == "tif":
+                # Keep integer labels as integer TIFFs, float images as float TIFFs
+                io.imsave(str(outdir / p), data, check_contrast=False)
+            elif ftype == "csv":
+                data.to_csv(str(outdir / p), index=False, sep=csv_sep)
+            mf[name] = p
+
+        def _jsonable(v: Any) -> Any:
+            if isinstance(v, np.ndarray):
+                return v.tolist()
+            if isinstance(v, (np.integer, np.floating)):
+                return v.item()
+            if isinstance(v, Path):
+                return str(v)
+            return v
+
+        mf = manifest["files"]
+        # Global masks / labels
+        if self.nuclei is not None:
+            if save_raw:
+                _save(mf, channels_dir, self.nuclei.raw, "nuclei_raw")
+            if save_nuclei_labels and self.nuclei.nuclei_labels is not None:
+                _save(mf, masks_dir, self.nuclei.nuclei_labels.astype(np.int32),
+                      "nuclei_labels")
+            if save_membrane_labels and self.nuclei.membrane_labels is not None:
+                _save(mf, masks_dir, self.nuclei.membrane_labels.astype(np.int32),
+                      "membrane_labels")
+        if self.tissue is not None:
+            if save_raw:
+                _save(mf, channels_dir, self.tissue.raw, "tissue_raw")
+            if save_tissue_mask and self.tissue.tissue_mask is not None:
+                _save(mf, masks_dir, self.tissue.tissue_mask.astype(np.uint8),
+                      "tissue_mask")
+            if save_tissue_labels and self.tissue.tissue_labels is not None:
+                _save(mf, masks_dir, self.tissue.tissue_labels.astype(np.int32),
+                      "tissue_labels")
+
+        # Per-element exports
+        for element_name, ch in self.elements.items():
+            emf = manifest["elem_files"].setdefault(element_name, {})
+            if save_raw:
+                _save(emf, channels_dir, ch.raw, "raw", element_name)
+            if save_cluster_labels and ch.cluster_labels is not None:
+                _save(emf, clusters_dir, ch.cluster_labels.astype(np.int32),
+                      "cluster_labels", element_name)
+            if ch.cluster_df is not None:
+                _save(emf, tables_dir, ch.cluster_df,
+                      "cluster_regions", element_name)
+
+        # Combined result tables
+        if self.results_df is not None:
+            _save(mf, tables_dir, self.results_df, "results_flat")
+        if self._df_nuclei is not None:
+            _save(mf, tables_dir, self._prepare_object_df_for_csv(self._df_nuclei),
+                  "results_nuclei")
+        if self._df_membrane is not None:
+            _save(mf, tables_dir, self._prepare_object_df_for_csv(self._df_membrane),
+                  "results_membrane")
+        if self._df_background is not None:
+            _save(mf, tables_dir, self._prepare_object_df_for_csv(self._df_background),
+                  "results_background")
+
+        # Metadata manifest
+        manifest["status"] = {
+            "processed": self._processed,
+            "combined": self._combined,
+            "n_nuclei_labels": int(np.max(self.nuclei.nuclei_labels))
+            if self.nuclei is not None and self.nuclei.nuclei_labels is not None
+            else 0,
+            "n_membrane_labels": int(np.max(self.nuclei.membrane_labels))
+            if self.nuclei is not None and self.nuclei.membrane_labels is not None
+            else 0,
+            "n_elements": len(self.elements),
+        }
+
+        manifest_path = outdir / "manifest.json"
+        with manifest_path.open("w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2, default=_jsonable)
+        return str(outdir)
+
+
+    @staticmethod
+    def _prepare_object_df_for_csv(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Convert array/list-valued columns to JSON strings for CSV export.
+        """
+        out = df.copy()
+        for col in out.columns:
+            if out[col].dtype == object:
+                out[col] = out[col].map(XRFSample._object_to_json_string)
+        return out
+
+    @staticmethod
+    def _object_to_json_string(value: Any) -> Any:
+        if isinstance(value, np.ndarray):
+            return json.dumps(value.tolist())
+        if isinstance(value, list):
+            return json.dumps(value)
+        if isinstance(value, tuple):
+            return json.dumps(list(value))
+        return value
     # ------------------------------------------------------------------
     # Convenience accessors
     # ------------------------------------------------------------------

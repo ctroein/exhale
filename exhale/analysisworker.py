@@ -66,6 +66,25 @@ class AnalysisWorker(qt.QObject):
                 raise InterruptedError("Aborted")
             self.progress.emit(msg)
 
+        # Try to intercept logging
+        import logging
+        class LogHandler(logging.Handler):
+            "Minimal logging handler"
+            def __init__(self):
+                logging.Handler.__init__(self, logging.DEBUG)
+                self.setFormatter(logging.Formatter(
+                    "[%(name)s] %(levelname)s: %(message)s"))
+            def emit(self, record):
+                try:
+                    msg = self.format(record)
+                except Exception:
+                    msg = record.getMessage()
+                progress_or_abort(msg)
+        tfLogHandler = LogHandler()
+        tf_log = logging.getLogger("tensorflow")
+        tf_log.setLevel(logging.DEBUG)
+        tf_log.addHandler(tfLogHandler)
+
         class EmitStream():
             "Stream that collects entire lines and emits them as progress"
             def __init__(self):

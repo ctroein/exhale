@@ -410,13 +410,7 @@
                </widget>
               </item>
               <item>
-               <widget class="QPushButton" name="analysisAbort">
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
+               <widget class="QToolButton" name="analysisAbort">
                 <property name="text">
                  <string>Stop</string>
                 </property>
@@ -432,9 +426,6 @@
                 <verstretch>0</verstretch>
                </sizepolicy>
               </property>
-              <property name="styleSheet">
-               <string notr="true">font-size: 11px</string>
-              </property>
               <property name="widgetResizable">
                <bool>true</bool>
               </property>
@@ -443,7 +434,7 @@
                 <rect>
                  <x>0</x>
                  <y>0</y>
-                 <width>862</width>
+                 <width>599</width>
                  <height>325</height>
                 </rect>
                </property>
@@ -486,11 +477,6 @@
             </item>
             <item>
              <widget class="QPlainTextEdit" name="analysisStatus">
-              <property name="font">
-               <font>
-                <pointsize>9</pointsize>
-               </font>
-              </property>
               <property name="verticalScrollBarPolicy">
                <enum>Qt::ScrollBarAlwaysOn</enum>
               </property>

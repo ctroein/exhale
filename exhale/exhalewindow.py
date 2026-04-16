@@ -58,6 +58,12 @@ from .exhale_qt import Ui_ExhaleWindow
 from .imagedialog import Ui_ImageDialog
 from .analysisdialog import Ui_AnalysisDialog
 
+def scale_font(widget: qt.QWidget, scale: float):
+    "Rescale font of widget and its children"
+    font = widget.font()
+    font.setPointSizeF(font.pointSizeF() * scale)
+    widget.setFont(font)
+
 class ImageDialog(qt.QDialog, Ui_ImageDialog):
     def __init__(self, parent=None):
         qt.QDialog.__init__(self, parent)
@@ -187,185 +193,216 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self.tabWidget.currentChanged.connect(tab_check)
 
     def initialize_analysisTab(self):
-        "Initialize the data analysis tab; start Napari etc"
+        "Initialize the data analysis tab; start Napari viewer etc"
         from .naparihelper import NapariHelper
         self.naparihelper = NapariHelper()
 
-        self.analysisSplitter.setSizes([100, 500, 150])
+        self.analysisSplitter.setSizes([180, 400, 200])
         hb = qt.QHBoxLayout()
         hb.setContentsMargins(0, 0, 0, 0)
         hb.addWidget(self.naparihelper.qtwidget, 1)
         self.napariWidget.setLayout(hb)
 
-        dds = (self.analysisChNuclei, self.analysisChTissue)
-        def update_dd():
-            "Update the comboboxes for nuclei/tissue"
-            for dd in dds:
-                ddpath = dd.currentData()
-                with qt.QSignalBlocker(dd):
-                    dd.clear()
-                    dd.addItem("None", None)
-                    paths = self.selectedElements
-                    for path in paths:
-                        es = self.elementSettings[path]
-                        dd.addItem(es.name, userData=path)
-                    # Restore previous selections if still present
-                    for i in range(dd.count()):
-                        if dd.itemData(i) == ddpath:
-                            dd.setCurrentIndex(i)
-        self.selectedElementsChanged.connect(update_dd)
-        update_dd()
+        scale_font(self.analysisStatus, .8)
+        self.selectedElementsChanged.connect(self.update_analysis_channels)
+        self.update_analysis_channels()
+        self.selectedElementsChanged.connect(self.update_analysis_elements)
+        self.update_analysis_elements()
+        self.analysisRun.pressed.connect(self.run_analysis)
+        def abort_run():
+            if self._analysisWorker is not None:
+                self._analysisWorker.abort()
+        self.analysisAbort.pressed.connect(abort_run)
+        self.analysisExport.clicked.connect(self.export_analysis_results)
 
-        def update_elems():
-            "Update the list of elements for analysis"
-            # For the sake of simplicity, we replace everything
-            unsel = set()
-            for row in range(self.analysisElements.count()):
-                it = self.analysisElements.item(row)
-                path = it.data(ElementListWidget.H5_PATH_ROLE)
-                if (it.checkState() == Qt.CheckState.Unchecked and
-                    path in self.selectedElements):
-                        unsel.add(path)
-            # with qt.QSignalBlocker(self.analysisElements):
-            self.analysisElements.clear()
-            for path in self.selectedElements:
-                es = self.elementSettings[path]
-                self.analysisElements.addElement(es.name, es.h5,
-                                                 path not in unsel)
-        self.selectedElementsChanged.connect(update_elems)
-        update_elems()
+    def update_analysis_channels(self):
+        "Update the comboboxes for nuclei/tissue"
+        for dd in (self.analysisChNuclei, self.analysisChTissue):
+            ddpath = dd.currentData()
+            with qt.QSignalBlocker(dd):
+                dd.clear()
+                dd.addItem("None", None)
+                paths = self.selectedElements
+                for path in paths:
+                    es = self.elementSettings[path]
+                    dd.addItem(es.name, userData=path)
+                # Restore previous selections if still present
+                for i in range(dd.count()):
+                    if dd.itemData(i) == ddpath:
+                        dd.setCurrentIndex(i)
 
-        def rebuild_layer_toggles():
-            while self.analysisLayerBox.count():
-                item = self.analysisLayerBox.takeAt(0)
-                w = item.widget()
-                if w is not None:
-                    w.deleteLater()
+    def update_analysis_elements(self):
+        "Update the list of elements for analysis"
+        # For the sake of simplicity, we replace everything
+        unsel = set()
+        for row in range(self.analysisElements.count()):
+            it = self.analysisElements.item(row)
+            path = it.data(ElementListWidget.H5_PATH_ROLE)
+            if (it.checkState() == Qt.CheckState.Unchecked and
+                path in self.selectedElements):
+                    unsel.add(path)
+        # with qt.QSignalBlocker(self.analysisElements):
+        self.analysisElements.clear()
+        for path in self.selectedElements:
+            es = self.elementSettings[path]
+            self.analysisElements.addElement(es.name, es.h5,
+                                             path not in unsel)
 
-            for i, h in enumerate(("Layer", "Alpha", "Blend")):
-                self.analysisLayerBox.addWidget(qt.QLabel(h), 0, i)
-            blends = {"translucent": "Def", "additive": "Add", "minimum": "Min"}
-            for i, layer in enumerate(self.naparihelper.viewer.layers):
-                row = i + 1
-                cb = qt.QCheckBox(layer.name)
-                cb.setChecked(layer.visible)
-                cb.toggled.connect(lambda checked, lyr=layer:
-                                   setattr(lyr, "visible", checked))
-                self.analysisLayerBox.addWidget(cb, row, 0)
+    def update_layer_controls(self):
+        "Update the layer list in the analysis tab"
+        while self.analysisLayerBox.count():
+            item = self.analysisLayerBox.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
 
-                alpha = qt.QSpinBox()
-                alpha.setRange(0, 100)
-                alpha.setValue(int(layer.opacity * 100))
-                alpha.valueChanged.connect(lambda val, lyr=layer:
-                                           setattr(lyr, "opacity", .01 * val))
-                self.analysisLayerBox.addWidget(alpha, row, 1)
+        scale = .8
+        for i, h in enumerate(("Layer", "Alpha", "Blend")):
+            lab = qt.QLabel(h)
+            self.analysisLayerBox.addWidget(lab, 0, i)
+            scale_font(lab, scale)
+        blends = {"translucent": "Def", "additive": "Add", "minimum": "Min"}
+        for i, layer in enumerate(self.naparihelper.viewer.layers):
+            row = i + 1
+            cb = qt.QCheckBox(layer.name)
+            cb.setChecked(layer.visible)
+            cb.toggled.connect(lambda checked, lyr=layer:
+                               setattr(lyr, "visible", checked))
+            scale_font(cb, scale)
+            self.analysisLayerBox.addWidget(cb, row, 0)
 
-                blend = qt.QComboBox()
-                for bid, bstr in blends.items():
-                    blend.addItem(bstr, userData=bid)
-                blend.currentIndexChanged.connect(
-                    lambda _, lyr=layer, bl=blend:
-                        setattr(lyr, "blending", bl.currentData()))
-                self.analysisLayerBox.addWidget(blend, row, 2)
+            alpha = qt.QSpinBox()
+            alpha.setRange(0, 100)
+            alpha.setValue(int(layer.opacity * 100))
+            alpha.valueChanged.connect(lambda val, lyr=layer:
+                                       setattr(lyr, "opacity", .01 * val))
+            scale_font(alpha, scale)
+            self.analysisLayerBox.addWidget(alpha, row, 1)
 
-            # Add a strechable empty row and set the scrollarea width
-            self.analysisLayerBox.addWidget(qt.QWidget(), row + 1, 0)
-            self.analysisLayerBox.setRowStretch(row + 1, 1)
-            w = self.analysisLayerWidget.width()
-            self.scrollArea.setMinimumWidth(w)
+            blend = qt.QComboBox()
+            for bid, bstr in blends.items():
+                blend.addItem(bstr, userData=bid)
+            blend.currentIndexChanged.connect(
+                lambda _, lyr=layer, bl=blend:
+                    setattr(lyr, "blending", bl.currentData()))
+            scale_font(blend, scale)
+            self.analysisLayerBox.addWidget(blend, row, 2)
 
-        def set_analysis_busy(busy):
-            self.analysisRun.setEnabled(not busy)
-            self.analysisChNuclei.setEnabled(not busy)
-            self.analysisChTissue.setEnabled(not busy)
-            self.analysisProgress.setRange(0, 0 if busy else 1)
-            self.clusterMinK.setEnabled(not busy)
-            self.clusterMaxK.setEnabled(not busy)
-            self.clusterNInit.setEnabled(not busy)
-            self.nucleiExpansion.setEnabled(not busy)
-            self.nucleiMinArea.setEnabled(not busy)
-            self.analysisAbort.setEnabled(busy)
+        # Add a strechable empty row and set the scrollarea width
+        self.analysisLayerBox.addWidget(qt.QWidget(), row + 1, 0)
+        self.analysisLayerBox.setRowStretch(row + 1, 1)
+        w = self.analysisLayerWidget.width()
+        self.scrollArea.setMinimumWidth(w)
+
+    def set_analysis_busy(self, busy):
+        self.analysisRun.setEnabled(not busy)
+        self.analysisChNuclei.setEnabled(not busy)
+        self.analysisChTissue.setEnabled(not busy)
+        self.analysisProgress.setRange(0, 0 if busy else 1)
+        self.clusterMinK.setEnabled(not busy)
+        self.clusterMaxK.setEnabled(not busy)
+        self.clusterNInit.setEnabled(not busy)
+        self.nucleiExpansion.setEnabled(not busy)
+        self.nucleiMinArea.setEnabled(not busy)
+        self.analysisExport.setEnabled(
+            not busy and self.naparihelper.sample is not None)
+        self.analysisAbort.setEnabled(busy)
+
+    def run_analysis(self):
+        if self._analysisWorker is not None:
+            raise RuntimeError("Analysis worker already running")
 
         def append_status(msg):
             self.analysisStatus.appendPlainText(strftime("[%T] ") + msg)
             self.analysisStatus.ensureCursorVisible()
 
-        def run_analysis():
-            if self._analysisWorker is not None:
-                raise RuntimeError("Analysis worker already running")
+        self.analysisStatus.clear()
+        append_status("Initializing")
 
-            self.analysisStatus.clear()
-            append_status("Initializing")
+        dds = (self.analysisChNuclei, self.analysisChTissue)
+        ddpaths = [dd.currentData() for dd in dds]
+        if None in ddpaths:
+            self.errorMsg.showMessage(
+                "Select channels for nuclei and tissue first.")
+            return
 
-            ddpaths = [dd.currentData() for dd in dds]
-            if None in ddpaths:
-                self.errorMsg.showMessage(
-                    "Select channels for nuclei and tissue first.")
-                return
+        # if ddpaths[0] == ddpaths[1]:
+        #     self.errorMsg.showMessage(
+        #         "Nuclei and tissue channels must differ.")
+        #     return
+        element_paths = [
+            it.data(ElementListWidget.H5_PATH_ROLE)
+            for it in (self.analysisElements.item(row)
+                       for row in range(self.analysisElements.count()))
+            if it.checkState() == Qt.CheckState.Checked]
 
-            # if ddpaths[0] == ddpaths[1]:
-            #     self.errorMsg.showMessage(
-            #         "Nuclei and tissue channels must differ.")
-            #     return
-            element_paths = [
-                it.data(ElementListWidget.H5_PATH_ROLE)
-                for it in (self.analysisElements.item(row)
-                           for row in range(self.analysisElements.count()))
-                if it.checkState() == Qt.CheckState.Checked]
+        thread = qt.QThread(self)
+        worker = AnalysisWorker(
+            *(self.elementSettings[ddp] for ddp in ddpaths),
+            [self.elementSettings[ep] for ep in element_paths],
+            nuclei_expansion_px=self.nucleiExpansion.value(),
+            nuclei_min_area=self.nucleiMinArea.value(),
+            cluster_min_k=self.clusterMinK.value(),
+            cluster_max_k=self.clusterMaxK.value(),
+            cluster_n_init=self.clusterNInit.value())
+        worker.moveToThread(thread)
+        worker.progress.connect(append_status)
 
-            thread = qt.QThread(self)
-            worker = AnalysisWorker(
-                *(self.elementSettings[ddp] for ddp in ddpaths),
-                [self.elementSettings[ep] for ep in element_paths],
-                nuclei_expansion_px=self.nucleiExpansion.value(),
-                nuclei_min_area=self.nucleiMinArea.value(),
-                cluster_min_k=self.clusterMinK.value(),
-                cluster_max_k=self.clusterMaxK.value(),
-                cluster_n_init=self.clusterNInit.value())
-            worker.moveToThread(thread)
-            worker.progress.connect(append_status)
+        def worker_cleanup():
+            self._analysisWorker.deleteLater()
+            self._analysisWorker = None
+            self._analysisThread.quit()
+            self._analysisThread = None
+            self.set_analysis_busy(False)
 
-            def worker_cleanup():
-                # self._analysisWorker.deleteLater()
-                self._analysisWorker = None
-                self._analysisThread.quit()
-                self._analysisThread = None
-                set_analysis_busy(False)
+        @qt.Slot()
+        def on_finished(sample):
+            append_status("Rendering results")
+            self.naparihelper.set_sample(sample)
+            self.update_layer_controls()
+            worker_cleanup()
+            append_status("Done")
 
-            @qt.Slot()
-            def on_finished(sample):
-                append_status("Rendering results")
-                self.naparihelper.set_sample(sample)
-                rebuild_layer_toggles()
-                worker_cleanup()
-                append_status("Done")
+        @qt.Slot()
+        def on_failed(details):
+            if details == "":
+                append_status("Interrupted")
+            else:
+                append_status("Failed")
+                self.errorMsg.showMessage("<pre>"+details+"</pre>")
+            worker_cleanup()
 
-            @qt.Slot()
-            def on_failed(details):
-                if details == "":
-                    append_status("Interrupted")
-                else:
-                    append_status("Failed")
-                    self.errorMsg.showMessage("<pre>"+details+"</pre>")
-                worker_cleanup()
+        self.set_analysis_busy(True)
+        worker.finished.connect(on_finished)
+        worker.failed.connect(on_failed)
+        thread.started.connect(worker.run)
+        # thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.destroyed.connect(lambda: print("Thread object deleted"))
+        worker.destroyed.connect(lambda: print("Worker deleted"))
+        self._analysisWorker = worker
+        self._analysisThread = thread
+        thread.start()
 
-            set_analysis_busy(True)
-            worker.finished.connect(on_finished)
-            worker.failed.connect(on_failed)
-            thread.started.connect(worker.run)
-            # thread.finished.connect(worker.deleteLater)
-            thread.finished.connect(thread.deleteLater)
-            thread.destroyed.connect(lambda: print("Thread object deleted"))
-            worker.destroyed.connect(lambda: print("Worker deleted"))
-            self._analysisWorker = worker
-            self._analysisThread = thread
-            thread.start()
-        self.analysisRun.pressed.connect(run_analysis)
+    def export_analysis_results(self):
+        sample = self.naparihelper.sample
+        if sample is None:
+            return
+        directory = qt.QFileDialog.getExistingDirectory(
+            self, "Choose export directory",
+            self.settings.value("AnalysisExportDir", ""))
+        if not directory:
+            return
+        self.settings.setValue("AnalysisExportDir", directory)
 
-        def abort_run():
-            if self._analysisWorker:
-                self._analysisWorker.abort()
-        self.analysisAbort.pressed.connect(abort_run)
+        try:
+            out = sample.export_results(directory)
+        except Exception as e:
+            self.errorMsg.showMessage(f"Export failed:\n{e}")
+            return
+        qt.QMessageBox.information(self, "Export complete",
+            f"Analysis results exported to:\n{out}")
+
 
     # All about the data/elements/images tab
 
