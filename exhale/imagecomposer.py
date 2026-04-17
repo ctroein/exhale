@@ -109,11 +109,18 @@ class ImageComposer():
         imcolors = image.colorscheme.colors()
         fontsize = (H * image.fontsize) / 500
         labelshift = [.012, .016]
-        outline = [
-            patheffects.Stroke(linewidth=.25*fontsize,
-                               foreground=list(bgcolor) + [.7]),
-            patheffects.Normal()
-            ]
+        outlines = [
+            [patheffects.Stroke(linewidth = (.25 - .15*bw) * fontsize,
+                                foreground = [bw] * 3 + [.7]),
+             patheffects.Normal()]
+            for bw in (0., 1.)]
+        _LUMA = np.array([0.2126, 0.7152, 0.0722])
+        def outline_by_color(rgb):
+            rgb = np.array(rgb)
+            L = np.where(rgb <= 0.04045, rgb / 12.92,
+                         ((rgb + 0.055) / 1.055) ** 2.4) * _LUMA
+            return outlines[int(L.sum() < .15)]
+
         for i, (x, y, (eix, e)) in enumerate(zip(exs, eys, elems)):
             im = e.transformedData()
             h, w = im.shape
@@ -125,13 +132,13 @@ class ImageComposer():
                     x / W + labelshift[0], 1 - y / H - labelshift[1],
                     chr(ord('A') + i),
                     fontsize=fontsize * 1.2, va="top", color=fgcolor,
-                    path_effects=outline)
+                    path_effects=outline_by_color(fgcolor))
             if image.elementLabels:
                 fig.text(
                     (x + w) / W - labelshift[0], 1 - y / H - labelshift[1],
                     e.name, fontsize=fontsize, va="top", ha="right",
                     color=imcolors[eix],
-                    path_effects=outline)
+                    path_effects=outline_by_color(imcolors[eix]))
 
         mx, my = bw, bw
         if image.layout == Layouts.IL:
@@ -146,7 +153,7 @@ class ImageComposer():
                 mx / W + labelshift[0], 1 - my / H - labelshift[1],
                 chr(ord('A') + len(elems)),
                 fontsize=fontsize * 1.2, va="top", color=fgcolor,
-                path_effects=outline)
+                path_effects=outline_by_color(fgcolor))
 
         # ax.add_patch(Rectangle(
         #     (mx - bw//2, my - bw//2), merged_w + bw, merged_h + bw,
