@@ -2,6 +2,16 @@ name: Build EXHALE
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Which build to run"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
   push:
     tags:
       - "v*"
@@ -11,6 +21,7 @@ permissions:
 
 jobs:
   windows-installer:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'windows'
     runs-on: windows-latest
 
     defaults:
@@ -80,6 +91,7 @@ jobs:
           gh release upload "${{ github.ref_name }}" dist/*.exe --clobber
 
   macos-app:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'macos'
     runs-on: macos-latest
 
     defaults:
