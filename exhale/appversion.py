@@ -1,1 +1,1 @@
-exhale_version = 'v1.2.0'
+exhale_version = 'v1.2.1'
