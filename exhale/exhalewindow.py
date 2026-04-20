@@ -924,7 +924,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 settingname="ImageDir", save=True,
                 defaultfilename=im.name+".png")
             if filename is not None:
-                self.imageComposer.compose_image(im, filename)
+                self.imageComposer.compose(im, filename)
         self.composeSave.clicked.connect(save_im)
 
         def sync_settings_and_compose():
