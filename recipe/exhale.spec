@@ -47,7 +47,7 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-do_splash = (sys.platform == "darwin")
+do_splash = (sys.platform != "darwin")
 onefile = False
 strip = False
 
