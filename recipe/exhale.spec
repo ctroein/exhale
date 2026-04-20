@@ -106,4 +106,6 @@ if sys.platform == "darwin":
         coll,
         name='exhale.app',
         icon=icon_file,
-        bundle_identifier='se.maxiv.exhale',
+        bundle_identifier='se.maxiv.exhale'
+        )
+ 
