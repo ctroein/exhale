@@ -19,6 +19,8 @@ except ModuleNotFoundError:
     del sys.path[0]
 print("Building EXHALE", exhale_version)
 
+icon_file = join(pardir, 'exhale', 'resources',
+                 'lungs.icns' if sys.platform == "darwin" else 'lungs.ico')
 import napari
 BUNDLE_ROOT = abspath(join(dirname(napari.__file__), pardir, 'bundle'))
 
@@ -77,16 +79,17 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=strip,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=True,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon=join(pardir, 'exhale', 'resources', 'lungs.ico'),
+    console=(sys.platform != "darwin"),
+    icon=icon_file,
 )
+#    upx_exclude=[],
+#    runtime_tmpdir=None,
+#    console=True,
+#    disable_windowed_traceback=False,
+#    argv_emulation=False,
+#    target_arch=None,
+#    codesign_identity=None,
+#    entitlements_file=None,
 
 if not onefile:
     coll = COLLECT(
@@ -98,3 +101,9 @@ if not onefile:
         name='exhale',
     )
 
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name='exhale.app',
+        icon=icon_file,
+        bundle_identifier='se.maxiv.exhale',
