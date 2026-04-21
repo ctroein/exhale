@@ -108,7 +108,7 @@ class AnalysisWorker(qt.QObject):
             contextlib.redirect_stderr(estream)):
             from .xrf_refcopy import xrf_utils
             xrf_utils.set_model_basedir(
-                importlib.resources.files("exhale").joinpath("resources"))
+                importlib.resources.files("exhale").joinpath("resources/models"))
             from .xrf_refcopy.xrf_sample_class import XRFSample
             from .xrf_refcopy.xrf_other_channel import NucleiChannel, TissueChannel
 

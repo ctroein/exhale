@@ -48,7 +48,7 @@ jobs:
         run: choco install innosetup --yes --no-progress
 
       - name: Build frozen app
-        working-directory: recipe
+        working-directory: packaging
         run: |
           pyinstaller exhale.spec --noconfirm --distpath ../dist --workpath ../build
 
@@ -60,7 +60,7 @@ jobs:
           Get-ChildItem build -Recurse -ErrorAction SilentlyContinue
 
       - name: Build installer
-        working-directory: recipe
+        working-directory: packaging
         run: |
           iscc /DMyAppVersion=${{ github.ref_name }} exhale.iss
 
@@ -115,7 +115,7 @@ jobs:
           pip install .
 
       - name: Build macOS app bundle
-        working-directory: recipe
+        working-directory: packaging
         run: |
           pyinstaller exhale.spec --noconfirm --distpath ../dist --workpath ../build
 

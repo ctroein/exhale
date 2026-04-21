@@ -28,7 +28,7 @@ def _run_application(pyi_splash=None):
     import argparse
     import multiprocessing
     from .exhalewindow import ExhaleWindow, resdir
-    from silx.gui.qt import Qt, QApplication, QIcon
+    from silx.gui.qt import QApplication, QIcon
 
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -58,7 +58,8 @@ def _run_application(pyi_splash=None):
     if not app:
 #        QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True) # why?
         app = QApplication(sys.argv)
-    app.setWindowIcon(QIcon(str(resdir.joinpath("lungs.ico"))))
+    if sys.platform != "darwin":
+        app.setWindowIcon(QIcon(str(resdir.joinpath("icons/lungs.png"))))
     window = ExhaleWindow()
     window.show()
 

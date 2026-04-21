@@ -19,6 +19,26 @@ except ModuleNotFoundError:
     del sys.path[0]
 print("Building EXHALE", exhale_version)
 
+
+res = join(pardir, "exhale", "resources")
+datas = [
+#    (join(res, "icons", "document-open.svg"), "exhale/resources/icons"),
+    (join(res, "models", "2D_versatile_fluo_copy", "*"),
+        "exhale/resources/models/2D_versatile_fluo_copy"),
+]
+
+if sys.platform == "darwin":
+#    datas.append((join(res, "icons", "lungs.icns"), "exhale/resources/icons"))
+    icon_file = join("icons", "lungs.icns")
+else:
+    datas.append((join(res, "icons", "lungs.png"), "exhale/resources/icons"))
+    if sys.platform == "win32":
+        icon_file = join("icons", "lungs.ico")
+    else:
+        icon_file = join("icons", "lungs.png")
+
+datas = datas + copy_metadata('imageio')
+
 icon_file = join(pardir, 'exhale', 'resources',
                  'lungs.icns' if sys.platform == "darwin" else 'lungs.ico')
 import napari
@@ -32,7 +52,7 @@ a = Analysis(
         ] + collect_submodules("imageio"),
     hooksconfig={"matplotlib": {"backends": "Agg"}},
     runtime_hooks=[],
-    datas=copy_metadata('imageio'),
+    datas=datas,
     hookspath=[join(BUNDLE_ROOT, 'hooks'),
         join(dirname(sys.argv[0]), 'hooks')],
     excludes=[
@@ -108,4 +128,3 @@ if sys.platform == "darwin":
         icon=icon_file,
         bundle_identifier='se.maxiv.exhale'
         )
- 

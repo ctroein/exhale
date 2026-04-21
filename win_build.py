@@ -18,7 +18,7 @@ APP_NAME = "exhale"
 PLATFORM = "win"
 DIST_DIR = Path("dist") / APP_NAME
 ZIP_BASE = Path("dist") / f"{APP_NAME}-{exhale_version}-{PLATFORM}"
-INNO_SCRIPT = Path("recipe") / "exhale.iss"
+INNO_SCRIPT = Path("packaging") / "exhale.iss"
 INNO_EXE = Path(os.environ["LOCALAPPDATA"]) / "Programs" / "Inno Setup 6" / "ISCC.exe"
 
 def run(cmd):
@@ -26,7 +26,7 @@ def run(cmd):
     subprocess.run(cmd, check=True)
 
 def main():
-    run([sys.executable, "-m", "PyInstaller", "--clean", "--noconfirm", "recipe/exhale.spec"])
+    run([sys.executable, "-m", "PyInstaller", "--clean", "--noconfirm", "packaging/exhale.spec"])
 
     do_zip = False
     if do_zip:

@@ -39,20 +39,16 @@ _LOAD_NAPARI_EARLY = True
 
 resdir = importlib.resources.files("exhale").joinpath("resources")
 # Rebuild UI code on the fly; useful while developing
-ui_files = [("exhale_qt.ui", "exhale_qt.py"),
-            ("imagedialog.ui", "imagedialog.py"),
-            ("analysisdialog.ui", "analysisdialog.py")]
-for ui, py in ui_files:
-    uip = resdir.joinpath(ui)
-    py = os.path.join(os.path.dirname(__file__), py)
+ui_files = ["exhale_qt", "imagedialog", "analysisdialog"]
+for uif in ui_files:
+    uip = resdir.joinpath("ui", uif + ".ui")
+    py = os.path.join(os.path.dirname(__file__), uif + ".py")
     if (os.path.exists(uip) and os.path.exists(py) and
         os.path.getmtime(uip) > os.path.getmtime(py)):
-        print(f"Recompiling {ui}")
+        print(f"Recompiling {uif}")
         uic = importlib.import_module(qt.BINDING + ".uic")
         with open(py, 'w') as f:
             uic.compileUi(uip, f)
-    # Alternative: load UI straight from XML
-    # Ui_ExhaleWindow = uic.loadUiType(uip)[0]
 
 from .exhale_qt import Ui_ExhaleWindow
 from .imagedialog import Ui_ImageDialog
