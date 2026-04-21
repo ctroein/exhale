@@ -1,1 +1,22 @@
-recursive-include exhale/resources *
+include README.md
+include README.md
+include pyproject.toml
+include MANIFEST.in
+include run_exhale.py
+
+recursive-include exhale *.py
+recursive-include exhale/resources/icons *.png *.svg
+recursive-include exhale/resources/models *.json *.h5
+
+exclude .gitignore
+exclude .bumpversion.cfg
+exclude win_build.py
+
+prune .github
+prune build
+prune dist
+prune packaging
+prune exhale.egg-info
+prune exhale/resources/ui
+
+global-exclude __pycache__ *.py[cod]

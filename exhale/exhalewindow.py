@@ -28,12 +28,12 @@ from .overridecursor import OverrideCursor
 from .elementsettings import ElementSettings, Normalizers
 from .imagesettings import ImageSettings, Layouts, Colorschemes, Scalebars
 from .filesettings import FileSettings
-from .appversion import exhale_version
 from .listwidgets import ImageElementBox, ImageHeaderBox
 from .listwidgets import ElementListWidget, ImageListWidget
 from .imagecomposer import ImageComposer
 from .analysisworker import AnalysisWorker
 from . import projectio
+from exhale import exhale_version
 
 _LOAD_NAPARI_EARLY = True
 

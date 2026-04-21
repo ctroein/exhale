@@ -10,8 +10,12 @@ Main entry point for EXHALE GUI.
 import sys
 import traceback
 import os
-from .appversion import exhale_version
+from importlib.metadata import version, PackageNotFoundError
 
+try:
+    exhale_version = version("exhale")
+except PackageNotFoundError:
+    exhale_version = "dev"
 
 def _run_application(pyi_splash=None):
     "Run the EXHALE Qt application"

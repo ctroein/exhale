@@ -4,8 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name="exhale"
-#dynamic = ["version"]
-version = "v1.2.1"
+dynamic = ["version"]
 authors=[
     {name="Carl Troein", email="carl.troein@cec.lu.se"},
     {name="Tom Delaire"},
@@ -44,13 +43,8 @@ dependencies = [
 "exhale" = [
   "resources/icons/*.svg",
   "resources/icons/*.png",
-#  "resources/icons/*.ico",
-#  "resources/icons/*.icns",
   "resources/models/2D_versatile_fluo_copy/*",
 ]
-
-[tool.setuptools.dynamic]
-version = {attr = "exhale.appversion.exhale_version"}
 
 [project.urls]
 Homepage="https://github.com/ctroein/exhale"
