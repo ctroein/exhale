@@ -41,7 +41,13 @@ dependencies = [
 #where = ['.']
 
 [tool.setuptools.package-data]
-"exhale" = ['*.ui', '*.ico', '*.svg', '*.json', '*.h5']
+"exhale" = [
+  "resources/icons/*.svg",
+  "resources/icons/*.png",
+#  "resources/icons/*.ico",
+#  "resources/icons/*.icns",
+  "resources/models/2D_versatile_fluo_copy/*",
+]
 
 [tool.setuptools.dynamic]
 version = {attr = "exhale.appversion.exhale_version"}
