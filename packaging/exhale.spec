@@ -47,8 +47,6 @@ else:
 
 datas = datas + copy_metadata('imageio')
 
-icon_file = join(pardir, 'exhale', 'resources',
-                 'lungs.icns' if sys.platform == "darwin" else 'lungs.ico')
 import napari
 BUNDLE_ROOT = abspath(join(dirname(napari.__file__), pardir, 'bundle'))
 
