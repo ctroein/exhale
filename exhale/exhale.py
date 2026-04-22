@@ -10,12 +10,15 @@ Main entry point for EXHALE GUI.
 import sys
 import traceback
 import os
+import importlib
 from importlib.metadata import version, PackageNotFoundError
 
 try:
     exhale_version = version("exhale")
 except PackageNotFoundError:
     exhale_version = "dev"
+
+resdir = importlib.resources.files("exhale").joinpath("resources")
 
 def _run_application(pyi_splash=None):
     "Run the EXHALE Qt application"
@@ -31,7 +34,6 @@ def _run_application(pyi_splash=None):
     import signal
     import argparse
     import multiprocessing
-    import importlib
 
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -57,7 +59,6 @@ def _run_application(pyi_splash=None):
     if selmp and args.mpmethod:
         multiprocessing.set_start_method(args.mpmethod)
 
-    from .exhalewindow import ExhaleWindow, resdir
     from silx.gui.qt import QApplication, QIcon, BINDING
 
     # Rebuild UI code on the fly; useful while developing
@@ -71,6 +72,8 @@ def _run_application(pyi_splash=None):
             uic = importlib.import_module(BINDING + ".uic")
             with open(py, 'w', encoding='utf-8') as f:
                 uic.compileUi(uip, f)
+
+    from .exhalewindow import ExhaleWindow
 
     app = QApplication.instance()
     if not app:
