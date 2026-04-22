@@ -59,9 +59,8 @@ def _run_application(pyi_splash=None):
     if selmp and args.mpmethod:
         multiprocessing.set_start_method(args.mpmethod)
 
-    from silx.gui.qt import QApplication, QIcon, BINDING
-
     # Rebuild UI code on the fly; useful while developing
+    from silx.gui.qt import BINDING
     ui_files = ["exhale_qt", "imagedialog", "analysisdialog"]
     for uif in ui_files:
         uip = resdir.joinpath("ui", uif + ".ui")
@@ -73,14 +72,15 @@ def _run_application(pyi_splash=None):
             with open(py, 'w', encoding='utf-8') as f:
                 uic.compileUi(uip, f)
 
-    from .exhalewindow import ExhaleWindow
-
+    from silx.gui.qt import QApplication, QIcon
     app = QApplication.instance()
     if not app:
 #        QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True) # why?
         app = QApplication(sys.argv)
     if sys.platform != "darwin":
         app.setWindowIcon(QIcon(str(resdir.joinpath("icons/lungs.png"))))
+
+    from .exhalewindow import ExhaleWindow
     window = ExhaleWindow()
     window.show()
 
