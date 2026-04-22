@@ -33,7 +33,7 @@ from .listwidgets import ElementListWidget, ImageListWidget
 from .imagecomposer import ImageComposer
 from .analysisworker import AnalysisWorker
 from . import projectio
-from .exhale import exhale_version, resdir
+from .exhale import exhale_version
 
 from .exhale_qt import Ui_ExhaleWindow
 from .imagedialog import Ui_ImageDialog

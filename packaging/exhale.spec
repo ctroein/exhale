@@ -8,7 +8,8 @@ from PyInstaller.compat import is_linux
 from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 import subprocess
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.getcwd())
+
 def get_version():
     v = os.environ.get("EXHALE_VERSION")
     if v:
