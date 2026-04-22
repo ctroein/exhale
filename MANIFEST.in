@@ -9,7 +9,6 @@ recursive-include exhale/resources/icons *.png *.svg
 recursive-include exhale/resources/models *.json *.h5
 
 exclude .gitignore
-exclude .bumpversion.cfg
 exclude win_build.py
 
 prune .github

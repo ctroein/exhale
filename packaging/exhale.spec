@@ -6,17 +6,20 @@ from os.path import abspath, join, dirname, pardir
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT, BUNDLE, Splash
 from PyInstaller.compat import is_linux
 from PyInstaller.utils.hooks import collect_submodules, copy_metadata
+import subprocess
 
-exhale_version = ""
-try:
-    from exhale.appversion import exhale_version
-except ModuleNotFoundError:
-    sys.path.insert(0, join(dirname(sys.argv[0]), pardir))
+# --- version from git (authoritative with setuptools-scm) ---
+def get_version():
     try:
-        from exhale.appversion import exhale_version
-    except:
-        print("WARNING: Failed to get exhale version.")
-    del sys.path[0]
+        tag = subprocess.check_output(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            text=True,
+        ).strip()
+        return tag.lstrip("v")
+    except Exception:
+        raise RuntimeError("Cannot determine version from git tags")
+
+exhale_version = get_version()
 print("Building EXHALE", exhale_version)
 
 
@@ -126,5 +129,5 @@ if sys.platform == "darwin":
         coll,
         name='exhale.app',
         icon=icon_file,
-        bundle_identifier='se.maxiv.exhale'
+        bundle_identifier='se.lu.cipa.exhale'
         )
