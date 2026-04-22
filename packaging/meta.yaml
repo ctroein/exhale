@@ -18,7 +18,6 @@ requirements:
     - pip
     - setuptools >=77.0.3
     - setuptools-scm
-    - bumpversion
   run:
     - python >=3.10
     - numpy

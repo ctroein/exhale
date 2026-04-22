@@ -31,6 +31,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+            fetch-depth: 0
+            fetch-tags: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -49,6 +52,8 @@ jobs:
 
       - name: Build frozen app
         working-directory: packaging
+        env:
+          EXHALE_VERSION: ${{ github.ref_name }}
         run: |
           pyinstaller exhale.spec --noconfirm --distpath ../dist --workpath ../build
 
@@ -101,6 +106,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+            fetch-depth: 0
+            fetch-tags: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -116,6 +124,8 @@ jobs:
 
       - name: Build macOS app bundle
         working-directory: packaging
+        env:
+          EXHALE_VERSION: ${{ github.ref_name }}
         run: |
           pyinstaller exhale.spec --noconfirm --distpath ../dist --workpath ../build
 

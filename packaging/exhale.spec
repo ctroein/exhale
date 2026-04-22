@@ -8,16 +8,20 @@ from PyInstaller.compat import is_linux
 from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 import subprocess
 
-# --- version from git (authoritative with setuptools-scm) ---
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def get_version():
+    v = os.environ.get("EXHALE_VERSION")
+    if v:
+        return v.lstrip("v")
     try:
         tag = subprocess.check_output(
             ["git", "describe", "--tags", "--abbrev=0"],
-            text=True,
+            text=True, cwd=ROOT,
         ).strip()
         return tag.lstrip("v")
     except Exception:
-        raise RuntimeError("Cannot determine version from git tags")
+        raise RuntimeError("Cannot determine version. Set "
+            "EXHALE_VERSION or build from a tagged git checkout.")
 
 exhale_version = get_version()
 print("Building EXHALE", exhale_version)
