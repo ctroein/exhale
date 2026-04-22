@@ -35,24 +35,13 @@ from .analysisworker import AnalysisWorker
 from . import projectio
 from .exhale import exhale_version
 
-_LOAD_NAPARI_EARLY = True
-
-resdir = importlib.resources.files("exhale").joinpath("resources")
-# Rebuild UI code on the fly; useful while developing
-ui_files = ["exhale_qt", "imagedialog", "analysisdialog"]
-for uif in ui_files:
-    uip = resdir.joinpath("ui", uif + ".ui")
-    py = os.path.join(os.path.dirname(__file__), uif + ".py")
-    if (os.path.exists(uip) and os.path.exists(py) and
-        os.path.getmtime(uip) > os.path.getmtime(py)):
-        print(f"Recompiling {uif}")
-        uic = importlib.import_module(qt.BINDING + ".uic")
-        with open(py, 'w') as f:
-            uic.compileUi(uip, f)
-
 from .exhale_qt import Ui_ExhaleWindow
 from .imagedialog import Ui_ImageDialog
 from .analysisdialog import Ui_AnalysisDialog
+
+_LOAD_NAPARI_EARLY = True
+resdir = importlib.resources.files("exhale").joinpath("resources")
+
 
 def scale_font(widget: qt.QWidget, scale: float):
     "Rescale font of widget and its children"

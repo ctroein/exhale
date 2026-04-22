@@ -31,8 +31,7 @@ def _run_application(pyi_splash=None):
     import signal
     import argparse
     import multiprocessing
-    from .exhalewindow import ExhaleWindow, resdir
-    from silx.gui.qt import QApplication, QIcon
+    import importlib
 
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -57,6 +56,21 @@ def _run_application(pyi_splash=None):
     windowparams = { k: args.__dict__[k] for k in parameters }
     if selmp and args.mpmethod:
         multiprocessing.set_start_method(args.mpmethod)
+
+    from .exhalewindow import ExhaleWindow, resdir
+    from silx.gui.qt import QApplication, QIcon, BINDING
+
+    # Rebuild UI code on the fly; useful while developing
+    ui_files = ["exhale_qt", "imagedialog", "analysisdialog"]
+    for uif in ui_files:
+        uip = resdir.joinpath("ui", uif + ".ui")
+        py = os.path.join(os.path.dirname(__file__), uif + ".py")
+        if (os.path.exists(uip) and os.path.exists(py) and
+            os.path.getmtime(uip) > os.path.getmtime(py)):
+            print(f"Recompiling {uif}")
+            uic = importlib.import_module(BINDING + ".uic")
+            with open(py, 'w', encoding='utf-8') as f:
+                uic.compileUi(uip, f)
 
     app = QApplication.instance()
     if not app:
