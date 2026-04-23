@@ -434,7 +434,7 @@
                 <rect>
                  <x>0</x>
                  <y>0</y>
-                 <width>599</width>
+                 <width>584</width>
                  <height>325</height>
                 </rect>
                </property>
@@ -534,8 +534,10 @@
     <addaction name="actionClearFiles"/>
     <addaction name="separator"/>
     <addaction name="actionLoadProject"/>
+    <addaction name="separator"/>
     <addaction name="actionSaveProject"/>
     <addaction name="separator"/>
+    <addaction name="actionQuit"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -599,6 +601,14 @@
    </property>
    <property name="shortcut">
     <string>Ctrl+W</string>
+   </property>
+  </action>
+  <action name="actionQuit">
+   <property name="text">
+    <string>&amp;Quit</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Q</string>
    </property>
   </action>
  </widget>

@@ -103,9 +103,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.actionClearFiles.setIcon(icons.getQIcon("close"))
         self.actionClearFiles.triggered.connect(self.close_all_files)
         # self.actionLoadProject.setIcon(icons.getQIcon(""))
-        # self.actionLoadProject.triggered.connect(self.load_project)
         self.actionSaveProject.setIcon(icons.getQIcon("document-save"))
-        # self.actionSaveProject.triggered.connect(self.save_project)
         # self.actionAbout.setIcon(icons.getQIcon("help"))
         self.actionAbout.triggered.connect(
             lambda: qt.QMessageBox.information(
@@ -144,15 +142,27 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
         self.actionLoadProject.triggered.connect(self.load_project)
         self.actionSaveProject.triggered.connect(self.save_project)
+        self.actionQuit.triggered.connect(self.close)
 
         # Groups to be searched/expanded after load
         self._h5GroupsToLoad = []
 
+    def confirm_quit(self):
+        return qt.QMessageBox.question(
+            self, "Quit", "Exit the application?",
+            qt.QMessageBox.Yes | qt.QMessageBox.No,
+            qt.QMessageBox.No
+            ) == qt.QMessageBox.Yes
+
     def closeEvent(self, ev):
+        if not self.confirm_quit():
+            ev.ignore()
+            return
         self.imageDialog.close()
         if self._analysisWorker is not None:
             self._analysisWorker.abort()
             self._analysisThread.wait()
+        ev.accept()
 
     def cleanup(self):
         "Some last-second cleanup so we can exit cleanly"
