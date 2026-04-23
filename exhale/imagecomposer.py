@@ -7,12 +7,12 @@ Created on Fri Feb  6 13:46:40 2026
 """
 from .imagesettings import ImageSettings, Layouts, Colorschemes, Scalebars
 from silx.gui.plot import PlotWidget
-from silx.gui import qt
-import silx.gui
+# from silx.gui import qt
+# import silx.gui
 import numpy as np
 from pathlib import Path
 from PIL import Image
-import numpy as np
+# import numpy as np
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -96,7 +96,8 @@ class ImageComposer():
             raise NotImplementedError(image.layout)
 
         bgcolor = image.borderColor
-        fgcolor = 1 - np.array(bgcolor)
+        # fgcolor = 1 - np.array(bgcolor)
+        fgcolor = image.panelLabelColor
         screen_dpi = 100
         fig = plt.Figure((W / screen_dpi, H / screen_dpi), dpi=screen_dpi,
                          facecolor=bgcolor)
@@ -109,17 +110,21 @@ class ImageComposer():
         imcolors = image.colorscheme.colors()
         fontsize = (H * image.fontsize) / 500
         labelshift = [.012, .016]
-        outlines = [
-            [patheffects.Stroke(linewidth = (.25 - .15*bw) * fontsize,
-                                foreground = [bw] * 3 + [.7]),
-             patheffects.Normal()]
-            for bw in (0., 1.)]
         _LUMA = np.array([0.2126, 0.7152, 0.0722])
-        def outline_by_color(rgb):
+        def luma(rgb):
             rgb = np.array(rgb)
             L = np.where(rgb <= 0.04045, rgb / 12.92,
                          ((rgb + 0.055) / 1.055) ** 2.4) * _LUMA
-            return outlines[int(L.sum() < .15)]
+            return L.sum()
+        def outline_by_color(rgb):
+            L = luma(rgb)
+            ffg = [0., 0., 0., .6]
+            if L < .05:
+                ffg = [1., 1., 1., .6]
+            elif L < .12:
+                ffg = list(np.array(rgb) / 2) + [.6]
+            return [patheffects.Stroke(linewidth=.2*fontsize, foreground=ffg),
+                patheffects.Normal()]
 
         for i, (x, y, (eix, e)) in enumerate(zip(exs, eys, elems)):
             im = e.transformedData()
@@ -127,6 +132,11 @@ class ImageComposer():
             ax.imshow(im, origin="lower", cmap="gray",
                       extent=(x, x + w, y + h, y),
                       interpolation="nearest")
+            if image.elementBorders and bw >= 3:
+                ebw = bw // 3
+                ax.add_patch(Rectangle(
+                    (x - ebw//2, y - ebw//2), w + ebw, h + ebw,
+                    linewidth=ebw, edgecolor=imcolors[eix], facecolor="none"))
             if image.panelLabels:
                 fig.text(
                     x / W + labelshift[0], 1 - y / H - labelshift[1],
@@ -134,11 +144,12 @@ class ImageComposer():
                     fontsize=fontsize * 1.2, va="top", color=fgcolor,
                     path_effects=outline_by_color(fgcolor))
             if image.elementLabels:
+                ecolor = (imcolors[eix] if image.elementLabelsColored
+                          else fgcolor)
                 fig.text(
                     (x + w) / W - labelshift[0], 1 - y / H - labelshift[1],
                     e.name, fontsize=fontsize, va="top", ha="right",
-                    color=imcolors[eix],
-                    path_effects=outline_by_color(imcolors[eix]))
+                    color=ecolor, path_effects=outline_by_color(ecolor))
 
         mx, my = bw, bw
         if image.layout == Layouts.IL:

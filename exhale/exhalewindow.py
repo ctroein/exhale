@@ -82,7 +82,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         # only an UI detail that they're offloaded to a dialog.
         for n in ["ScalebarColor", "ScalebarBg", "ScalebarBgColor",
                   "ResValue", "ResUnits", "Fontsize", "DPI",
-                  "PanelLabels", "ElementLabels"]:
+                  "PanelLabels", "ElementLabels", "ElementBorders",
+                  "ElementLabelsColored", "PanelLabelColor"]:
             n = "compose" + n
             self.__dict__[n] = imd.__dict__[n]
 
@@ -520,6 +521,9 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         im.setDPI(self.composeDPI.value())
         im.setLabels(self.composePanelLabels.isChecked(),
                      self.composeElementLabels.isChecked())
+        im.setPanelLabelColor(self.composePanelLabelColor.color())
+        im.setElementBorders(self.composeElementBorders.isChecked())
+        im.setElementLabelsColored(self.composeElementLabelsColored.isChecked())
 
     def createImage(self, name):
         "Add the named composed image to the list of images (and display it?)"
@@ -575,6 +579,13 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self.composePanelLabels.setChecked(im.panelLabels)
         with qt.QSignalBlocker(self.composeElementLabels):
             self.composeElementLabels.setChecked(im.elementLabels)
+        with qt.QSignalBlocker(self.composePanelLabelColor):
+            self.composePanelLabelColor.setColor(im.panelLabelColor)
+        with qt.QSignalBlocker(self.composeElementBorders):
+            self.composeElementBorders.setChecked(im.elementBorders)
+        with qt.QSignalBlocker(self.composeElementLabelsColored):
+            self.composeElementLabelsColored.setChecked(
+                im.elementLabelsColored)
         with qt.QSignalBlocker(self.imageHeaderBox):
             self.imageHeaderBox.setColor(im.borderColor)
             self.imageHeaderBox.border.setValue(im.borderWidth)
@@ -860,12 +871,16 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.composeScalebarBg.toggled.connect(scalebar_ch)
         for s in Scalebars:
             self.composeScalebar.addItem(s.description)
+        # For now we're lazy here: All settings changes trigger store+redraw
         self.composeScalebar.currentIndexChanged.connect(scalebar_ch)
         self.composeFontsize.valueChanged.connect(scalebar_ch)
         self.composeResValue.valueChanged.connect(scalebar_ch)
         self.composeResUnits.currentIndexChanged.connect(scalebar_ch)
         self.composePanelLabels.toggled.connect(scalebar_ch)
         self.composeElementLabels.toggled.connect(scalebar_ch)
+        self.composeElementBorders.toggled.connect(scalebar_ch)
+        self.composeElementLabelsColored.toggled.connect(scalebar_ch)
+        self.composePanelLabelColor.colorChanged.connect(scalebar_ch)
 
         def sel_img(curr, prev):
             "Active image changed"

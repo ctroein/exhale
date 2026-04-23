@@ -62,7 +62,10 @@ def _imagesettings_to_json(img_id: int, im: ImageSettings) -> dict[str, Any]:
         "border_color": list(im.borderColor),
         "border_width": im.borderWidth,
         "panel_labels": im.panelLabels,
+        "panel_label_color": list(im.panelLabelColor),
         "element_labels": im.elementLabels,
+        "element_labels_colored": im.elementLabelsColored,
+        "element_borders": im.elementBorders,
         "colorscheme": im.colorscheme.name,
         "custom_colors": (
             None if im.customColors is None else im.customColors.tolist()
@@ -88,7 +91,10 @@ def _imagesettings_from_json(obj: dict[str, Any], win) -> ImageSettings:
     im.borderColor = obj["border_color"]
     im.borderWidth = obj["border_width"]
     im.panelLabels = obj["panel_labels"]
+    im.panelLabelColor = obj["panel_label_color"]
     im.elementLabels = obj["element_labels"]
+    im.elementLabelsColored = obj["element_labels_colored"]
+    im.elementBorders = obj["element_borders"]
     im.colorscheme = Colorschemes[obj["colorscheme"]]
     im.customColors = obj["custom_colors"]
     im.dpi = obj["dpi"]

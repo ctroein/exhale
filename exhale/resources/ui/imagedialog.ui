@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>415</width>
-    <height>314</height>
+    <width>450</width>
+    <height>361</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -38,9 +38,6 @@
        </property>
        <property name="text">
         <string/>
-       </property>
-       <property name="flat">
-        <bool>false</bool>
        </property>
       </widget>
      </item>
@@ -185,6 +182,31 @@
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_2">
      <item>
+      <widget class="ColorButton" name="composePanelLabelColor">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>15</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>30</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QCheckBox" name="composePanelLabels">
        <property name="text">
         <string>Panel labels</string>
@@ -192,9 +214,30 @@
       </widget>
      </item>
      <item>
+      <widget class="QCheckBox" name="composeElementBorders">
+       <property name="text">
+        <string>Colored borders</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_4" stretch="0,1">
+     <item>
       <widget class="QCheckBox" name="composeElementLabels">
        <property name="text">
         <string>Element labels</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="composeElementLabelsColored">
+       <property name="text">
+        <string>in channel color</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
        </property>
       </widget>
      </item>

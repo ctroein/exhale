@@ -42,7 +42,7 @@ _COLORSCHEME_COLORS = np.array([
 
 class Colorschemes(Enum):
     "Predefined color schemes"
-    RGB = 0, "RGB"  
+    RGB = 0, "RGB"
     CMY = 1, "CMY"
     CUSTOM = 2, "Custom"
 
@@ -95,14 +95,17 @@ class ImageSettings:
         self.name = name
         self.layout = Layouts.IL
         self.scalebar = Scalebars.LL
-        self.scalebarColor = [1.,1,0]
-        self.scalebarBgColor = [0,0,0]
+        self.scalebarColor = [1.,1.,0.]
+        self.scalebarBgColor = [0.,0.,0.]
         self.scalebarBgAlpha = None
         self.fontsize = 11
         self.borderColor = np.zeros(3)
         self.borderWidth = 3
         self.panelLabels = True
+        self.panelLabelColor = [1.,1.,1.]
         self.elementLabels = True
+        self.elementBorders = False
+        self.elementLabelsColored = True
         self.colorscheme = Colorschemes.RGB
         self.customColors = None
         self.elements = {} # position -> ElementSettings
@@ -165,10 +168,12 @@ class ImageSettings:
         self.borderColor = rgb
 
     def setScalebarColors(self, color, bgcolor, bgalpha):
-        # print("setcolors", color, bgcolor, bgalpha)
         self.scalebarColor = color
         self.scalebarBgColor = bgcolor
         self.scalebarBgAlpha = bgalpha
+
+    def setPanelLabelColor(self, color):
+        self.panelLabelColor = color
 
     def setFontsize(self, size):
         self.fontsize = size
@@ -180,6 +185,11 @@ class ImageSettings:
         self.panelLabels = panelLabels
         self.elementLabels = elementLabels
 
+    def setElementLabelsColored(self, elc):
+        self.elementLabelsColored = elc
+
+    def setElementBorders(self, eb):
+        self.elementBorders = eb
 
     # def dpi(self):
     #     "Compute dpi from selected size"
