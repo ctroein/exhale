@@ -17,7 +17,7 @@ OutputBaseFilename=exhale-{#MyAppVersion}-setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile=..\exhale\resources\lungs.ico
+SetupIconFile=icons\lungs.ico
 PrivilegesRequired=lowest
 
 [Languages]
