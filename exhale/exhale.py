@@ -37,9 +37,13 @@ def _run_application(pyi_splash=None):
 
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
+    has_ui_files = os.path.exists(resdir.joinpath("ui"))
     parser = argparse.ArgumentParser(
         description="""EXHALE, Efficient X-ray Hub Aiding Lung Explorations.
             Graphical application for processing of XRF lung images.""")
+    if has_ui_files:
+        parser.add_argument('-r', '--recompile', action='store_true',
+                            help='recompile modified UI files')
     parser.add_argument('files', metavar='file', nargs='*',
                         help='initial input files to load')
     parser.add_argument('-p', '--params', metavar='file.pjs', dest='paramFile',
@@ -60,17 +64,21 @@ def _run_application(pyi_splash=None):
         multiprocessing.set_start_method(args.mpmethod)
 
     # Rebuild UI code on the fly; useful while developing
-    from silx.gui.qt import BINDING
-    ui_files = ["exhale_qt", "imagedialog", "analysisdialog"]
-    for uif in ui_files:
-        uip = resdir.joinpath("ui", uif + ".ui")
-        py = os.path.join(os.path.dirname(__file__), uif + ".py")
-        if (os.path.exists(uip) and os.path.exists(py) and
-            os.path.getmtime(uip) > os.path.getmtime(py)):
-            print(f"Recompiling {uif}")
-            uic = importlib.import_module(BINDING + ".uic")
-            with open(py, 'w', encoding='utf-8') as f:
-                uic.compileUi(uip, f)
+    if has_ui_files:
+        ui_files = ["exhale_qt", "imagedialog", "analysisdialog"]
+        for uif in ui_files:
+            uip = resdir.joinpath("ui", uif + ".ui")
+            py = os.path.join(os.path.dirname(__file__), uif + ".py")
+            if (os.path.exists(uip) and os.path.exists(py) and
+                os.path.getmtime(uip) > os.path.getmtime(py)):
+                if args.recompile:
+                    from silx.gui.qt import BINDING
+                    print(f"Recompiling {uif}")
+                    uic = importlib.import_module(BINDING + ".uic")
+                    with open(py, 'w', encoding='utf-8') as f:
+                        uic.compileUi(uip, f)
+                else:
+                    print(f"Run with -r to recompile updated {uif} UI file")
 
     from silx.gui.qt import QApplication, QIcon
     app = QApplication.instance()

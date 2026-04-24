@@ -414,6 +414,6 @@ class Ui_ExhaleWindow(object):
         self.actionClearFiles.setToolTip(_translate("ExhaleWindow", "Close all open data files"))
         self.actionClearFiles.setShortcut(_translate("ExhaleWindow", "Ctrl+W"))
         self.actionQuit.setText(_translate("ExhaleWindow", "&Quit"))
-        self.actionQuit.setShortcut(_translate("ExhaleWindow", "Ctrl+Shift+Q"))
+        self.actionQuit.setShortcut(_translate("ExhaleWindow", "Ctrl+Q"))
 from exhale.listwidgets import ElementListWidget, ImageListWidget
 from silx.gui.plot.PlotWidget import PlotWidget

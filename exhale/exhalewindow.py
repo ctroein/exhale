@@ -10,7 +10,7 @@ import numpy as np
 # from typing import Optional
 # from collections.abc import Iterable
 from functools import partial
-import importlib
+# import importlib
 import re
 import os
 from time import strftime
@@ -884,6 +884,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         # For now we're lazy here: All settings changes trigger store+redraw
         self.composeScalebar.currentIndexChanged.connect(scalebar_ch)
         self.composeFontsize.valueChanged.connect(scalebar_ch)
+        self.composeDPI.valueChanged.connect(scalebar_ch)
         self.composeResValue.valueChanged.connect(scalebar_ch)
         self.composeResUnits.currentIndexChanged.connect(scalebar_ch)
         self.composePanelLabels.toggled.connect(scalebar_ch)
