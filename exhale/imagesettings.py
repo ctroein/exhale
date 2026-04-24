@@ -100,11 +100,11 @@ class ImageSettings:
         self.scalebarBgAlpha = None
         self.fontsize = 11
         self.borderColor = np.zeros(3)
-        self.borderWidth = 3
+        self.borderWidth = 9
         self.panelLabels = True
         self.panelLabelColor = [1.,1.,1.]
         self.elementLabels = True
-        self.elementBorders = False
+        self.elementBorders = True
         self.elementLabelsColored = True
         self.colorscheme = Colorschemes.RGB
         self.customColors = None

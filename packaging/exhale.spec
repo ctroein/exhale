@@ -56,7 +56,7 @@ a = Analysis(
     binaries=[],
     hiddenimports=['pkg_resources.py2_warn', 'importlib', 'freetype', 'stardist'
         ] + collect_submodules("imageio"),
-    hooksconfig={"matplotlib": {"backends": "Agg"}},
+#    hooksconfig={"matplotlib": {"backends": "Agg"}},
     runtime_hooks=[],
     datas=datas,
     hookspath=[join(BUNDLE_ROOT, 'hooks'),
