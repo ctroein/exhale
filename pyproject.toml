@@ -13,6 +13,8 @@ authors=[
     {name="Karina Thånell"}
 ]
 description="EXHALE, Efficient X-ray Hub Aiding Lung Explorations"
+license = { file = "LICENSE" }
+classifiers = [ "License :: OSI Approved :: MIT License" ]
 readme="README.md"
 requires-python = ">= 3.10"
 dependencies = [

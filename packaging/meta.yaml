@@ -6,7 +6,7 @@ package:
   version: {{ version }}
 
 source:
-  path: exhale
+  path: ..
 
 build:
   noarch: python
