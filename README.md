@@ -14,7 +14,7 @@ with MAX IV, Lung Biology and Correlative Image Processing and Analysis
 studies for lung diseases, making these methods more accessible for
 biomedical companies and clinical researchers.
 
-Currect functionality:
+## Currect functionality
 
 * Loading HDF5 files with XRF data from the NanoMAX beamline at MAX IV.
 * Composing element maps into publication-ready figures.
