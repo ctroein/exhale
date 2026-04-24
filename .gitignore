@@ -1,6 +1,27 @@
+# Editor
 *~
-__pycache__
-build
-dist
-exhale.egg-info
-.spyproject
+.spyproject/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Packaging (local artifacts)
+packaging/__pycache__/
+packaging/build/
+packaging/dist/
+
+# PyInstaller
+*.spec.backup
+*.spec.old
+
+# OS junk
+.DS_Store
+Thumbs.db
