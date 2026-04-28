@@ -3,7 +3,7 @@ requires = ["setuptools >= 77.0.3", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name="exhale"
+name="exhale_lung"
 dynamic = ["version"]
 authors=[
     {name="Carl Troein", email="carl.troein@cec.lu.se"},
@@ -13,8 +13,9 @@ authors=[
     {name="Karina Thånell"}
 ]
 description="EXHALE, Efficient X-ray Hub Aiding Lung Explorations"
-license = { file = "LICENSE" }
-classifiers = [ "License :: OSI Approved :: MIT License" ]
+license = "MIT"
+license-files = [ "LICENSE" ]
+classifiers = [ "Topic :: Scientific/Engineering :: Medical Science Apps." ]
 readme="README.md"
 requires-python = ">= 3.10"
 dependencies = [
@@ -36,8 +37,6 @@ dependencies = [
 [tool.setuptools_scm]
 
 [tool.setuptools.packages.find]
-#include = ['exhale']
-#where = ['.']
 
 [tool.setuptools.package-data]
 "exhale" = [
