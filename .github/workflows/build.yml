@@ -225,7 +225,7 @@ jobs:
 
     environment:
       name: pypi
-      url: https://pypi.org/p/exhale_lung
+      url: https://pypi.org/p/exhale-lung
 
     permissions:
       contents: read

@@ -3,7 +3,7 @@ requires = ["setuptools >= 77.0.3", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name="exhale_lung"
+name="exhale-lung"
 dynamic = ["version"]
 authors=[
     {name="Carl Troein", email="carl.troein@cec.lu.se"},
