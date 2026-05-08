@@ -33,7 +33,7 @@ def _run_application(pyi_splash=None):
 
     import signal
     import argparse
-    import multiprocessing
+    # import multiprocessing
 
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -44,24 +44,25 @@ def _run_application(pyi_splash=None):
     if has_ui_files:
         parser.add_argument('-r', '--recompile', action='store_true',
                             help='recompile modified UI files')
+    parser.add_argument('-p', '--project', metavar='file.xhp',
+                        dest='project_file',
+                        help='saved project to load')
     parser.add_argument('files', metavar='file', nargs='*',
                         help='initial input files to load')
-    parser.add_argument('-p', '--params', metavar='file.pjs', dest='paramFile',
-                        help='parameter file to load')
-    parameters=['files', 'paramFile']
+    parameters=['project_file', 'files']
 
     progver = f'Exhale {exhale_version}'
     windowparams = {}
     parser.add_argument('--version', action='version',
                         version=progver)
-    selmp = multiprocessing.get_start_method(
-        allow_none=True) is None
-    if selmp:
-        parser.add_argument('--mpmethod', help='')
+    # selmp = multiprocessing.get_start_method(
+    #     allow_none=True) is None
+    # if selmp:
+    #     parser.add_argument('--mpmethod', help="fork, spawn or forkserver")
     args = parser.parse_args()
     windowparams = { k: args.__dict__[k] for k in parameters }
-    if selmp and args.mpmethod:
-        multiprocessing.set_start_method(args.mpmethod)
+    # if selmp and args.mpmethod:
+    #     multiprocessing.set_start_method(args.mpmethod)
 
     # Rebuild UI code on the fly; useful while developing
     if has_ui_files:

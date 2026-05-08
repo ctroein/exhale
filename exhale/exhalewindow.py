@@ -159,6 +159,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             ev.ignore()
             return
         self.imageDialog.close()
+        self.analysisDialog.close()
         if self._analysisWorker is not None:
             self._analysisWorker.abort()
             self._analysisThread.wait()
@@ -1323,13 +1324,13 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
     # End Silx stuff
 
-    def post_setup(self, files, paramFile):
+    def post_setup(self, project_file, files):
         "Called after setting up UI to start loading data etc"
         ExceptionDialog.install(self)
+        if project_file is not None:
+            self.load_project_file(project_file)
         if files is not None and files:
             self.open_files(files)
-        if paramFile is not None:
-            print(f"Should read settings from: {paramFile}")
 
     def clear_project(self):
         # Close open files first
@@ -1400,6 +1401,9 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             settingname="Project")
         if not filename:
             return
+        return self.load_project_file(filename)
+
+    def load_project_file(self, filename):
         self.clear_project()
         try:
             with OverrideCursor():
