@@ -12,6 +12,8 @@ from silx.gui.colors import Colormap
 from scipy.stats import rankdata
 import numpy as np
 
+from .source_refs import ElementRef, ref_display_basename
+
 class Normalizers(Enum):
     "An Enum of the silx color normalizers, plus some of our own"
     LINEAR = 0, Colormap.LINEAR, "Linear"
@@ -40,18 +42,53 @@ class Normalizers(Enum):
         return self._description_
 
 class ElementSettings():
-    def __init__(self, h5 : h5py.Dataset):
-        self._h5id = h5.id
-        self.path = (h5.file.filename, h5.name)
-        self.name = h5.name.rsplit('/', 1).pop()
-        self.data = self.h5[()]
+    def __init__(self, dataset=None, ref=None, *, name=None, data=None):
+        self.ref = ref
+
+        self._h5id = None
+        if dataset is not None:
+            self._h5id = getattr(dataset, "id", None)
+            if ref is None:
+                from .source_refs import ElementRef
+                ref = ElementRef(dataset.file.filename, dataset.name)
+                self.ref = ref
+            if name is None:
+                name = dataset.name.rsplit("/", 1).pop()
+            if data is None:
+                data = dataset[()]
+
+        if ref is None:
+            raise ValueError("ElementSettings needs ref or dataset")
+        if data is None:
+            raise ValueError("ElementSettings needs data or dataset")
+
+        self.ref = ref
+        self.name = name if name is not None else ref.item_id.rsplit("/", 1).pop()
+        self.data = data
+
         self.dataRange = (self.data.min(), self.data.max())
-        self.minPositive = self.data[self.data > 0].min()
+        positives = self.data[self.data > 0]
+        self.minPositive = positives.min() if positives.size else self.dataRange[1]
         self.trfRange = list(self.dataRange)
         self.normalizer = Normalizers.LINEAR
         self.gamma = 1
         self.color = None
-        self.setMinmaxByMode('sd')
+        self.setMinmaxByMode("sd")
+
+    @property
+    def path(self):
+        """Compatibility alias during ElementRef migration."""
+        return self.ref
+
+    @property
+    def h5(self):
+        """Return the original h5py dataset when one exists and is still open."""
+        if self._h5id is None:
+            return None
+        try:
+            return h5py.Dataset(self._h5id)
+        except Exception:
+            return None
 
     def copy(self):
         e = type(self).__new__(self.__class__)
@@ -151,13 +188,9 @@ class ElementSettings():
         # print("trf", data.min(), data.max(), self.normalizer.description, vmin, vmax)
         return data
 
-    @property
-    def h5(self):
-        "Get the hdf5 object or possibly None if it's been unloaded"
-        try:
-            return h5py.Dataset(self._h5id)
-        except:
-            return None
+    @path.setter
+    def path(self, ref):
+        self.ref = ref
 
     def minConstraint(self, x, y):
         return max(self.dataRange[0], min(self.trfRange[1], x)), y

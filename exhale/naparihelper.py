@@ -35,12 +35,12 @@ class NapariHelper():
             if row.empty:
                 continue
             r = row.iloc[0]
-            sizes = ", ".join(f"{v:.0f}" for v in r["cluster_sizes"])
-            intensities = ", ".join(f"{v:.3g}" for v in r["cluster_intensities"])
+            # sizes = ", ".join(f"{v:.0f}" for v in r["cluster_sizes"])
+            # intensities = ", ".join(f"{v:.3g}" for v in r["cluster_intensities"])
             text.append(
-                f"{elem}: avg={r['average_element_intensity']:.3g}, "
-                f"clusters={r['num_clusters']}, "
-                f"sizes=[{sizes}], intensities=[{intensities}]"
+                f"{elem}: avg={r['average_element_intensity']:.3g} ng/mm², "
+                f"number of overlapping clusters={r['num_clusters']}"
+                # f"sizes=[{sizes}], intensities=[{intensities}]"
             )
         return "\n".join(text)
 

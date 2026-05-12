@@ -14,6 +14,7 @@ import numpy as np
 
 from .elementsettings import ElementSettings
 from .imagesettings import ImageSettings
+from .source_refs import ElementRef
 
 class ExhaleListWidget(qt.QListWidget):
     "Base class for the lists below"
@@ -33,8 +34,9 @@ class ExhaleListWidget(qt.QListWidget):
 
 
 class ElementListWidget(ExhaleListWidget):
-    "List of elements that can be selected, with h5 path as data"
-    H5_PATH_ROLE = Qt.UserRole + 1
+    "List of elements that can be selected, with ElementRef as data"
+    ELEMENT_REF_ROLE = Qt.UserRole + 1
+    H5_PATH_ROLE = ELEMENT_REF_ROLE  # compatibility alias
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -53,19 +55,22 @@ class ElementListWidget(ExhaleListWidget):
     #         print("drop OK")
     #         super().dropEvent(event)
 
-    def addElementPath(self, name: str, path, checked=False):
-        "Add element via path (filename, h5path)"
+    def addElementRef(self, name: str, ref: ElementRef, checked=False):
+        "Add element via ElementRef."
         item = qt.QListWidgetItem(
             qt.QIcon.fromTheme("applications-education-science"), name)
-        item.setData(self.H5_PATH_ROLE, path)
+        item.setData(self.ELEMENT_REF_ROLE, ref)
         item.setCheckState(Qt.CheckState.Checked if checked
                            else Qt.CheckState.Unchecked)
         self.addItem(item)
 
+    def addElementPath(self, name: str, ref: ElementRef, checked=False):
+        "Compatibility wrapper for old callers."
+        self.addElementRef(name, ref, checked)
+
     def addElement(self, name: str, dataset: Dataset, checked=False):
-        "Add element from h5 Dataset"
-        path = (dataset.file.filename, dataset.name)
-        self.addElementPath(name, path, checked)
+        "Add element from h5 Dataset."
+        self.addElementRef(name, ElementRef.from_h5_dataset(dataset), checked)
 
     # def addElementFromSettings(self, element : ElementSettings):
     #     self.addElement(element.name, element.h5)

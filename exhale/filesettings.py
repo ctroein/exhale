@@ -9,9 +9,10 @@ Created on Tue Jan 13 19:21:19 2026
 import os.path
 
 class FileSettings:
-    def __init__(self, name : str, h5file = None):
+    def __init__(self, name: str, h5file=None, kind="hdf5"):
         self.name = name
         self.h5file = h5file
+        self.kind = kind
         self.alias = os.path.splitext(os.path.basename(name))[0]
 
     def is_open(self):

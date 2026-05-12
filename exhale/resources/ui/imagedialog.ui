@@ -83,69 +83,16 @@
     </layout>
    </item>
    <item>
-    <layout class="QHBoxLayout" name="horizontalLayout_6" stretch="0,1,1,0">
+    <layout class="QHBoxLayout" name="horizontalLayout_5">
      <item>
       <widget class="QLabel" name="label_2">
        <property name="text">
-        <string>Resolution</string>
+        <string>Scalebar position</string>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QDoubleSpinBox" name="composeResValue">
-       <property name="suffix">
-        <string/>
-       </property>
-       <property name="decimals">
-        <number>2</number>
-       </property>
-       <property name="minimum">
-        <double>0.000000000000000</double>
-       </property>
-       <property name="maximum">
-        <double>100000.000000000000000</double>
-       </property>
-       <property name="stepType">
-        <enum>QAbstractSpinBox::AdaptiveDecimalStepType</enum>
-       </property>
-       <property name="value">
-        <double>100.000000000000000</double>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QComboBox" name="composeResUnits">
-       <property name="currentIndex">
-        <number>3</number>
-       </property>
-       <item>
-        <property name="text">
-         <string>None</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>mm</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>µm</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>nm</string>
-        </property>
-       </item>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLabel" name="label_10">
-       <property name="text">
-        <string>/px</string>
-       </property>
-      </widget>
+      <widget class="QComboBox" name="composeScalebar"/>
      </item>
     </layout>
    </item>

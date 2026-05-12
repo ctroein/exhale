@@ -13,23 +13,27 @@ from pathlib import Path
 from typing import Any
 
 from .elementsettings import Normalizers
+from .source_refs import ElementRef
 from .imagesettings import ImageSettings, Layouts, Colorschemes, Scalebars
 
 PROJECT_FORMAT = "exhale-project"
 PROJECT_VERSION = 1
 
 
-def _path_to_json(path: tuple[str, str]) -> dict[str, str]:
-    return {"file": path[0], "dataset": path[1]}
+def _ref_to_json(ref: ElementRef) -> dict[str, str]:
+    return ref.to_json()
 
 
-def _path_from_json(obj: dict[str, str]) -> tuple[str, str]:
-    return (obj["file"], obj["dataset"])
+def _ref_from_json(obj: dict[str, str]) -> ElementRef:
+    # Accept version-1 projects written before ElementRef.
+    if "source" in obj and "item" in obj:
+        return ElementRef.from_json(obj)
+    return ElementRef(source_id=obj["file"], item_id=obj["dataset"])
 
 
 def _elementsettings_to_json(es) -> dict[str, Any]:
     return {
-        "path": _path_to_json(es.path),
+        "ref": _ref_to_json(es.ref),
         "name": es.name,
         "normalizer": es.normalizer.name,
         "gamma": es.gamma,
@@ -108,15 +112,14 @@ def _imagesettings_from_json(obj: dict[str, Any], win) -> ImageSettings:
 
     for slot_s, es_obj in obj["elements"].items():
         slot = int(slot_s)
-        path = _path_from_json(es_obj["path"])
-        filename, h5path = path
+        ref = _ref_from_json(es_obj.get("ref", es_obj.get("path")))
 
-        fs = win.fileSettings.get(filename)
+        fs = win.fileSettings.get(ref.source_id)
         if fs is None or fs.h5file is None:
             continue
 
-        ds = fs.h5file[h5path]
-        es = ElementSettings(ds)   # fresh copy for this image slot
+        ds = fs.h5file[ref.item_id]
+        es = ElementSettings(ds, ref)   # fresh copy for this image slot
         _apply_elementsettings_json(es, es_obj)
         im.elements[slot] = es
 
@@ -134,12 +137,12 @@ def export_project_state(win) -> dict[str, Any]:
         })
 
     elements = []
-    for path, es in win.elementSettings.items():
+    for ref, es in win.elementSettings.items():
         elements.append(_elementsettings_to_json(es))
 
     selected_elements = [
-        _path_to_json(path)
-        for path in sorted(win.selectedElements)
+        _ref_to_json(ref)
+        for ref in sorted(win.selectedElements)
     ]
 
     images = []
@@ -209,25 +212,24 @@ def load_project_state(win, state: dict[str, Any], *, open_files: bool = True) -
     # ------------------------------------------------------------------
     # Ensure all referenced elements exist
     for eobj in state["elements"]:
-        path = _path_from_json(eobj["path"])
+        ref = _ref_from_json(eobj.get("ref", eobj.get("path")))
 
         from .elementsettings import ElementSettings
-        filename, h5path = path
-        fs = win.fileSettings.get(filename)
+        fs = win.fileSettings.get(ref.source_id)
         if fs is None or fs.h5file is None:
             continue
-        ds = fs.h5file[h5path]
-        win.elementSettings[path] = ElementSettings(ds)
-        _apply_elementsettings_json(win.elementSettings[path], eobj)
+        ds = fs.h5file[ref.item_id]
+        win.elementSettings[ref] = ElementSettings(ds, ref)
+        _apply_elementsettings_json(win.elementSettings[ref], eobj)
 
     # ------------------------------------------------------------------
     # Selected elements
     # ------------------------------------------------------------------
     win.selectedElements.clear()
     for pobj in state["selected_elements"]:
-        path = _path_from_json(pobj)
-        if path in win.elementSettings:
-            win.selectedElements.add(path)
+        ref = _ref_from_json(pobj)
+        if ref in win.elementSettings:
+            win.selectedElements.add(ref)
 
     # Let UI rebuild its lists/dropdowns from the new selectedElements
     win.selectedElementsChanged.emit()
