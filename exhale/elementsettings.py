@@ -12,7 +12,7 @@ from silx.gui.colors import Colormap
 from scipy.stats import rankdata
 import numpy as np
 
-from .source_refs import ElementRef, ref_display_basename
+from .source_refs import ElementRef
 
 class Normalizers(Enum):
     "An Enum of the silx color normalizers, plus some of our own"
@@ -49,7 +49,6 @@ class ElementSettings():
         if dataset is not None:
             self._h5id = getattr(dataset, "id", None)
             if ref is None:
-                from .source_refs import ElementRef
                 ref = ElementRef(dataset.file.filename, dataset.name)
                 self.ref = ref
             if name is None:
@@ -96,10 +95,6 @@ class ElementSettings():
         e.trfRange = self.trfRange.copy()
         return e
 
-    # def getColormap(self):
-    #     "Get the current transformation as Colormap"
-    #     return Colormap(normalization=self.normalizer.cmname)
-
     def getNormalizer(self):
         return self.normalizer.cmname
 
@@ -109,17 +104,6 @@ class ElementSettings():
             self.trfRange[mm] = self.minConstraint(val, None)[0]
         else:
             self.trfRange[mm] = self.maxConstraint(val, None)[0]
-
-    # def percent(self, mm):
-    #     "Get current min/max as percentage"
-    #     return (self.trfRange[mm] - self.dataRange[0]) / (
-    #         self.dataRange[1] - self.dataRange[0]) * 100
-
-    # def setPercent(self, mm, perc):
-    #     "Set current min/max from percentage"
-    #     val = self.dataRange[0] + .01 * perc * (
-    #         self.dataRange[1] - self.dataRange[0])
-    #     self.setMinmax(mm, val)
 
     def setMinmaxByMode(self, mode, param=None):
         modes = ['minmax', 'sd', 'percent']

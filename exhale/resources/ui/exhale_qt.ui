@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1359</width>
+    <width>1491</width>
     <height>886</height>
    </rect>
   </property>
@@ -358,7 +358,7 @@
              </layout>
             </item>
             <item>
-             <widget class="PlotWidget" name="elementHistogramPlot" native="true">
+             <widget class="ExhalePlotWidget" name="elementHistogramPlot" native="true">
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Maximum">
                 <horstretch>0</horstretch>
@@ -380,7 +380,7 @@
              </widget>
             </item>
             <item>
-             <widget class="PlotWidget" name="elementPlot" native="true"/>
+             <widget class="ExhalePlotWidget" name="elementPlot" native="true"/>
             </item>
            </layout>
           </widget>
@@ -491,7 +491,7 @@
                 <rect>
                  <x>0</x>
                  <y>0</y>
-                 <width>584</width>
+                 <width>643</width>
                  <height>325</height>
                 </rect>
                </property>
@@ -579,7 +579,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1359</width>
+     <width>1491</width>
      <height>36</height>
     </rect>
    </property>
@@ -676,15 +676,15 @@
    <header>exhale.listwidgets</header>
   </customwidget>
   <customwidget>
-   <class>PlotWidget</class>
-   <extends>QWidget</extends>
-   <header location="global">silx.gui.plot.PlotWidget</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
    <class>ImageListWidget</class>
    <extends>QListWidget</extends>
    <header>exhale.listwidgets</header>
+  </customwidget>
+  <customwidget>
+   <class>ExhalePlotWidget</class>
+   <extends>QWidget</extends>
+   <header>exhale.plotwidgets</header>
+   <container>1</container>
   </customwidget>
  </customwidgets>
  <tabstops>

@@ -13,6 +13,7 @@ import os
 import importlib
 from importlib.metadata import version, PackageNotFoundError
 
+
 try:
     exhale_version = version("exhale")
 except PackageNotFoundError:

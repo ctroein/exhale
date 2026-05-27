@@ -16,7 +16,7 @@ import os
 from time import strftime
 
 # Note to users: export QT_API=pyqt5 to force PyQt5 if needed.
-import silx.io
+import silx
 from silx.gui import qt, icons, hdf5
 from silx.gui.qt import Qt #, QApplication
 # from silx.gui.plot import PlotWidget
@@ -27,21 +27,21 @@ from .exceptiondialog import ExceptionDialog
 from .overridecursor import OverrideCursor
 from .elementsettings import ElementSettings, Normalizers
 from .imagesettings import ImageSettings, Layouts, Colorschemes, Scalebars
-from .filesettings import FileSettings
 from .listwidgets import ImageElementBox, ImageHeaderBox
 from .listwidgets import ElementListWidget, ImageListWidget
 from .imagecomposer import ImageComposer
 from .analysisworker import AnalysisWorker
 from . import projectio
 from .exhale import exhale_version
-from .source_refs import ElementRef, LoadedSource, ref_display_basename
+from .source_refs import ElementRef, LoadedSource, open_source
+from .constants import CONCENTRATION_UNITS
 
 from .exhale_qt import Ui_ExhaleWindow
 from .imagedialog import Ui_ImageDialog
 from .analysisdialog import Ui_AnalysisDialog
 
 _LOAD_NAPARI_EARLY = True
-
+_PLOTWIDGET_BACKEND = "opengl"
 
 def scale_font(widget: qt.QWidget, scale: float):
     "Rescale font of widget and its children"
@@ -73,6 +73,9 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.errorMsg = qt.QErrorMessage(self)
         self.errorMsg.setSizeGripEnabled(True)
         self.errorMsg.setWindowModality(Qt.WindowModal)
+
+        self.elementHistogramPlot.setBackend(_PLOTWIDGET_BACKEND)
+        self.elementPlot.setBackend(_PLOTWIDGET_BACKEND)
 
         imd = ImageDialog()
         self.imageDialog = imd
@@ -123,15 +126,15 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
         """
         Main data classes.
-            ElementRef identifies one source item, e.g. an HDF5 dataset.
-            fileSettings lets us find h5 objects and list/close all open files.
-            elementSettings stores color settings for all elements we've viewed.
+            ElementRef identifies one source item, e.g. an HDF5 dataset of TIFF.
+            fileSettings maps source_id to LoadedSource.
+            elementSettings stores color/settings for materialized elements.
             selectedElements holds checkboxed ElementRefs, available for images.
             currentElement is the currently selected ElementSettings object.
             imageSettings holds settings for all images.
             currentImage is the selected image, exclusive with currentElement.
         """
-        self.fileSettings = {} # name -> FileSettings
+        self.fileSettings = {} # source_id -> LoadedSource
         self.elementSettings = {} # ElementRef -> ElementSettings
         self.selectedElements = set() # ElementRefs of selected elements
         self.currentElement = None # ElementSettings
@@ -147,7 +150,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.actionQuit.triggered.connect(self.close)
 
         # Groups to be searched/expanded after load
-        self._h5GroupsToLoad = []
+        # self._h5GroupsToLoad = []
 
     def confirm_quit(self):
         return qt.QMessageBox.question(
@@ -177,7 +180,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
 
     def open_file_count(self):
-        return sum(1 for fs in self.fileSettings.values() if fs.is_open())
+        return sum(1 for fs in self.fileSettings.values() if fs.is_open)
 
     def source_alias_for_ref(self, ref: ElementRef):
         fs = self.fileSettings.get(ref.source_id)
@@ -189,10 +192,21 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         if force_alias or self.open_file_count() > 1:
             label = f"{label} ({self.source_alias_for_ref(ref)})"
         fs = self.fileSettings.get(ref.source_id)
-        if fs is not None and not fs.is_open():
+        if fs is not None and not fs.is_open:
             label += " [closed]"
         return label
 
+    def element_local_display_name(self, ref):
+        source = self.fileSettings.get(ref.source_id)
+        orig = (
+            source.default_element_name(ref)
+            if source is not None
+            else ref.item_id.rsplit("/", 1).pop()
+        )
+        es = self.elementSettings.get(ref)
+        if es is not None and es.name != orig:
+            return f"{es.name} ({orig})"
+        return orig
 
     # All about the analysis tab
 
@@ -425,13 +439,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
     # All about the data/elements/images tab
 
-    def element_local_display_name(self, ref):
-        orig = ref.item_id.rsplit("/", 1).pop()
-        es = self.elementSettings.get(ref)
-        if es is not None and es.name != orig:
-            return f"{es.name} ({orig})"
-        return orig
-
     def loadedFileChanged(self):
         "Update what source is shown in the UI"
         source = self.loadedFileComboBox.currentData()
@@ -502,8 +509,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
     def updateElementPlot(self):
         "Replot the data after transformation change"
         if es := self.currentElement:
-            # Update existing element image
-            self.elementPlot.addImage(es.transformedData(), legend='e',
+            # Update existing element image, flipped to be consistent
+            self.elementPlot.addImage(es.transformedData()[::-1], legend='e',
                                       resetzoom=False, copy=False)
 
     def showCurrentElement(self):
@@ -540,7 +547,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self.elementHistogramMarkers[mm].sigItemChanged.connect(
                 partial(marker_ch, mm))
         # Replace any other image
-        self.elementPlot.addImage(es.transformedData(), legend='e',
+        self.elementPlot.addImage(es.transformedData()[::-1], legend='e',
                                   replace=True, copy=False)
         self._composeMeta = None
 
@@ -692,30 +699,15 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 self.refresh_element_display_names()
         self.loadedFileAlias.textEdited.connect(loaded_file_alias_changed)
 
-        def source_for_ref(ref):
-            fs = self.fileSettings.get(ref.source_id)
-            if fs is None:
-                raise KeyError(f"Unknown source: {ref.source_id}")
-            return LoadedSource(
-                source_id=ref.source_id,
-                filename=fs.name,
-                alias=fs.alias,
-                kind=getattr(fs, "kind", "hdf5"),
-                handle=fs.h5file,
-                root=None,
-            )
-
         def ensure_exists(ref):
             "Create element settings if needed"
             if ref not in self.elementSettings:
-                fs = self.fileSettings[ref.source_id]
-                if not fs.is_open():
+                source = self.fileSettings[ref.source_id]
+                if not source.is_open:
                     raise RuntimeError(
                         "Attempting to access closed file " + ref.source_id)
-                src = source_for_ref(ref)
-                data = src.load_array(ref)
-                # Prefer the dataset basename for HDF5-ish sources.
-                name = ref.item_id.rsplit("/", 1).pop()
+                data = source.load_array(ref)
+                name = source.default_element_name(ref)
                 es = ElementSettings(ref=ref, name=name, data=data)
                 self.elementSettings[ref] = es
 
@@ -993,17 +985,12 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                     return
                 ix, iy = ixy
                 info = f"Pos ({ix}, {iy}):\n" + "\n".join(
-                    [f"{el.name}: {el.data[iy, ix]:.4g}"
+                    [f"{el.name}: {el.data[iy, ix]:.4g} {CONCENTRATION_UNITS}"
                      for el in im.elements.values()
                      if iy < el.data.shape[0] and ix < el.data.shape[1]])
                 qt.QToolTip.showText(
                     qt.QCursor.pos(), info, self.elementPlot)
         self.elementPlot.sigPlotSignal.connect(mouse_over_plot)
-
-        # def tab_check():
-        #     if self.tabWidget.currentWidget() == self.composeTab:
-        #         self.updateComposeTab()
-        # self.tabWidget.currentChanged.connect(tab_check)
 
         def save_im():
             if not (im := self.currentImage):
@@ -1109,8 +1096,8 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
         treeView.setSelectionMode(treeView.ExtendedSelection)
 
-        treeModel.sigH5pyObjectLoaded.connect(self._h5FileLoaded)
-        treeModel.sigH5pyObjectRemoved.connect(self._h5FileRemoved)
+        # treeModel.sigH5pyObjectLoaded.connect(self._h5FileLoaded)
+        # treeModel.sigH5pyObjectRemoved.connect(self._h5FileRemoved)
         treeModel.setDatasetDragEnabled(True)
         treeView.setModel(treeModel)
         treeView.setSizePolicy(qt.QSizePolicy.Preferred,
@@ -1158,69 +1145,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         if len(selected) == 1:
             # Update the viewer for a single selection
             self._dataPanel.setData(selected[0])
-
-    def _getRelativePath(self, model, rootIndex, index):
-        """Returns a relative path from an index to his rootIndex.
-
-        If the path is empty the index is also the rootIndex.
-        """
-        path = ""
-        while index.isValid():
-            if index == rootIndex:
-                return path
-            name = model.data(index)
-            if path == "":
-                path = name
-            else:
-                path = name + "/" + path
-            index = index.parent()
-
-        # index is not a children of rootIndex
-        raise ValueError("index is not a children of the rootIndex")
-
-    def _getPathFromExpandedNodes(self, view, rootIndex):
-        """Return relative path from the root index of the extended nodes"""
-        model = view.model()
-        rootPath = None
-        paths = []
-        indexes = [rootIndex]
-        while len(indexes):
-            index = indexes.pop(0)
-            if not view.isExpanded(index):
-                continue
-
-            node = model.data(
-                index, role=silx.gui.hdf5.Hdf5TreeModel.H5PY_ITEM_ROLE)
-            path = node._getCanonicalName()
-            if rootPath is None:
-                rootPath = path
-            path = path[len(rootPath):]
-            paths.append(path)
-
-            for child in range(model.rowCount(index)):
-                childIndex = model.index(child, 0, index)
-                indexes.append(childIndex)
-        return paths
-
-    def _indexFromPath(self, model, rootIndex, path):
-        elements = path.split("/")
-        if elements[0] == "":
-            elements.pop(0)
-        index = rootIndex
-        while len(elements) != 0:
-            element = elements.pop(0)
-            found = False
-            for child in range(model.rowCount(index)):
-                childIndex = model.index(child, 0, index)
-                name = model.data(childIndex)
-                if element == name:
-                    index = childIndex
-                    found = True
-                    break
-            if not found:
-                return None
-        return index
-
 
     def _expandAllSelected(self):
         """Expand all selected items of the tree.
@@ -1276,47 +1200,26 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                     childIndex = model.index(row, 0, index)
                     indexes.append((childIndex, depth + 1))
 
-    def _findNamedGroup(self, group, names):
-        for k, entity in group.items():
-            if k in names:
-                return entity
-            if silx.io.utils.is_group(entity):
-                g = self._findNamedGroup(entity, names)
-                if g is not None:
-                    return g
-        return None
+    def close_files_silxview(self):
+        "Close HDF5 sources selected in the silx viewer."
+        with OverrideCursor():
+            selection = self._treeView.selectionModel()
+            indexes = selection.selectedIndexes()
+            model = self._treeView.model()
+            source_ids = set()
 
-    def _h5FileLoaded(self, loadedH5):
-        "Find and queue the data group from a just-loaded file (h5/tiff)"
-        startgroup = None
-        h5grp = "plotselect"
-        tifgrp = "scan_0/measurement/image_0/info"
-        try:
-            startgroup = self._findNamedGroup(loadedH5, [h5grp])
-        except AttributeError as e:
-            print("Warning: Internal silx error when searching in file:", e)
-        if startgroup is None:
-            try:
-                startgroup = loadedH5[tifgrp]
-            except:
-                ...
-        if startgroup is None:
-            self.errorMsg.showMessage(
-                "Input file " + os.path.basename(loadedH5.file.filename) +
-                f" contains no '{h5grp}' group with elements"
-                f" or image in '{tifgrp}'",
-                "No elements")
-        else:
-            # Load elements from this group shortly
-            self._h5GroupsToLoad.append(startgroup)
+            for index in indexes:
+                if index.column() != 0:
+                    continue
+                h5 = model.data(
+                    index, role=silx.gui.hdf5.Hdf5TreeModel.H5PY_OBJECT_ROLE)
+                if h5 is not None:
+                    source_ids.add(h5.file.filename)
 
-    def _h5FileRemoved(self, removedH5):
-        fname = removedH5.file.filename
-        self._dataPanel.removeDatasetsFrom(removedH5)
-        removedH5.close()
-        self.fileSettings[fname].h5file = None
-        self.loadedFileComboBox.removeItem(
-            self.loadedFileComboBox.findText(fname))
+            for source_id in source_ids:
+                self.close_source(source_id)
+
+    # End Silx stuff
 
     def select_and_open_files(self):
         "Open files in the silx view"
@@ -1335,88 +1238,52 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self.open_files(filenames)
 
     def open_files(self, filenames):
-        "Open one or more files"
+        "Open one or more files, with ExhaleWindow owning the source handles."
+        last_source = None
+
         for filename in filenames:
-            # if self.__displayIt is None:
-            #     # Store the file to display it (loading could be async)
-            #     self.__displayIt = filename
-            self._treeView.findHdf5TreeModel().appendFile(filename)
+            source = open_source(filename)
+            source_id = source.source_id
 
-        def _source_kind_from_filename(filename):
-            ext = os.path.splitext(filename)[1].lower()
-            if ext in (".tif", ".tiff"):
-                return "tiff"
-            return "hdf5"
-
-        # Update the file dropdown
-        lastgroup = None
-        for startgroup in self._h5GroupsToLoad:
-            fname = startgroup.file.filename
-            # print("Load",fname)
-            kind = _source_kind_from_filename(fname)
-
-            if fname not in self.fileSettings:
-                self.fileSettings[fname] = FileSettings(
-                    fname, startgroup.file, kind=kind)
-            elif self.fileSettings[fname].h5file is None:
-                self.fileSettings[fname].set_h5file(startgroup.file)
-            else:
-                print("Warning: opened already opened file", fname)
+            if source_id in self.fileSettings and self.fileSettings[source_id].is_open:
+                print("Warning: opened already opened file", source_id)
+                last_source = self.fileSettings[source_id]
                 continue
-            lastgroup = startgroup
-            source = LoadedSource(
-                source_id=fname,
-                filename=fname,
-                alias=self.fileSettings[fname].alias,
-                kind=kind,
-                handle=startgroup.file,
-                root=startgroup,
-            )
-            self.loadedFileComboBox.addItem(fname, source)
-            # Expand the groups in the silx viewer?
-            self._treeView.setSelectedH5Node(startgroup)
 
-        self._h5GroupsToLoad = []
-        # Show elements from the last added file
-        if lastgroup:
-            self.loadedFileComboBox.setCurrentIndex(
-                self.loadedFileComboBox.findText(lastgroup.file.filename))
+            self.fileSettings[source_id] = source
+            self.loadedFileComboBox.addItem(source.filename, source)
+
+            if source.kind == "hdf5":
+                self._treeModel.insertH5pyObject(source.handle, source.filename)
+                if source.root is not None:
+                    self._treeView.setSelectedH5Node(source.root)
+
+            last_source = source
+
+        if last_source is not None:
+            ix = self.loadedFileComboBox.findData(last_source)
+            if ix >= 0:
+                self.loadedFileComboBox.setCurrentIndex(ix)
             self.loadedFileChanged()
 
     def close_all_files(self):
-        model = self._treeView.findHdf5TreeModel()
-        for fs in self.fileSettings.values():
-            if fs.is_open():
-                model.removeH5pyObject(fs.h5file)
+        for source_id in list(self.fileSettings):
+            self.close_source(source_id)
 
-    def close_files_silxview(self):
-        """Close selected items in silx view"""
-        with OverrideCursor():
-            selection = self._treeView.selectionModel()
-            indexes = selection.selectedIndexes()
-            selectedItems = []
-            model = self._treeView.model()
-            h5files = set([])
-            while len(indexes) > 0:
-                index = indexes.pop(0)
-                if index.column() != 0:
-                    continue
-                h5 = model.data(
-                    index, role=silx.gui.hdf5.Hdf5TreeModel.H5PY_OBJECT_ROLE)
-                rootIndex = index
-                # Reach the root of the tree
-                while rootIndex.parent().isValid():
-                    rootIndex = rootIndex.parent()
-                rootRow = rootIndex.row()
-                relativePath = self._getRelativePath(model, rootIndex, index)
-                selectedItems.append((rootRow, relativePath))
-                h5files.add(h5.file)
+    def close_source(self, source_id):
+        source = self.fileSettings.get(source_id)
+        if source is None or not source.is_open:
+            return
+        if source.kind == "hdf5":
+            self._dataPanel.removeDatasetsFrom(source.handle)
+            self._treeModel.removeH5pyObject(source.handle)
+        source.close()
 
-            model = self._treeView.findHdf5TreeModel()
-            for h5 in h5files:
-                model.removeH5pyObject(h5)
+        ix = self.loadedFileComboBox.findData(source)
+        if ix >= 0:
+            self.loadedFileComboBox.removeItem(ix)
+        self.refresh_element_display_names()
 
-    # End Silx stuff
 
     def post_setup(self, project_file, files):
         "Called after setting up UI to start loading data etc"
@@ -1461,11 +1328,11 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
     def refresh_project_ui(self):
         # Loaded files dropdown
         self.loadedFileComboBox.clear()
-        for filename, fs in self.fileSettings.items():
-            if fs.h5file is not None:
-                startgroup = self._findNamedGroup(fs.h5file, ["plotselect"])
-                if startgroup is not None:
-                    self.loadedFileComboBox.addItem(filename, startgroup)
+        for source in self.fileSettings.values():
+            if source.is_open:
+                self.loadedFileComboBox.addItem(source.filename, source)
+                if source.kind == "hdf5" and source.handle is not None:
+                    self._treeModel.insertH5pyObject(source.handle, source.filename)
 
         # Rebuild image list
         self.imageList.clear()
@@ -1474,7 +1341,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
         # Rebuild element list for current file
         self.loadedFileChanged()
-
         # Rebuild any dependent controls
         self.selectedElementsChanged.emit()
 
@@ -1534,12 +1400,9 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                                 directory=directory, filter=filter)
         if defaultfilename is not None:
             dialog.selectFile(defaultfilename)
-#        if setting and type(setting) is not str:
-#            dialog.restoreState(setting)
         dialog.setOption(qt.QFileDialog.DontUseNativeDialog, True)
         if save:
             dialog.setAcceptMode(qt.QFileDialog.AcceptSave)
-            # dialog.setDefaultSuffix(savesuffix)
             def fix_ext(filt):
                 exts = re.findall(r"\.[a-z]*", filt)
                 f = dialog.selectedFiles()[0]

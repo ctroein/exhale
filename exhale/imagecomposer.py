@@ -11,7 +11,7 @@ import numpy as np
 import math
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
-
+from .constants import DISPLAY_UNITS
 
 class ImageComposer():
     "Functionality for making a nice image out of element maps"
@@ -44,6 +44,7 @@ class ImageComposer():
         "Render composed image into a silx PlotWidget"
         plot.clear()
         if not image.elements:
+            self.coord_mapping = None
             return
         rgba = self.compose(image)
         plot.addImage(rgba[::-1], origin=(0, 0), scale=(1, 1),
@@ -54,10 +55,11 @@ class ImageComposer():
         "Map plot coordinates to image (array) coordinates"
         if self.coord_mapping is None:
             return None
-        mx, my, mwp, mhp, mh, mw = self.coord_mapping
-        if not (mx <= x < mx + mwp and my <= y < my + mhp):
+        mx, my, mwp, mhp, mh, mw, H = self.coord_mapping
+        cy = H - y
+        if not (mx <= x < mx + mwp and my <= cy < my + mhp):
             return None
-        return int((x - mx) * mw / mwp), int((y - my) * mh / mhp)
+        return int((x - mx) * mw / mwp), int((cy - my) * mh / mhp)
 
     @staticmethod
     def get_format_filters():
@@ -217,22 +219,6 @@ class ImageComposer():
             # Composite onto canvas
             canvas.alpha_composite(overlay)
 
-        _UNIT_TO_NM = {
-            "pm": 1e-3,
-            "nm": 1.0,
-            "um": 1e3,
-            "µm": 1e3,
-            "mm": 1e6,
-            "cm": 1e7,
-        }
-
-        _DISPLAY_UNITS = [
-            ("pm", 1e-3),
-            ("nm", 1.0),
-            ("µm", 1e3),
-            ("mm", 1e6),
-            ("cm", 1e7),
-        ]
 
         def format_length(value, units):
             """
@@ -240,13 +226,11 @@ class ImageComposer():
 
             `value` is in the original `units`.
             """
-            if units not in _UNIT_TO_NM:
+            if units not in DISPLAY_UNITS:
                 return f"{value:g} {units}"
-
-            value_nm = value * _UNIT_TO_NM[units]
-
-            chosen_unit, chosen_scale = _DISPLAY_UNITS[0]
-            for unit, scale in _DISPLAY_UNITS:
+            value_nm = value * DISPLAY_UNITS[units]
+            chosen_unit, chosen_scale = "nm", 1.0
+            for unit, scale in DISPLAY_UNITS.items():
                 if value_nm / scale >= 1:
                     chosen_unit, chosen_scale = unit, scale
 
@@ -410,7 +394,7 @@ class ImageComposer():
         mx, my = bw, bw
         if image.layout == Layouts.IL:
             mx = 2 * bw + strip_w
-        elif image.layout == Layouts.IB:
+        elif image.layout == Layouts.IA:
             my = 2 * bw + strip_h
 
         mx = int(mx)
@@ -450,5 +434,5 @@ class ImageComposer():
             else:
                 img.save(savename)
 
-        self.coord_mapping = (mx, my, merged_w, merged_h, mh, mw)
+        self.coord_mapping = (mx, my, merged_w, merged_h, mh, mw, H)
         return buf

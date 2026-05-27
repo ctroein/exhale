@@ -36,7 +36,6 @@ class ExhaleListWidget(qt.QListWidget):
 class ElementListWidget(ExhaleListWidget):
     "List of elements that can be selected, with ElementRef as data"
     ELEMENT_REF_ROLE = Qt.UserRole + 1
-    H5_PATH_ROLE = ELEMENT_REF_ROLE  # compatibility alias
 
     def __init__(self, parent=None):
         super().__init__(parent)

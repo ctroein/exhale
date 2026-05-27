@@ -10,15 +10,14 @@ selected as EXHALE elements.  UI and project code should use ElementRef
 rather than raw (filename, dataset_path) tuples.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
-# from pathlib import Path
-from typing import Any #, Iterable
+from typing import Any
 import os.path
 
 import numpy as np
 import silx.io
+
+H5_ELEMENT_GROUP_NAMES = ("plotselect",)
 
 
 @dataclass(frozen=True, order=True)
@@ -52,16 +51,10 @@ class ElementRef:
     def filename(self) -> str:
         return self.source_id
 
-    @property
-    def h5path(self) -> str:
-        """Compatibility alias for existing HDF5-oriented code."""
-        return self.item_id
-
 
 @dataclass
 class ElementCandidate:
     """One data item that can be shown/selected as an element."""
-
     ref: ElementRef
     name: str
     entity: Any = None
@@ -75,7 +68,6 @@ class LoadedSource:
     close the external handle without necessarily deleting already materialized
     ElementSettings objects that are still used by images or analysis.
     """
-
     source_id: str
     filename: str
     alias: str
@@ -96,15 +88,15 @@ class LoadedSource:
         )
 
     @classmethod
-    def from_tiff(cls, filename: str, handle: Any | None = None,
-                  alias: str | None = None) -> "LoadedSource":
+    def from_tiff_dataset(cls, filename: str, dataset: Any,
+                          alias: str | None = None) -> "LoadedSource":
         return cls(
             source_id=filename,
             filename=filename,
             alias=alias if alias is not None else _default_alias(filename),
             kind="tiff",
-            handle=handle,
-            root=None,
+            handle=dataset.file,
+            root=dataset,
         )
 
     @property
@@ -123,17 +115,21 @@ class LoadedSource:
         suffix = "" if self.is_open else " [closed]"
         return f"{self.alias}{suffix}"
 
+    def default_element_name(self, ref: ElementRef) -> str:
+        if self.kind == "tiff":
+            return self.alias
+        return ref.item_id.rsplit("/", 1).pop()
+
     def list_elements(self) -> list[ElementCandidate]:
         """Return selectable element-like datasets for this source.
 
-        HDF5 currently lists datasets immediately below `root`, matching the
-        previous `loadedFileChanged()` behavior.  TIFF returns one synthetic
-        image item.
+        HDF5 lists datasets immediately below `root`.
+        TIFF returns one synthetic image item.
         """
         if self.kind == "hdf5":
             if self.root is None:
                 return []
-            out: list[ElementCandidate] = []
+            out = []
             for key, entity in self.root.items():
                 if silx.io.utils.is_dataset(entity):
                     ref = ElementRef(self.source_id, entity.name)
@@ -141,45 +137,67 @@ class LoadedSource:
             return out
 
         if self.kind == "tiff":
-            return [ElementCandidate(
-                ref=ElementRef(self.source_id, "image"),
-                name=self.alias,
-                entity=None,
-            )]
+            if self.root is None:
+                return []
+            ref = ElementRef(self.source_id, self.root.name)
+            return [ElementCandidate(ref=ref, name=self.alias, entity=self.root)]
 
         return []
 
     def load_array(self, ref: ElementRef) -> np.ndarray:
         """Load an ndarray for `ref` from this source."""
         if ref.source_id != self.source_id:
-            raise ValueError(f"ElementRef belongs to {ref.source_id!r}, not {self.source_id!r}")
+            raise ValueError(f"ElementRef belongs to {ref.source_id!r}, "
+                             f"not {self.source_id!r}")
 
-        if self.kind == "hdf5":
-            if self.handle is None:
-                raise RuntimeError(f"Source is closed: {self.filename}")
+        if self.handle is None:
+            raise RuntimeError(f"Source is closed: {self.filename}")
+        if self.kind == "hdf5" or self.kind == "tiff":
             return self.handle[ref.item_id][()]
-
-        if self.kind == "tiff":
-            if self.handle is not None:
-                try:
-                    return self.handle[ref.item_id][()]
-                except Exception:
-                    pass
-
-            from skimage import io
-            data = io.imread(self.filename)
-            if ref.item_id in ("image", "/"):
-                return data
-            if ref.item_id.startswith("page/"):
-                return data[int(ref.item_id.split("/", 1)[1])]
-            return data
 
         raise NotImplementedError(self.kind)
 
+def open_source(filename: str) -> LoadedSource:
+    h5 = silx.io.open(filename)
+
+    try:
+        # PyMCA/EXHALE HDF5:
+        # /<default>/plotselect/<datasets>
+        default = h5.attrs.get("default", None)
+        if isinstance(default, bytes):
+            default = default.decode()
+
+        if default is not None:
+            group = h5[default]
+
+            if "plotselect" in group:
+                plotselect = group["plotselect"]
+                if silx.io.utils.is_group(plotselect):
+                    return LoadedSource.from_h5_group(plotselect)
+
+            # TIFF via silx:
+            # /scan_0/image
+            if default == "scan_0" and "image" in group:
+                image_group = group["image"]
+                if ("data" in image_group and
+                    silx.io.utils.is_dataset(image_group["data"])):
+                    return LoadedSource.from_tiff_dataset(
+                        filename, image_group["data"])
+
+        raise ValueError(
+            f"{filename!r} does not look like a supported PyMCA/EXHALE HDF5 "
+            "file or a silx-loaded TIFF"
+        )
+
+    except Exception:
+        close = getattr(h5, "close", None)
+        if close is not None:
+            close()
+        raise
 
 def _default_alias(filename: str) -> str:
     return os.path.splitext(os.path.basename(filename))[0]
 
-
 def ref_display_basename(ref: ElementRef) -> str:
     return ref.item_id.rsplit("/", 1)[-1] or ref.item_id
+

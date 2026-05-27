@@ -14,7 +14,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_ExhaleWindow(object):
     def setupUi(self, ExhaleWindow):
         ExhaleWindow.setObjectName("ExhaleWindow")
-        ExhaleWindow.resize(1359, 886)
+        ExhaleWindow.resize(1491, 886)
         self.centralwidget = QtWidgets.QWidget(ExhaleWindow)
         self.centralwidget.setObjectName("centralwidget")
         self.horizontalLayout = QtWidgets.QHBoxLayout(self.centralwidget)
@@ -198,7 +198,7 @@ class Ui_ExhaleWindow(object):
         self.gammaValue.setObjectName("gammaValue")
         self.horizontalLayout_4.addWidget(self.gammaValue)
         self.verticalLayout_2.addLayout(self.horizontalLayout_4)
-        self.elementHistogramPlot = PlotWidget(self.verticalLayoutWidget)
+        self.elementHistogramPlot = ExhalePlotWidget(self.verticalLayoutWidget)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
@@ -208,7 +208,7 @@ class Ui_ExhaleWindow(object):
         self.elementHistogramPlot.setMaximumSize(QtCore.QSize(16777215, 120))
         self.elementHistogramPlot.setObjectName("elementHistogramPlot")
         self.verticalLayout_2.addWidget(self.elementHistogramPlot)
-        self.elementPlot = PlotWidget(self.verticalLayoutWidget)
+        self.elementPlot = ExhalePlotWidget(self.verticalLayoutWidget)
         self.elementPlot.setObjectName("elementPlot")
         self.verticalLayout_2.addWidget(self.elementPlot)
         self.verticalLayout_2.setStretch(2, 1)
@@ -280,7 +280,7 @@ class Ui_ExhaleWindow(object):
         self.scrollArea.setWidgetResizable(True)
         self.scrollArea.setObjectName("scrollArea")
         self.analysisLayerWidget = QtWidgets.QWidget()
-        self.analysisLayerWidget.setGeometry(QtCore.QRect(0, 0, 584, 325))
+        self.analysisLayerWidget.setGeometry(QtCore.QRect(0, 0, 643, 325))
         self.analysisLayerWidget.setObjectName("analysisLayerWidget")
         self.analysisLayerBox = QtWidgets.QGridLayout(self.analysisLayerWidget)
         self.analysisLayerBox.setHorizontalSpacing(5)
@@ -333,7 +333,7 @@ class Ui_ExhaleWindow(object):
         self.horizontalLayout.addWidget(self.tabWidget)
         ExhaleWindow.setCentralWidget(self.centralwidget)
         self.menuBar = QtWidgets.QMenuBar(ExhaleWindow)
-        self.menuBar.setGeometry(QtCore.QRect(0, 0, 1359, 36))
+        self.menuBar.setGeometry(QtCore.QRect(0, 0, 1491, 36))
         self.menuBar.setObjectName("menuBar")
         self.menuFile = QtWidgets.QMenu(self.menuBar)
         self.menuFile.setObjectName("menuFile")
@@ -443,4 +443,4 @@ class Ui_ExhaleWindow(object):
         self.actionQuit.setText(_translate("ExhaleWindow", "&Quit"))
         self.actionQuit.setShortcut(_translate("ExhaleWindow", "Ctrl+Q"))
 from exhale.listwidgets import ElementListWidget, ImageListWidget
-from silx.gui.plot.PlotWidget import PlotWidget
+from exhale.plotwidgets import ExhalePlotWidget

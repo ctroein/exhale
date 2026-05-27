@@ -11,6 +11,7 @@ import numpy as np
 from enum import Enum
 
 from .elementsettings import ElementSettings
+from .constants import DISPLAY_UNITS
 
 class Layouts(Enum):
     "Ways of laying out images to be composed"
@@ -114,7 +115,6 @@ class ImageSettings:
         self.resolution = [200, "nm"]
         # self.pdfSize = [10., 10.]
         # self.pdfKeepDim = 0 # keep width(0) or height(1) when aspect changes
-        # self._mergedImage = None
 
     def setLayout(self, l : Layouts):
         "Set layout type"
@@ -139,7 +139,7 @@ class ImageSettings:
 
     def setResolution(self, value: float, units: str):
         "Set the pixel resolution"
-        if units not in ["cm", "mm", "µm", "um", "nm", "pm", "None"]:
+        if units not in DISPLAY_UNITS:
             raise ValueError(f"Invalid length units '{units}'")
         if value <= 0:
             raise ValueError("Resolution must be > 0")
@@ -194,18 +194,6 @@ class ImageSettings:
     # def dpi(self):
     #     "Compute dpi from selected size"
     #     return None
-
-    # def aspect(self):
-    #     "Compute aspect ratio, or None for unknown"
-    #     return None
-
-    # def setSize(self, wh, value):
-    #     "Set the width or height; the other will be adjusted"
-    #     self.pdfSize[wh] = value
-    #     self.pdfKeepDim = wh
-    #     asp = self.aspect()
-    #     if asp is not None:
-    #         self.pdfSize[1 - wh] = value * asp if wh else value / asp
 
     def setElement(self, index : int, element : ElementSettings):
         "Copy an element into this image"
