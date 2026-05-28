@@ -41,7 +41,6 @@ from .imagedialog import Ui_ImageDialog
 from .analysisdialog import Ui_AnalysisDialog
 
 _LOAD_NAPARI_EARLY = True
-_PLOTWIDGET_BACKEND = "opengl"
 
 def scale_font(widget: qt.QWidget, scale: float):
     "Rescale font of widget and its children"
@@ -74,9 +73,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.errorMsg.setSizeGripEnabled(True)
         self.errorMsg.setWindowModality(Qt.WindowModal)
 
-        self.elementHistogramPlot.setBackend(_PLOTWIDGET_BACKEND)
-        self.elementPlot.setBackend(_PLOTWIDGET_BACKEND)
-
         imd = ImageDialog()
         self.imageDialog = imd
         self.composeSettings.clicked.connect(imd.show)
@@ -85,7 +81,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         # Make all the things in imageDialog available in self since it's
         # only an UI detail that they're offloaded to a dialog.
         for n in ["ScalebarColor", "ScalebarBg", "ScalebarBgColor",
-#                  "ResValue", "ResUnits",
                   "Scalebar", "Fontsize", "DPI",
                   "PanelLabels", "ElementLabels", "ElementBorders",
                   "ElementLabelsColored", "PanelLabelColor"]:
@@ -229,6 +224,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         "Initialize the data analysis tab; start Napari viewer etc"
         from .naparihelper import NapariHelper
         self.naparihelper = NapariHelper()
+        self.naparihelper.set_info_widget(self.analysisInfo)
 
         self.analysisSplitter.setSizes([180, 400, 200])
         hb = qt.QHBoxLayout()

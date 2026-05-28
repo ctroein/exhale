@@ -74,6 +74,8 @@ def _run_application(pyi_splash=None):
             if (os.path.exists(uip) and os.path.exists(py) and
                 os.path.getmtime(uip) > os.path.getmtime(py)):
                 if args.recompile:
+                    # Good: this should work with different bindings.
+                    # Bad: the generated files won't because of imports.
                     from silx.gui.qt import BINDING
                     print(f"Recompiling {uif}")
                     uic = importlib.import_module(BINDING + ".uic")

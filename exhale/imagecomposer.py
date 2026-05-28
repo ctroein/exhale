@@ -11,7 +11,9 @@ import numpy as np
 import math
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
+Image.MAX_IMAGE_PIXELS = None
 from .constants import DISPLAY_UNITS
+
 
 class ImageComposer():
     "Functionality for making a nice image out of element maps"
