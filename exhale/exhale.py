@@ -105,7 +105,7 @@ def _run_application(pyi_splash=None):
 
     window.post_setup(**windowparams)
     app.lastWindowClosed.connect(app.quit);
-    app.aboutToQuit.connect(window.cleanup)
+    # app.aboutToQuit.connect(window.cleanup)
     return app.exec_()
 
 

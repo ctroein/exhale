@@ -98,13 +98,37 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                   "clusterMinK", "clusterMaxK", "clusterNInit"]:
             self.__dict__[n] = ad.__dict__[n]
 
-        self.actionOpenFile.setIcon(icons.getQIcon("document-open"))
+        def themed_icon(*names):
+            for name in names:
+                icon = None
+                try:
+                    icon = icons.getQIcon(name)
+                except ValueError:
+                    ...
+                if icon is not None and not icon.isNull():
+                    return icon
+                icon = qt.QIcon.fromTheme(name)
+                if not icon.isNull():
+                    return icon
+                print("unknown", name)
+            return qt.QIcon()
+
+        self.actionOpenFile.setIcon(themed_icon(
+            "document-open", "folder-open"))
+        self.actionClearFiles.setIcon(themed_icon(
+            "edit-clear", "window-close", "close"))
+        self.actionLoadProject.setIcon(themed_icon(
+            "document-open-recent", "folder-open", "document-open"))
+        self.actionSaveProject.setIcon(themed_icon(
+            "document-save", "media-floppy"))
+        self.actionAbout.setIcon(themed_icon(
+            "help-about", "dialog-information", "help"))
+        self.actionQuit.setIcon(themed_icon("application-exit"))
+
         self.actionOpenFile.triggered.connect(self.select_and_open_files)
-        self.actionClearFiles.setIcon(icons.getQIcon("close"))
         self.actionClearFiles.triggered.connect(self.close_all_files)
-        # self.actionLoadProject.setIcon(icons.getQIcon(""))
-        self.actionSaveProject.setIcon(icons.getQIcon("document-save"))
-        # self.actionAbout.setIcon(icons.getQIcon("help"))
+        self.actionLoadProject.triggered.connect(self.load_project)
+        self.actionSaveProject.triggered.connect(self.save_project)
         self.actionAbout.triggered.connect(
             lambda: qt.QMessageBox.information(
                 self, "About",
@@ -112,12 +136,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
                 "University and MAX IV, <a href='https://www.vr.se/english/"
                 "swecris.html?project=2023-02821_Vinnova#/'>"
                 "funded by Vinnova</a>.<br>2023-2025."))
-
-        # self.__displayIt = None
-        self._treeView = hdf5.Hdf5TreeView(self)
-        self._treeModel = hdf5.Hdf5TreeModel(self._treeView, ownFiles=False)
-        self._create_silx_view()
-        self._treeView.activated.connect(self.displaySelectedData)
+        self.actionQuit.triggered.connect(self.close)
 
         """
         Main data classes.
@@ -136,16 +155,11 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.imageSettings = {} # id -> ImageSettings
         self.currentImage = None # ImageSettings
 
+        self._create_silx_view()
         self.create_dataTab()
         self.create_analysisTab()
         self.tabWidget.setCurrentIndex(0)
 
-        self.actionLoadProject.triggered.connect(self.load_project)
-        self.actionSaveProject.triggered.connect(self.save_project)
-        self.actionQuit.triggered.connect(self.close)
-
-        # Groups to be searched/expanded after load
-        # self._h5GroupsToLoad = []
 
     def confirm_quit(self):
         return qt.QMessageBox.question(
@@ -164,14 +178,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self._analysisWorker.abort()
             self._analysisThread.wait()
         ev.accept()
-
-    def cleanup(self):
-        "Some last-second cleanup so we can exit cleanly"
-        # self.naparihelper = None
-        # if self.naparihelper is not None:
-        #     self.naparihelper.viewer.close()
-        # if self.napviewer:
-        #     self.napviewer.close()
 
 
     def open_file_count(self):
@@ -565,8 +571,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         im.setScalebar(Scalebars(self.composeScalebar.currentIndex()))
         im.setResolution(self.resolutionValue.value(),
                          self.resolutionUnits.currentText())
-        # im.setResolution(self.composeResValue.value(),
-                         # self.composeResUnits.currentText())
         im.setScalebarColors(
             self.composeScalebarColor.color(),
             self.composeScalebarBgColor.color(),
@@ -625,10 +629,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self.composeFontsize.setValue(im.fontsize)
         with qt.QSignalBlocker(self.composeDPI):
             self.composeDPI.setValue(im.dpi)
-        # with qt.QSignalBlocker(self.composeResValue):
-        #     self.composeResValue.setValue(im.resolution[0])
-        # with qt.QSignalBlocker(self.composeResUnits):
-        #     self.composeResUnits.setCurrentText(im.resolution[1])
         with qt.QSignalBlocker(self.composePanelLabels):
             self.composePanelLabels.setChecked(im.panelLabels)
         with qt.QSignalBlocker(self.composeElementLabels):
@@ -1044,30 +1044,21 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
 
     def _create_silx_view(self):
         "Create widgets for the HDF5 exploration tab"
-        # treeView = hdf5.Hdf5TreeView(self)
-        treeView = self._treeView
-        treeModel = self._treeModel
+        treeView = hdf5.Hdf5TreeView(self)
+        treeModel = hdf5.Hdf5TreeModel(treeView, ownFiles=False)
+        self._treeView = treeView
+        self._treeModel = treeModel
 
         toolbar = qt.QToolBar(self)
         toolbar.setIconSize(qt.QSize(16, 16))
         toolbar.setStyleSheet("QToolBar { border: 0px }")
-
         toolbar.addAction(self.actionOpenFile)
-        # action = qt.QAction("Open file(s)", toolbar)
-        # action.setShortcut(qt.QKeySequence(qt.Qt.CTRL | qt.Qt.Key_L))
-        # self.menuFile.addSeparator()
-        # self.menuFile.addAction(action)
 
         action = qt.QAction("Close file", toolbar)
         action.setIcon(icons.getQIcon("close"))
         action.setToolTip("Close current file(s)")
         action.triggered.connect(self.close_files_silxview)
         toolbar.addAction(action)
-
-        # action = qt.QAction("Close all files")
-        # action.triggered.connect(self.close_all_files)
-        # action.setShortcut(qt.QKeySequence(qt.Qt.CTRL | qt.Qt.Key_W))
-        # self.menuFile.addAction(action)
 
         toolbar.addSeparator()
 
@@ -1079,7 +1070,6 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         action.setShortcut(qt.QKeySequence(qt.Qt.CTRL | qt.Qt.Key_Plus))
         toolbar.addAction(action)
         treeView.addAction(action)
-        # self.__expandAllAction = action
 
         action = qt.QAction(toolbar)
         action.setIcon(icons.getQIcon("tree-collapse-all"))
@@ -1088,19 +1078,15 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         action.setShortcut(qt.QKeySequence(qt.Qt.CTRL | qt.Qt.Key_Minus))
         toolbar.addAction(action)
         treeView.addAction(action)
-        # self.__collapseAllAction = action
 
         treeView.setSelectionMode(treeView.ExtendedSelection)
-
-        # treeModel.sigH5pyObjectLoaded.connect(self._h5FileLoaded)
-        # treeModel.sigH5pyObjectRemoved.connect(self._h5FileRemoved)
+        treeView.activated.connect(self.displaySelectedData)
         treeModel.setDatasetDragEnabled(True)
         treeView.setModel(treeModel)
         treeView.setSizePolicy(qt.QSizePolicy.Preferred,
                                qt.QSizePolicy.Preferred)
         treeView.header().setStretchLastSection(True)
         treeView.header().resizeSections(qt.QHeaderView.ResizeToContents)
-        # treeView.header().resizeSections(qt.QHeaderView.Interactive)
 
         columns = list(treeModel.COLUMN_IDS)
         columns.remove(treeModel.VALUE_COLUMN)
@@ -1218,7 +1204,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
     # End Silx stuff
 
     def select_and_open_files(self):
-        "Open files in the silx view"
+        "Open HDF5/TIFF files"
         filters = []
         filters.append("Image files (*.h5 *.hdf *.hdf5 *.tif *.tiff)")
         filters.append("HDF5 files (*.h5 *.hdf *.hdf5)")
