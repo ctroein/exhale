@@ -78,25 +78,31 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.composeSettings.clicked.connect(imd.show)
         self.composeSettings.clicked.connect(imd.raise_)
         imd.buttonBox.clicked.connect(imd.hide)
-        # Make all the things in imageDialog available in self since it's
-        # only an UI detail that they're offloaded to a dialog.
-        for n in ["ScalebarColor", "ScalebarBg", "ScalebarBgColor",
-                  "Scalebar", "Fontsize", "DPI",
-                  "PanelLabels", "ElementLabels", "ElementBorders",
-                  "ElementLabelsColored", "PanelLabelColor"]:
-            n = "compose" + n
-            self.__dict__[n] = imd.__dict__[n]
 
         ad = AnalysisDialog()
         self.analysisDialog = ad
         self.analysisOptions.clicked.connect(ad.show)
         self.analysisOptions.clicked.connect(ad.raise_)
         ad.buttonBox.clicked.connect(ad.hide)
-        # Make all the things in imageDialog available in self since it's
+
+        # Make all the dialog input widgets available in self since it's
         # only an UI detail that they're offloaded to a dialog.
-        for n in ["nucleiExpansion", "nucleiMinArea",
-                  "clusterMinK", "clusterMaxK", "clusterNInit"]:
-            self.__dict__[n] = ad.__dict__[n]
+        self.composeScalebarColor = imd.composeScalebarColor
+        self.composeScalebarBg = imd.composeScalebarBg
+        self.composeScalebarBgColor = imd.composeScalebarBgColor
+        self.composeScalebar = imd.composeScalebar
+        self.composeFontsize = imd.composeFontsize
+        self.composeDPI = imd.composeDPI
+        self.composePanelLabels = imd.composePanelLabels
+        self.composeElementLabels = imd.composeElementLabels
+        self.composeElementBorders = imd.composeElementBorders
+        self.composeElementLabelsColored = imd.composeElementLabelsColored
+        self.composePanelLabelColor = imd.composePanelLabelColor
+        self.clusterMinK = ad.clusterMinK
+        self.clusterMaxK = ad.clusterMaxK
+        self.clusterNInit = ad.clusterNInit
+        self.nucleiExpansion = ad.nucleiExpansion
+        self.nucleiMinArea = ad.nucleiMinArea
 
         def themed_icon(*names):
             for name in names:
@@ -129,13 +135,7 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.actionClearFiles.triggered.connect(self.close_all_files)
         self.actionLoadProject.triggered.connect(self.load_project)
         self.actionSaveProject.triggered.connect(self.save_project)
-        self.actionAbout.triggered.connect(
-            lambda: qt.QMessageBox.information(
-                self, "About",
-                "This software is part of the EXHALE project at Lund "
-                "University and MAX IV, <a href='https://www.vr.se/english/"
-                "swecris.html?project=2023-02821_Vinnova#/'>"
-                "funded by Vinnova</a>.<br>2023-2025."))
+        self.actionAbout.triggered.connect(self.showAbout)
         self.actionQuit.triggered.connect(self.close)
 
         """
@@ -178,6 +178,53 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self._analysisWorker.abort()
             self._analysisThread.wait()
         ev.accept()
+
+    def showAbout(self):
+        import sys
+        import napari
+
+        if hasattr(qt, "PYQT_VERSION_STR"):
+            binding_version = qt.PYQT_VERSION_STR
+        elif hasattr(qt, "PYSIDE_VERSION_STR"):
+            binding_version = qt.PYSIDE_VERSION_STR
+        else:
+            binding_version = "unknown"
+
+        def imported_version(modname):
+            mod = sys.modules.get(modname)
+            if mod is not None:
+                return getattr(mod, "__version__", "unknown")
+            return "(not loaded)"
+        qt.QMessageBox.about(
+            self,
+            "About EXHALE",
+            f"""
+<h3>EXHALE {exhale_version}</h3>
+
+<p>
+EXHALE (Efficient X-ray Hub Aiding Lung Explorations) is part of the
+EXHALE project at Lund University and MAX IV,
+<a href="https://www.vr.se/english/swecris.html?project=2023-02821_Vinnova#/">
+funded by Vinnova</a>.
+</p>
+
+<p>
+Copyright © 2023–2026 Carl Troein, Tom Delaire, Bryan Falcones,
+Emanuel Larsson<br>
+Licensed under the MIT License.
+</p>
+
+<p>
+<b>Runtime environment</b><br>
+Python {sys.version.split()[0]}<br>
+Qt {qt.QT_VERSION_STR} with {qt.BINDING} {binding_version}<br>
+silx {silx.version}<br>
+napari {imported_version("napari")}<br>
+TensorFlow {imported_version("tensorflow")}<br>
+NumPy {np.__version__}<br>
+</p>
+"""
+    )
 
 
     def open_file_count(self):
@@ -474,11 +521,12 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         for o in [self.composeLayoutCB, self.composeColors, self.composeSave,
                   self.composeSettings, self.composeScalebar,
                   self.composeScalebarColor, self.composeScalebarBg,
-                  self.composeScalebarBgColor]:
-                  # self.composeResValue, self.composeResUnits]:
+                  self.composeScalebarBgColor, self.composeElementBorders]:
             o.setEnabled(enabled)
+        self.imageHeaderBox.setWidgetsEnabled(enabled)
         for box in self.imageElementBoxes:
             box.setWidgetsEnabled(enabled)
+        self.elementHistogramPlot.setHidden(not enabled)
 
 
     def setElementControlsEnabled(self, enabled : bool):
