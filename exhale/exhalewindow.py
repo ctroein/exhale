@@ -798,12 +798,20 @@ NumPy {np.__version__}<br>
             es.name = self.elementName.text()
             if self.currentImage is not None:
                 # Currently adjusting settings for an element in image
+                self.updateComposedImage()
                 return
+            # Editing the global element: propagate name to copies in images
+            for im in self.imageSettings.values():
+                for ies in im.elements.values():
+                    if ies.ref == es.ref:
+                        ies.name = es.name
+
             for row in range(self.elementList.count()):
                 it = self.elementList.item(row)
                 if it.data(ElementListWidget.ELEMENT_REF_ROLE) == es.ref:
                     it.setText(self.element_local_display_name(es.ref))
                     break
+            self.refresh_element_display_names()
         self.elementName.editingFinished.connect(el_name_ch)
 
         def norm_ch():
