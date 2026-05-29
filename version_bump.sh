@@ -3,8 +3,10 @@
 
 set -euo pipefail
 
+allow_dirty=0
+
 usage() {
-    echo "Usage: $0 {major|minor|patch}" >&2
+    echo "Usage: $0 [--allow-dirty] {major|minor|patch}" >&2
     exit 1
 }
 
@@ -12,6 +14,15 @@ die() {
     echo "Error: $*" >&2
     exit 1
 }
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+    usage
+fi
+
+if [ "${1:-}" = "--allow-dirty" ]; then
+    allow_dirty=1
+    shift
+fi
 
 [ "$#" -eq 1 ] || usage
 
@@ -24,8 +35,9 @@ esac
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
     die "not inside a git repository"
 
-[ -z "$(git status --porcelain)" ] ||
+if [ "$allow_dirty" -eq 0 ] && [ -n "$(git status --porcelain)" ]; then
     die "working tree has uncommitted or untracked changes"
+fi
 
 current=$(git describe --tags --abbrev=0 2>/dev/null || true)
 current="${current#v}"
