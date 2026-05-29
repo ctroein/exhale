@@ -15,7 +15,7 @@ from importlib.metadata import version, PackageNotFoundError
 
 
 try:
-    exhale_version = version("exhale")
+    exhale_version = version("exhale-lung")
 except PackageNotFoundError:
     exhale_version = "dev"
 
