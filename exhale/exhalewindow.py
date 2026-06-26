@@ -33,7 +33,7 @@ from .imagecomposer import ImageComposer
 from .analysisworker import AnalysisWorker
 from . import projectio
 from .exhale import exhale_version
-from .source_refs import ElementRef, LoadedSource, open_source
+from .source_refs import ElementRef, open_source
 from .constants import CONCENTRATION_UNITS
 
 from .exhale_qt import Ui_ExhaleWindow

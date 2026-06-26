@@ -20,7 +20,6 @@ class AnalysisWorker(qt.QObject):
     def __init__(self, nuclei_es: ElementSettings, tissue_es: ElementSettings,
                  element_settings: list, **process_args):
         super().__init__()
-        print("AW init", self)
         self.nuclei_es = nuclei_es
         self.tissue_es = tissue_es
         self.element_settings = element_settings
@@ -29,7 +28,6 @@ class AnalysisWorker(qt.QObject):
 
     @qt.Slot()
     def run(self):
-        print("AW run", self)
         try:
             sample = self.xrf_analysis()
         except InterruptedError:
@@ -42,24 +40,9 @@ class AnalysisWorker(qt.QObject):
 
     @qt.Slot()
     def abort(self):
-        print("AW abort", self)
         self._abort = True
 
-    # def init_libs(self):
-    #     "Defers loading of TF, stardist and such"
-    #     # Uncomment in case we need to load from . instead of a specified path
-    #     # _cwd = os.getcwd()
-    #     # import exhale.resources
-    #     # os.chdir(next(iter(exhale.resources.__path__)))
-    #     from .xrf_refcopy import xrf_utils
-    #     xrf_utils.set_model_basedir(
-    #         importlib.resources.files("exhale").joinpath("resources"))
-    #     # os.chdir(_cwd)
-    #     # assert xrf_utils.model
-
     def xrf_analysis(self):
-        # init_libs()
-
         # self._abort = False
         def progress_or_abort(msg):
             if self._abort:
