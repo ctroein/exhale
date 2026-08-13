@@ -21,6 +21,8 @@ class ElementChannel:
         Labelled image of detected clusters. Populated after process().
     cluster_df : pd.DataFrame
         Per-cluster properties (area, mean_intensity, centroid). Populated after process().
+    intensity_thresholds : np.ndarray
+        Boundaries between the contiguous intensity classes.
     _processed : bool
         Whether process() has been called.
     """
@@ -31,6 +33,7 @@ class ElementChannel:
         self.log_image: np.ndarray | None = None
         self.cluster_labels: np.ndarray | None = None
         self.cluster_df: pd.DataFrame | None = None
+        self.intensity_thresholds: np.ndarray | None = None
         self._processed = False
 
     # ------------------------------------------------------------------
@@ -45,14 +48,16 @@ class ElementChannel:
         Run the full processing pipeline:
           1. Log-transform the raw image.
           2. Estimate the optimal number of clusters.
-          3. Run KMeans and extract cluster properties.
+          3. Threshold the image into optimal contiguous intensity classes and
+             extract cluster properties.
 
         Parameters
         ----------
         min_k, max_k : int
             Range of cluster counts to evaluate.
         n_init : int
-            Number of KMeans initialisations per k (higher = more stable).
+            Retained for compatibility; the deterministic 1-D partitioner does
+            not use random initialisation.
         max_cluster_size : int
             Clusters larger than this (px) are treated as background and ignored.
         min_area : int
@@ -67,10 +72,11 @@ class ElementChannel:
 
         callback(f"Processing element {self.name}")
         self.log_image = xu.log_transform(self.raw)
-        n_clusters = xu.find_optimal_k(self.log_image, min_k, max_k, n_init,
-                                       callback=callback)
+        partition = xu.find_optimal_partition(
+            self.log_image, min_k, max_k, callback=callback)
+        self.intensity_thresholds = partition.thresholds
         self.cluster_labels, self.cluster_df = self._run_pipeline(
-            self.log_image, n_clusters, self.raw,
+            partition.labels, self.raw,
             max_cluster_size=max_cluster_size, min_area=min_area,
             callback=callback
         )
@@ -85,18 +91,15 @@ class ElementChannel:
     # Full pipeline (private)
     # ------------------------------------------------------------------
 
-    def _run_pipeline(self, log_img: np.ndarray, n_clusters: int,
-                      raw_img: np.ndarray, max_cluster_size: int,
+    def _run_pipeline(self, k_labels: np.ndarray, raw_img: np.ndarray,
+                      max_cluster_size: int,
                       min_area: int,
                       callback: Callable[[str], None]
                       ) -> tuple[np.ndarray, pd.DataFrame]:
-        callback("Running K-means")
-        k_labels = xu.run_kmeans(log_img, n_clusters)
         callback("Extracting masks")
         mask = xu.extract_small_cluster_mask(k_labels, max_cluster_size)
         callback("Building segmented image")
-        segmented = xu.build_segmented_image(log_img.shape, mask)
+        segmented = xu.build_segmented_image(k_labels.shape, mask)
         labels, df = xu.compute_region_properties(segmented, raw_img, min_area)
         cluster_labels = xu.draw_filtered_labels(labels, df)
         return cluster_labels, df
-

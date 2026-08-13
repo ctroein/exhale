@@ -134,9 +134,9 @@ class XRFSample:
         nuclei_min_area : int
             Minimum nucleus area to retain.
         cluster_min_k, cluster_max_k : int
-            KMeans cluster count search range for element channels.
+            Intensity-class count search range for element channels.
         cluster_n_init : int
-            KMeans initialisations per k.
+            Retained for compatibility; ignored by deterministic clustering.
         callback : Callable[str]
             Progress callback function, optional.
 

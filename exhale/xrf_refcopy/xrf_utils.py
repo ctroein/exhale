@@ -11,9 +11,8 @@ import numpy as np
 import pandas as pd
 from skimage import measure
 from skimage.segmentation import expand_labels
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
 from collections.abc import Callable
+from dataclasses import dataclass
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "1")
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
@@ -214,63 +213,195 @@ def compute_region_properties(segmented: np.ndarray, intensity: np.ndarray,
 
 
 # =============================================================================
-# Clustering
+# One-dimensional intensity clustering
 # =============================================================================
+
+@dataclass(frozen=True)
+class IntensityPartition:
+    """Exact contiguous partition of a one-dimensional intensity histogram."""
+    k: int
+    thresholds: np.ndarray
+    labels: np.ndarray
+    silhouette_score: float
+
+
+def _intensity_histogram(img: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    values, counts = np.unique(np.asarray(img).ravel(), return_counts=True)
+    if values.size == 0 or not np.isfinite(values).all():
+        raise ValueError("Intensity image must contain only finite values")
+    return values.astype(float, copy=False), counts.astype(np.int64, copy=False)
+
+
+def _segment_cost(prefix_w, prefix_wx, prefix_wx2, start, stop) -> float:
+    """Weighted within-segment squared error for histogram bins [start, stop)."""
+    weight = prefix_w[stop] - prefix_w[start]
+    total = prefix_wx[stop] - prefix_wx[start]
+    total_sq = prefix_wx2[stop] - prefix_wx2[start]
+    return max(0.0, total_sq - total * total / weight)
+
+
+def _optimal_cuts_by_k(values: np.ndarray, counts: np.ndarray,
+                       max_k: int) -> list[np.ndarray]:
+    """Return optimal cuts for every group count up to ``max_k`` in one DP."""
+    n = values.size
+    prefix_w = np.r_[0.0, np.cumsum(counts, dtype=float)]
+    prefix_wx = np.r_[0.0, np.cumsum(counts * values, dtype=float)]
+    prefix_wx2 = np.r_[0.0, np.cumsum(counts * values * values, dtype=float)]
+
+    previous = np.full(n + 1, np.inf)
+    previous[0] = 0.0
+    cuts = np.zeros((max_k + 1, n + 1), dtype=np.intp)
+
+    for groups in range(1, max_k + 1):
+        current = np.full(n + 1, np.inf)
+
+        def fill(left, right, opt_left, opt_right):
+            if left > right:
+                return
+            middle = (left + right) // 2
+            best_cost = np.inf
+            best_cut = -1
+            upper = min(middle - 1, opt_right)
+            for cut in range(opt_left, upper + 1):
+                cost = previous[cut] + _segment_cost(
+                    prefix_w, prefix_wx, prefix_wx2, cut, middle)
+                if cost < best_cost:
+                    best_cost, best_cut = cost, cut
+            current[middle] = best_cost
+            cuts[groups, middle] = best_cut
+            fill(left, middle - 1, opt_left, best_cut)
+            fill(middle + 1, right, best_cut, opt_right)
+
+        fill(groups, n, groups - 1, n - 1)
+        previous = current
+
+    result = [np.array([0], dtype=np.intp)]
+    for k in range(1, max_k + 1):
+        boundaries = np.empty(k + 1, dtype=np.intp)
+        boundaries[k] = n
+        for groups in range(k, 0, -1):
+            boundaries[groups - 1] = cuts[groups, boundaries[groups]]
+        result.append(boundaries)
+    return result
+
+
+def _optimal_cuts(values: np.ndarray, counts: np.ndarray, k: int) -> np.ndarray:
+    """Return optimal cut indices for one group count."""
+    return _optimal_cuts_by_k(values, counts, k)[k]
+
+
+def _weighted_silhouette(values, counts, boundaries) -> float:
+    """Silhouette average for a histogram, exactly weighted by pixel count."""
+    k = len(boundaries) - 1
+    prefix_w = np.r_[0.0, np.cumsum(counts, dtype=float)]
+    prefix_wx = np.r_[0.0, np.cumsum(counts * values, dtype=float)]
+    total_weight = prefix_w[-1]
+
+    def distance_sum(index, start, stop):
+        value = values[index]
+        pivot = np.searchsorted(values, value, side="left")
+        pivot = min(max(pivot, start), stop)
+        left_w = prefix_w[pivot] - prefix_w[start]
+        left_x = prefix_wx[pivot] - prefix_wx[start]
+        right_w = prefix_w[stop] - prefix_w[pivot]
+        right_x = prefix_wx[stop] - prefix_wx[pivot]
+        return value * left_w - left_x + right_x - value * right_w
+
+    score = 0.0
+    for group in range(k):
+        start, stop = boundaries[group:group + 2]
+        own_weight = prefix_w[stop] - prefix_w[start]
+        for index in range(start, stop):
+            if own_weight == 1:
+                # Match the usual silhouette convention for singleton clusters.
+                continue
+            a = distance_sum(index, start, stop) / (own_weight - 1)
+            b = min(
+                distance_sum(index, boundaries[other], boundaries[other + 1]) /
+                (prefix_w[boundaries[other + 1]] - prefix_w[boundaries[other]])
+                for other in range(k) if other != group)
+            denominator = max(a, b)
+            silhouette = 0.0 if denominator == 0 else (b - a) / denominator
+            score += counts[index] * silhouette
+    return score / total_weight
+
+
+def _partition_histogram(values: np.ndarray, counts: np.ndarray,
+                         n_clusters: int,
+                         boundaries: np.ndarray | None = None
+                         ) -> tuple[np.ndarray, float]:
+    """Return thresholds and silhouette score for one histogram partition."""
+    if not 2 <= n_clusters <= values.size:
+        raise ValueError(
+            f"n_clusters must be between 2 and {values.size} distinct intensities")
+    if boundaries is None:
+        boundaries = _optimal_cuts(values, counts, n_clusters)
+    cuts = boundaries[1:-1]
+    thresholds = values[cuts - 1] + (values[cuts] - values[cuts - 1]) / 2
+    return thresholds, _weighted_silhouette(values, counts, boundaries)
+
+
+def partition_intensities(img: np.ndarray, n_clusters: int) -> IntensityPartition:
+    """Exactly partition image intensities into contiguous weighted intervals."""
+    values, counts = _intensity_histogram(img)
+    thresholds, score = _partition_histogram(values, counts, n_clusters)
+    labels = np.searchsorted(thresholds, img, side="right").astype(np.intp)
+    return IntensityPartition(
+        k=n_clusters,
+        thresholds=thresholds,
+        labels=labels,
+        silhouette_score=score,
+    )
+
+
+def find_optimal_partition(
+        img: np.ndarray, min_k: int = 2, max_k: int = 8,
+        callback: Callable[[str], None] = None) -> IntensityPartition:
+    """Select the exact 1-D partition with the best weighted silhouette score."""
+    values, counts = _intensity_histogram(img)
+    min_k = max(2, min_k)
+    max_k = min(max_k, values.size)
+    if min_k > max_k:
+        raise ValueError(
+            "No valid cluster counts: need at least two distinct intensities")
+
+    if callback is not None:
+        callback(
+            f"Selecting optimal intensity thresholds ({min_k} to {max_k} groups)")
+    optimal_cuts = _optimal_cuts_by_k(values, counts, max_k)
+    best_k = None
+    best_thresholds = None
+    best_score = -np.inf
+    for k in range(min_k, max_k + 1):
+        thresholds, score = _partition_histogram(
+            values, counts, k, boundaries=optimal_cuts[k])
+        if score > best_score:
+            best_k, best_thresholds, best_score = k, thresholds, score
+    labels = np.searchsorted(best_thresholds, img, side="right").astype(np.intp)
+    return IntensityPartition(best_k, best_thresholds, labels, best_score)
+
 
 def find_optimal_k(X: np.ndarray, min_k: int = 2, max_k: int = 8,
                    n_init: int = 100,
                    callback: Callable[[str], None] = None) -> int:
+    """Return the best exact 1-D intensity partition size.
+
+    ``n_init`` is retained for compatibility and has no effect: this method is
+    deterministic and does not use random initialisation.
     """
-    Find the number of KMeans clusters in [min_k, max_k] that maximises
-    the silhouette score on a flattened image.
+    return find_optimal_partition(X, min_k, max_k, callback).k
 
-    Parameters
-    ----------
-    img : np.ndarray
-        2-D image; will be flattened to a column vector internally.
-    min_k, max_k : int
-        Inclusive range of cluster counts to evaluate.
-    n_init : int
-        Number of KMeans random initialisations per k value.
 
-    Returns
-    -------
-    int
-        Optimal number of clusters.
+def run_kmeans(img: np.ndarray, n_clusters: int,
+               return_thresholds: bool = False):
+    """Compatibility wrapper for exact 1-D intensity thresholding.
+
+    Set ``return_thresholds`` to also receive the boundaries between labels.
     """
-    #X = img.reshape(-1, 1)
-    best_score, best_k = -1, min_k
-    for k in range(min_k, max_k + 1):
-        if callback is not None:
-            callback(f"Running K-means, k={k}")
-        labels = KMeans(
-            n_clusters=k, init='k-means++', max_iter=25, n_init=n_init
-        ).fit_predict(X)
-        score = silhouette_score(X, labels)
-        if score > best_score:
-            best_score, best_k = score, k
-    return best_k
-
-
-def run_kmeans(img: np.ndarray, n_clusters: int) -> np.ndarray:
-    """
-    Run KMeans on a 2-D image treated as a 1-D feature space.
-
-    Parameters
-    ----------
-    img : np.ndarray
-        2-D image.
-    n_clusters : int
-        Number of clusters.
-
-    Returns
-    -------
-    np.ndarray
-        Per-pixel cluster labels, same shape as `img`.
-    """
-    kmeans = KMeans(n_clusters=n_clusters, init='k-means++')
-    kmeans.fit(img.reshape(-1, 1))
-    return kmeans.labels_.reshape(img.shape)
+    partition = partition_intensities(img, n_clusters)
+    if return_thresholds:
+        return partition.labels, partition.thresholds
+    return partition.labels
 
 
 def extract_small_cluster_mask(k_labels: np.ndarray,
@@ -298,5 +429,3 @@ def extract_small_cluster_mask(k_labels: np.ndarray,
         if size <= max_cluster_size:
             mask[k_labels == label] = True
     return mask
-
-
