@@ -526,7 +526,6 @@ NumPy {np.__version__}<br>
         self.imageHeaderBox.setWidgetsEnabled(enabled)
         for box in self.imageElementBoxes:
             box.setWidgetsEnabled(enabled)
-        self.elementHistogramPlot.setHidden(not enabled)
 
 
     def setElementControlsEnabled(self, enabled : bool):
@@ -539,6 +538,7 @@ NumPy {np.__version__}<br>
         self.elementPercButton.setEnabled(enabled)
         self.elementSDButton.setEnabled(enabled)
         self.elementHistogramPlot.setEnabled(enabled)
+        self.elementHistogramPlot.setHidden(not enabled)
 
     def updateElementNormalizer(self):
         "Hide/show gamma correction and update histogram logscaleness"
@@ -1280,7 +1280,12 @@ NumPy {np.__version__}<br>
         last_source = None
 
         for filename in filenames:
-            source = open_source(filename)
+            try:
+                source = open_source(filename)
+            except Exception as e:
+                self.errorMsg.showMessage(
+                    f"Could not open {filename!r}:\n{e}")
+                continue
             source_id = source.source_id
 
             if source_id in self.fileSettings and self.fileSettings[source_id].is_open:
@@ -1466,5 +1471,3 @@ NumPy {np.__version__}<br>
         if settingname is not None:
             self.settings.setValue(settingname, os.path.dirname(files[0]))
         return files if multiple else files[0]
-
-
