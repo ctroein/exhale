@@ -63,3 +63,29 @@ def test_histogram_partition_matches_seeded_kmeans_search():
         f"silhouette={old_best_score:.6f}, "
         f"time={kmeans_seconds:.4f}s"
     )
+
+
+def test_adaptive_partition_40000_distinct_pixels_k10():
+    """Report adaptive-histogram runtime for a high-cardinality image."""
+    rng = np.random.default_rng(1729)
+    intensities = np.concatenate([
+        rng.normal(20 + 20 * group, 1.8, 4_000)
+        for group in range(10)
+    ])
+    image = intensities.reshape(200, 200)
+
+    started = perf_counter()
+    partition = xu.partition_intensities(image, n_clusters=10)
+    elapsed = perf_counter() - started
+
+    assert np.unique(image).size == 40_000
+    assert partition.k == 10
+    assert partition.thresholds.size == 9
+    assert partition.labels.shape == image.shape
+    assert partition.silhouette_score == pytest.approx(0.889673115914668)
+
+    print(
+        f"adaptive weighted 1-D, 40,000 pixels: k={partition.k}, "
+        f"silhouette={partition.silhouette_score:.6f}, "
+        f"time={elapsed:.4f}s"
+    )

@@ -225,6 +225,33 @@ class IntensityPartition:
     silhouette_score: float
 
 
+def _coarsen_histogram(values: np.ndarray, counts: np.ndarray,
+                       max_bins: int | None = None
+                       ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Merge consecutive intensity values into weighted, adaptive histogram bins.
+
+    The target number of bins defaults to ``pixel_count ** (2 / 3)``.  Bin
+    edges follow cumulative pixel count, never split an input intensity value,
+    and retain the original low/high values so output thresholds can still be
+    placed on the original intensity axis.
+    """
+    if max_bins is None:
+        max_bins = max(2, round(int(counts.sum()) ** (2 / 3)))
+    if values.size <= max_bins:
+        return values, counts, values, values
+
+    cumulative = np.cumsum(counts)
+    targets = np.arange(1, max_bins) * cumulative[-1] / max_bins
+    stops = np.unique(np.r_[
+        0, np.searchsorted(cumulative, targets, side="left") + 1, values.size])
+    starts = stops[:-1]
+    stops = stops[1:]
+    bin_counts = np.add.reduceat(counts, starts)
+    bin_sums = np.add.reduceat(counts * values, starts)
+    return (bin_sums / bin_counts, bin_counts,
+            values[starts], values[stops - 1])
+
+
 def _intensity_histogram(img: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     values, counts = np.unique(np.asarray(img).ravel(), return_counts=True)
     if values.size == 0 or not np.isfinite(values).all():
@@ -291,44 +318,61 @@ def _optimal_cuts(values: np.ndarray, counts: np.ndarray, k: int) -> np.ndarray:
 
 
 def _weighted_silhouette(values, counts, boundaries) -> float:
-    """Silhouette average for a histogram, exactly weighted by pixel count."""
+    """Exact weighted silhouette for ordered histogram intervals.
+
+    In one dimension, the closest other interval is always the immediate left
+    or right neighbour.  Prefix sums make all mean distances vectorized over
+    the values in an interval, without expanding pixel counts.
+    """
     k = len(boundaries) - 1
     prefix_w = np.r_[0.0, np.cumsum(counts, dtype=float)]
     prefix_wx = np.r_[0.0, np.cumsum(counts * values, dtype=float)]
     total_weight = prefix_w[-1]
 
-    def distance_sum(index, start, stop):
-        value = values[index]
-        pivot = np.searchsorted(values, value, side="left")
-        pivot = min(max(pivot, start), stop)
-        left_w = prefix_w[pivot] - prefix_w[start]
-        left_x = prefix_wx[pivot] - prefix_wx[start]
-        right_w = prefix_w[stop] - prefix_w[pivot]
-        right_x = prefix_wx[stop] - prefix_wx[pivot]
-        return value * left_w - left_x + right_x - value * right_w
-
     score = 0.0
     for group in range(k):
         start, stop = boundaries[group:group + 2]
         own_weight = prefix_w[stop] - prefix_w[start]
-        for index in range(start, stop):
-            if own_weight == 1:
-                # Match the usual silhouette convention for singleton clusters.
-                continue
-            a = distance_sum(index, start, stop) / (own_weight - 1)
-            b = min(
-                distance_sum(index, boundaries[other], boundaries[other + 1]) /
-                (prefix_w[boundaries[other + 1]] - prefix_w[boundaries[other]])
-                for other in range(k) if other != group)
-            denominator = max(a, b)
-            silhouette = 0.0 if denominator == 0 else (b - a) / denominator
-            score += counts[index] * silhouette
+        if own_weight == 1:
+            # Match the usual silhouette convention for singleton clusters.
+            continue
+
+        x = values[start:stop]
+        weights = counts[start:stop]
+        # Sum |x_i - x_j| over this interval, excluding equal-valued pixels
+        # (whose distance is zero), then divide by N - 1 for a_i.
+        left_w = prefix_w[start:stop] - prefix_w[start]
+        left_x = prefix_wx[start:stop] - prefix_wx[start]
+        right_w = prefix_w[stop] - prefix_w[start + 1:stop + 1]
+        right_x = prefix_wx[stop] - prefix_wx[start + 1:stop + 1]
+        a = (x * left_w - left_x + right_x - x * right_w) / (own_weight - 1)
+
+        distances = []
+        if group:
+            left_start, left_stop = boundaries[group - 1:group + 1]
+            left_weight = prefix_w[left_stop] - prefix_w[left_start]
+            distances.append(
+                (x * left_weight - (prefix_wx[left_stop] - prefix_wx[left_start])) /
+                left_weight)
+        if group + 1 < k:
+            right_start, right_stop = boundaries[group + 1:group + 3]
+            right_weight = prefix_w[right_stop] - prefix_w[right_start]
+            distances.append(
+                ((prefix_wx[right_stop] - prefix_wx[right_start]) - x * right_weight) /
+                right_weight)
+        b = distances[0] if len(distances) == 1 else np.minimum(*distances)
+        denominator = np.maximum(a, b)
+        silhouette = np.divide(
+            b - a, denominator, out=np.zeros_like(a), where=denominator != 0)
+        score += np.dot(weights, silhouette)
     return score / total_weight
 
 
 def _partition_histogram(values: np.ndarray, counts: np.ndarray,
                          n_clusters: int,
-                         boundaries: np.ndarray | None = None
+                         boundaries: np.ndarray | None = None,
+                         bin_lows: np.ndarray | None = None,
+                         bin_highs: np.ndarray | None = None,
                          ) -> tuple[np.ndarray, float]:
     """Return thresholds and silhouette score for one histogram partition."""
     if not 2 <= n_clusters <= values.size:
@@ -337,14 +381,28 @@ def _partition_histogram(values: np.ndarray, counts: np.ndarray,
     if boundaries is None:
         boundaries = _optimal_cuts(values, counts, n_clusters)
     cuts = boundaries[1:-1]
-    thresholds = values[cuts - 1] + (values[cuts] - values[cuts - 1]) / 2
+    if bin_lows is None:
+        bin_lows = values
+    if bin_highs is None:
+        bin_highs = values
+    thresholds = bin_highs[cuts - 1] + (
+        bin_lows[cuts] - bin_highs[cuts - 1]) / 2
     return thresholds, _weighted_silhouette(values, counts, boundaries)
 
 
-def partition_intensities(img: np.ndarray, n_clusters: int) -> IntensityPartition:
-    """Exactly partition image intensities into contiguous weighted intervals."""
+def partition_intensities(img: np.ndarray, n_clusters: int,
+                          max_histogram_bins: int | None = None
+                          ) -> IntensityPartition:
+    """Partition intensity values into contiguous weighted intervals.
+
+    Histograms with more than ``max_histogram_bins`` values are adaptively
+    coarsened first.  The default is ``pixel_count ** (2 / 3)`` bins.
+    """
     values, counts = _intensity_histogram(img)
-    thresholds, score = _partition_histogram(values, counts, n_clusters)
+    values, counts, bin_lows, bin_highs = _coarsen_histogram(
+        values, counts, max_histogram_bins)
+    thresholds, score = _partition_histogram(
+        values, counts, n_clusters, bin_lows=bin_lows, bin_highs=bin_highs)
     labels = np.searchsorted(thresholds, img, side="right").astype(np.intp)
     return IntensityPartition(
         k=n_clusters,
@@ -356,9 +414,12 @@ def partition_intensities(img: np.ndarray, n_clusters: int) -> IntensityPartitio
 
 def find_optimal_partition(
         img: np.ndarray, min_k: int = 2, max_k: int = 8,
-        callback: Callable[[str], None] = None) -> IntensityPartition:
-    """Select the exact 1-D partition with the best weighted silhouette score."""
+        callback: Callable[[str], None] = None,
+        max_histogram_bins: int | None = None) -> IntensityPartition:
+    """Select the best weighted 1-D partition over an adaptive histogram."""
     values, counts = _intensity_histogram(img)
+    values, counts, bin_lows, bin_highs = _coarsen_histogram(
+        values, counts, max_histogram_bins)
     min_k = max(2, min_k)
     max_k = min(max_k, values.size)
     if min_k > max_k:
@@ -374,7 +435,8 @@ def find_optimal_partition(
     best_score = -np.inf
     for k in range(min_k, max_k + 1):
         thresholds, score = _partition_histogram(
-            values, counts, k, boundaries=optimal_cuts[k])
+            values, counts, k, boundaries=optimal_cuts[k],
+            bin_lows=bin_lows, bin_highs=bin_highs)
         if score > best_score:
             best_k, best_thresholds, best_score = k, thresholds, score
     labels = np.searchsorted(best_thresholds, img, side="right").astype(np.intp)
