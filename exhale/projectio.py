@@ -37,7 +37,7 @@ def _elementsettings_to_json(es) -> dict[str, Any]:
         "name": es.name,
         "normalizer": es.normalizer.name,
         "gamma": es.gamma,
-        "trf_range": list(es.trfRange),
+        "trf_range": [float(value) for value in es.trfRange],
     }
 
 
@@ -115,11 +115,10 @@ def _imagesettings_from_json(obj: dict[str, Any], win) -> ImageSettings:
         ref = _ref_from_json(es_obj.get("ref", es_obj.get("path")))
 
         fs = win.fileSettings.get(ref.source_id)
-        if fs is None or fs.h5file is None:
+        if fs is None or not fs.is_open:
             continue
 
-        ds = fs.h5file[ref.item_id]
-        es = ElementSettings(ds, ref)   # fresh copy for this image slot
+        es = ElementSettings(ref=ref, data=fs.load_array(ref))   # fresh copy for this image slot
         _apply_elementsettings_json(es, es_obj)
         im.elements[slot] = es
 
@@ -216,10 +215,9 @@ def load_project_state(win, state: dict[str, Any], *, open_files: bool = True) -
 
         from .elementsettings import ElementSettings
         fs = win.fileSettings.get(ref.source_id)
-        if fs is None or fs.h5file is None:
+        if fs is None or not fs.is_open:
             continue
-        ds = fs.h5file[ref.item_id]
-        win.elementSettings[ref] = ElementSettings(ds, ref)
+        win.elementSettings[ref] = ElementSettings(ref=ref, data=fs.load_array(ref))
         _apply_elementsettings_json(win.elementSettings[ref], eobj)
 
     # ------------------------------------------------------------------

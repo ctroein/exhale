@@ -8,18 +8,18 @@ import numpy as np
 from skimage import morphology
 
 import napari.viewer
-from silx.gui import qt
-from silx.gui.qt import Qt
+from qtpy import QtWidgets
+from qtpy.QtCore import Qt
 from .xrf_main import process_xrf
 
 class XrfViewer():
-    def __init__(self, parent : qt.QWidget, viewer : napari.viewer.Viewer):
+    def __init__(self, parent : QtWidgets.QWidget, viewer : napari.viewer.Viewer):
         self.image_dict = {}
         self.labels_dict = {}
         self.df_full = None
         self.viewer = viewer
 
-        tooltip = qt.QLabel(parent)
+        tooltip = QtWidgets.QLabel(parent)
         tooltip.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         tooltip.setAttribute(Qt.WA_ShowWithoutActivating)
         tooltip.setAlignment(Qt.AlignLeft | Qt.AlignTop)
@@ -30,7 +30,7 @@ class XrfViewer():
             font-size: 12px;
             padding: 5px;
         """)
-        tooltip.setSizePolicy(qt.QSizePolicy.Preferred, qt.QSizePolicy.Preferred)
+        tooltip.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
         tooltip.adjustSize()
         self.tooltip = tooltip
         # tooltip.hide()

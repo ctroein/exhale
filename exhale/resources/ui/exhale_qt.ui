@@ -248,9 +248,31 @@
            </layout>
           </widget>
           <widget class="QWidget" name="verticalLayoutWidget">
-           <layout class="QVBoxLayout" name="verticalLayout_2" stretch="0,0,1,4">
+           <layout class="QVBoxLayout" name="verticalLayout_2" stretch="0,1">
+            <item>
+             <widget class="QWidget" name="elementSettingsPanel">
+              <layout class="QVBoxLayout" name="elementSettingsLayout" stretch="0,0,1">
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
             <item>
              <layout class="QHBoxLayout" name="horizontalLayout_3">
+              <item>
+               <widget class="QLabel" name="imageSpecificSettingsLabel">
+                <property name="text">
+                 <string>Image-specific settings:</string>
+                </property>
+               </widget>
+              </item>
               <item>
                <widget class="QLabel" name="label_3">
                 <property name="text">
@@ -261,29 +283,40 @@
               <item>
                <widget class="QLineEdit" name="elementName"/>
               </item>
-              <item>
-               <widget class="QLabel" name="label_4">
-                <property name="text">
-                 <string>Transform</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QComboBox" name="elementNormalizer"/>
-              </item>
              </layout>
             </item>
             <item>
              <layout class="QHBoxLayout" name="horizontalLayout_4">
               <item>
-               <widget class="QLabel" name="label_6">
-                <property name="text">
-                 <string>Min</string>
+               <widget class="QComboBox" name="elementNormalizer"/>
+              </item>
+              <item>
+               <widget class="QDoubleSpinBox" name="gammaValue">
+                <property name="prefix">
+                 <string>γ </string>
+                </property>
+                <property name="decimals">
+                 <number>3</number>
+                </property>
+                <property name="minimum">
+                 <double>0.010000000000000</double>
+                </property>
+                <property name="maximum">
+                 <double>20.000000000000000</double>
+                </property>
+                <property name="stepType">
+                 <enum>QAbstractSpinBox::AdaptiveDecimalStepType</enum>
+                </property>
+                <property name="value">
+                 <double>1.000000000000000</double>
                 </property>
                </widget>
               </item>
               <item>
                <widget class="QDoubleSpinBox" name="elementNormalizeMin">
+                <property name="prefix">
+                 <string>Min </string>
+                </property>
                 <property name="decimals">
                  <number>5</number>
                 </property>
@@ -293,17 +326,10 @@
                </widget>
               </item>
               <item>
-               <widget class="QLabel" name="label_7">
-                <property name="text">
-                 <string>Max</string>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
-                </property>
-               </widget>
-              </item>
-              <item>
                <widget class="QDoubleSpinBox" name="elementNormalizeMax">
+                <property name="prefix">
+                 <string>Max </string>
+                </property>
                 <property name="decimals">
                  <number>5</number>
                 </property>
@@ -326,39 +352,10 @@
                 </property>
                </widget>
               </item>
-              <item>
-               <widget class="QLabel" name="gammaLabel">
-                <property name="text">
-                 <string>Gamma</string>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QDoubleSpinBox" name="gammaValue">
-                <property name="decimals">
-                 <number>3</number>
-                </property>
-                <property name="minimum">
-                 <double>0.010000000000000</double>
-                </property>
-                <property name="maximum">
-                 <double>20.000000000000000</double>
-                </property>
-                <property name="stepType">
-                 <enum>QAbstractSpinBox::AdaptiveDecimalStepType</enum>
-                </property>
-                <property name="value">
-                 <double>1.000000000000000</double>
-                </property>
-               </widget>
-              </item>
              </layout>
             </item>
             <item>
-             <widget class="ExhalePlotWidget" name="elementHistogramPlot" native="true">
+             <widget class="HistogramWidget" name="elementHistogramPlot" native="true">
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Maximum">
                 <horstretch>0</horstretch>
@@ -368,19 +365,22 @@
               <property name="minimumSize">
                <size>
                 <width>0</width>
-                <height>20</height>
+                <height>40</height>
                </size>
               </property>
               <property name="maximumSize">
                <size>
                 <width>16777215</width>
-                <height>120</height>
+                <height>160</height>
                </size>
               </property>
              </widget>
             </item>
+              </layout>
+             </widget>
+            </item>
             <item>
-             <widget class="ExhalePlotWidget" name="elementPlot" native="true"/>
+             <widget class="ImageCanvas" name="elementPlot" native="true"/>
             </item>
            </layout>
           </widget>
@@ -565,11 +565,6 @@
         </item>
        </layout>
       </widget>
-      <widget class="QWidget" name="silxTab">
-       <attribute name="title">
-        <string>Silx viewer</string>
-       </attribute>
-      </widget>
      </widget>
     </item>
    </layout>
@@ -681,9 +676,15 @@
    <header>exhale.listwidgets</header>
   </customwidget>
   <customwidget>
-   <class>ExhalePlotWidget</class>
+   <class>HistogramWidget</class>
    <extends>QWidget</extends>
-   <header>exhale.plotwidgets</header>
+   <header>exhale.histogramwidget</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ImageCanvas</class>
+   <extends>QWidget</extends>
+   <header>exhale.imagecanvas</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

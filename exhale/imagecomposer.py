@@ -5,14 +5,44 @@ Created on Fri Feb  6 13:46:40 2026
 
 @author: carl
 """
+from dataclasses import dataclass
+
 from .imagesettings import ImageSettings, Layouts, Scalebars
-from silx.gui.plot import PlotWidget
 import numpy as np
 import math
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 Image.MAX_IMAGE_PIXELS = None
 from .constants import DISPLAY_UNITS
+
+
+def _nearest_lookup(source_size, target_size):
+    """Return Pillow's exact nearest-neighbour source index for each output."""
+    indices = np.arange(source_size, dtype=np.int32).reshape(1, source_size)
+    resized = Image.fromarray(indices, mode="I").resize(
+        (target_size, 1), resample=Image.Resampling.NEAREST)
+    return np.asarray(resized, dtype=np.intp)[0].copy()
+
+
+@dataclass(frozen=True)
+class ComposedImageMapping:
+    """Map pixels in the composed canvas back to the merged source map."""
+    x: int
+    y: int
+    width: int
+    height: int
+    source_x: np.ndarray
+    source_y: np.ndarray
+
+    def map(self, x, y):
+        """Map a continuous canvas position to a source ``(x, y)`` pixel."""
+        canvas_x = math.floor(x)
+        canvas_y = math.floor(y)
+        local_x = canvas_x - self.x
+        local_y = canvas_y - self.y
+        if not (0 <= local_x < self.width and 0 <= local_y < self.height):
+            return None
+        return int(self.source_x[local_x]), int(self.source_y[local_y])
 
 
 class ImageComposer():
@@ -42,26 +72,21 @@ class ImageComposer():
             return np.minimum(merged, 1.)
         return merged / maxcolor
 
-    def plot_composed_image(self, plot: PlotWidget, image: ImageSettings):
-        "Render composed image into a silx PlotWidget"
-        plot.clear()
+    def display_composed_image(self, canvas, image: ImageSettings,
+                               *, reset_view=False):
+        "Render a composed image into an ImageCanvas."
         if not image.elements:
             self.coord_mapping = None
+            canvas.clear_image()
             return
         rgba = self.compose(image)
-        plot.addImage(rgba[::-1], origin=(0, 0), scale=(1, 1),
-                      legend="c", copy=False, replace=True)
-        plot.setLimits(0, rgba.shape[1], 0, rgba.shape[0])
+        canvas.set_image(rgba, reset_view=reset_view)
 
-    def map_coordinates(self, plot: PlotWidget, x, y):
-        "Map plot coordinates to image (array) coordinates"
+    def map_coordinates(self, x, y):
+        "Map top-left-origin composed-canvas coordinates to source pixels."
         if self.coord_mapping is None:
             return None
-        mx, my, mwp, mhp, mh, mw, H = self.coord_mapping
-        cy = H - y
-        if not (mx <= x < mx + mwp and my <= cy < my + mhp):
-            return None
-        return int((x - mx) * mw / mwp), int((cy - my) * mh / mhp)
+        return self.coord_mapping.map(x, y)
 
     @staticmethod
     def get_format_filters():
@@ -79,7 +104,7 @@ class ImageComposer():
         Pillow/NumPy implementation:
         - arrays are pasted directly into a top-left-origin canvas
         - text, borders, and scale bar are drawn with ImageDraw
-        - coord_mapping remains compatible with map_coordinates()
+        - coord_mapping reproduces Pillow's nearest-neighbour resize exactly
         """
 
         if not image.elements:
@@ -93,7 +118,7 @@ class ImageComposer():
         bw = int(image.borderWidth)
 
         # ------------------------------------------------------------
-        # Layout: keep the same geometry as the Matplotlib version
+        # Layout geometry
         # ------------------------------------------------------------
         mscale = 1.0
 
@@ -436,5 +461,12 @@ class ImageComposer():
             else:
                 img.save(savename)
 
-        self.coord_mapping = (mx, my, merged_w, merged_h, mh, mw, H)
+        self.coord_mapping = ComposedImageMapping(
+            x=mx,
+            y=my,
+            width=merged_w,
+            height=merged_h,
+            source_x=_nearest_lookup(mw, merged_w),
+            source_y=_nearest_lookup(mh, merged_h),
+        )
         return buf

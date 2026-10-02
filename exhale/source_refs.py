@@ -1,44 +1,22 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-source_refs.py
---------------
-Source and element-reference abstraction for EXHALE.
-
-This module defines stable source/item identities for data that can be
-selected as EXHALE elements.  UI and project code should use ElementRef
-rather than raw (filename, dataset_path) tuples.
-"""
+"""Stable source/item identities and readers for EXHALE element maps."""
 
 from dataclasses import dataclass
+import os
 from typing import Any
-import os.path
 
+import h5py
 import numpy as np
-import silx.io
-
-H5_ELEMENT_GROUP_NAMES = ("plotselect",)
+import tifffile
 
 
 @dataclass(frozen=True, order=True)
 class ElementRef:
-    """Stable identity for one selectable data item inside a loaded source.
+    """Identify a source by absolute filename and an element within it.
 
-    source_id:
-        Stable source identifier.  During the transition this is normally the
-        absolute filename, matching the old tuple-key first element.
-
-    item_id:
-        Stable item identifier inside the source.  For HDF5 this is the HDF5
-        dataset path.  For a plain TIFF this can be "image" or "page/<n>".
+    HDF5 item IDs are dataset paths; TIFF item IDs are zero-based page/<n>.
     """
-
     source_id: str
     item_id: str
-
-    @classmethod
-    def from_h5_dataset(cls, dataset: Any) -> "ElementRef":
-        return cls(source_id=dataset.file.filename, item_id=dataset.name)
 
     @classmethod
     def from_json(cls, obj: dict[str, str]) -> "ElementRef":
@@ -54,50 +32,20 @@ class ElementRef:
 
 @dataclass
 class ElementCandidate:
-    """One data item that can be shown/selected as an element."""
+    """A selectable element, independent of its storage format."""
     ref: ElementRef
     name: str
-    entity: Any = None
 
 
 @dataclass
 class LoadedSource:
-    """A loaded file/source and its currently open backing handle.
-
-    `handle` is deliberately allowed to become None.  Closing a file should
-    close the external handle without necessarily deleting already materialized
-    ElementSettings objects that are still used by images or analysis.
-    """
+    """Own the backing file; materialized element arrays survive close()."""
     source_id: str
     filename: str
     alias: str
     kind: str
     handle: Any | None = None
-    root: Any | None = None
-
-    @classmethod
-    def from_h5_group(cls, group: Any, alias: str | None = None) -> "LoadedSource":
-        filename = group.file.filename
-        return cls(
-            source_id=filename,
-            filename=filename,
-            alias=alias if alias is not None else _default_alias(filename),
-            kind="hdf5",
-            handle=group.file,
-            root=group,
-        )
-
-    @classmethod
-    def from_tiff_dataset(cls, filename: str, dataset: Any,
-                          alias: str | None = None) -> "LoadedSource":
-        return cls(
-            source_id=filename,
-            filename=filename,
-            alias=alias if alias is not None else _default_alias(filename),
-            kind="tiff",
-            handle=dataset.file,
-            root=dataset,
-        )
+    root: h5py.Group | None = None
 
     @property
     def is_open(self) -> bool:
@@ -105,9 +53,7 @@ class LoadedSource:
 
     def close(self) -> None:
         if self.handle is not None:
-            close = getattr(self.handle, "close", None)
-            if close is not None:
-                close()
+            self.handle.close()
         self.handle = None
         self.root = None
 
@@ -117,87 +63,81 @@ class LoadedSource:
 
     def default_element_name(self, ref: ElementRef) -> str:
         if self.kind == "tiff":
-            return self.alias
-        return ref.item_id.rsplit("/", 1).pop()
+            if self.handle is not None and len(self.handle.pages) == 1:
+                return self.alias
+            return f"{self.alias} [page {int(ref.item_id.split('/')[1]) + 1}]"
+        return ref.item_id.rsplit("/", 1)[-1]
 
     def list_elements(self) -> list[ElementCandidate]:
-        """Return selectable element-like datasets for this source.
-
-        HDF5 lists datasets immediately below `root`.
-        TIFF returns one synthetic image item.
-        """
+        if not self.is_open:
+            return []
         if self.kind == "hdf5":
-            if self.root is None:
-                return []
-            out = []
-            for key, entity in self.root.items():
-                if silx.io.utils.is_dataset(entity):
-                    ref = ElementRef(self.source_id, entity.name)
-                    out.append(ElementCandidate(ref=ref, name=key, entity=entity))
-            return out
-
+            return [ElementCandidate(ElementRef(self.source_id, entity.name), key)
+                    for key, entity in self.root.items()
+                    if isinstance(entity, h5py.Dataset)]
         if self.kind == "tiff":
-            if self.root is None:
-                return []
-            ref = ElementRef(self.source_id, self.root.name)
-            return [ElementCandidate(ref=ref, name=self.alias, entity=self.root)]
-
-        return []
+            refs = [ElementRef(self.source_id, f"page/{i}")
+                    for i in range(len(self.handle.pages))]
+            return [ElementCandidate(ref, self.default_element_name(ref))
+                    for ref in refs]
+        raise NotImplementedError(self.kind)
 
     def load_array(self, ref: ElementRef) -> np.ndarray:
-        """Load an ndarray for `ref` from this source."""
         if ref.source_id != self.source_id:
             raise ValueError(f"ElementRef belongs to {ref.source_id!r}, "
                              f"not {self.source_id!r}")
-
-        if self.handle is None:
+        if not self.is_open:
             raise RuntimeError(f"Source is closed: {self.filename}")
-        if self.kind == "hdf5" or self.kind == "tiff":
-            return self.handle[ref.item_id][()]
+        if self.kind == "hdf5":
+            dataset = self.handle[ref.item_id]
+            if not isinstance(dataset, h5py.Dataset):
+                raise ValueError(f"Not an HDF5 dataset: {ref.item_id}")
+            data = dataset[()]
+        elif self.kind == "tiff":
+            prefix, separator, number = ref.item_id.partition("/")
+            if (prefix != "page" or not separator or not number.isdecimal() or
+                    str(int(number)) != number or int(number) >= len(self.handle.pages)):
+                raise ValueError(f"Invalid TIFF element: {ref.item_id!r}")
+            data = self.handle.pages[int(number)].asarray()
+        else:
+            raise NotImplementedError(self.kind)
+        if data.ndim != 2 or data.size == 0 or data.dtype.kind not in "buif":
+            raise ValueError(f"Element {ref.item_id!r} must be a nonempty 2-D real-valued map")
+        return data
 
-        raise NotImplementedError(self.kind)
 
 def open_source(filename: str) -> LoadedSource:
-    h5 = silx.io.open(filename)
+    filename = os.path.abspath(os.fspath(filename))
+    alias = os.path.splitext(os.path.basename(filename))[0]
+    if h5py.is_hdf5(filename):
+        handle = h5py.File(filename, "r")
+        try:
+            default = handle.attrs.get("default")
+            if isinstance(default, bytes):
+                default = default.decode()
+            group = handle[default] if isinstance(default, str) else None
+            root = group.get("plotselect") if isinstance(group, h5py.Group) else None
+            if not isinstance(root, h5py.Group):
+                raise ValueError(f"{filename!r} needs /<default>/plotselect to load element maps")
+            return LoadedSource(filename, filename, alias, "hdf5", handle, root)
+        except Exception:
+            handle.close()
+            raise
 
+    handle = tifffile.TiffFile(filename)
     try:
-        # PyMCA/EXHALE HDF5:
-        # /<default>/plotselect/<datasets>
-        default = h5.attrs.get("default", None)
-        if isinstance(default, bytes):
-            default = default.decode()
-
-        if default is not None:
-            group = h5[default]
-
-            if "plotselect" in group:
-                plotselect = group["plotselect"]
-                if silx.io.utils.is_group(plotselect):
-                    return LoadedSource.from_h5_group(plotselect)
-
-            # TIFF via silx:
-            # /scan_0/image
-            if default == "scan_0" and "image" in group:
-                image_group = group["image"]
-                if ("data" in image_group and
-                    silx.io.utils.is_dataset(image_group["data"])):
-                    return LoadedSource.from_tiff_dataset(
-                        filename, image_group["data"])
-
-        raise ValueError(
-            f"{filename!r} does not look like a supported PyMCA/EXHALE HDF5 "
-            "file or a silx-loaded TIFF"
-        )
-
+        if not len(handle.pages):
+            raise ValueError(f"{filename!r} contains no TIFF pages")
+        for index, page in enumerate(handle.pages):
+            if (len(page.shape) != 2 or page.samplesperpixel != 1 or
+                    page.photometric not in (0, 1) or
+                    not all(page.shape) or page.dtype.kind not in "buif"):
+                raise ValueError(f"TIFF page {index + 1} must be a nonempty 2-D grayscale map")
+        return LoadedSource(filename, filename, alias, "tiff", handle)
     except Exception:
-        close = getattr(h5, "close", None)
-        if close is not None:
-            close()
+        handle.close()
         raise
 
-def _default_alias(filename: str) -> str:
-    return os.path.splitext(os.path.basename(filename))[0]
 
 def ref_display_basename(ref: ElementRef) -> str:
     return ref.item_id.rsplit("/", 1)[-1] or ref.item_id
-

@@ -8,7 +8,7 @@ Created on Wed Dec  4 14:45:19 2019
 
 import sys
 import traceback
-from silx.gui import qt
+from qtpy import QtCore, QtWidgets
 
 class ExceptionDialog:
     def install(qwin):
@@ -18,13 +18,13 @@ class ExceptionDialog:
             details = ''.join(traceback.format_exception(exctype, value, tb))
             print(err, '\n', details)
 
-            q = qt.QMessageBox(qwin)
-            q.setIcon(qt.QMessageBox.Critical)
+            q = QtWidgets.QMessageBox(qwin)
+            q.setIcon(QtWidgets.QMessageBox.Critical)
             q.setWindowTitle("Error")
             q.setText(err)
-            q.setTextFormat(qt.Qt.PlainText)
+            q.setTextFormat(QtCore.Qt.PlainText)
             q.setDetailedText(str(details))
-            q.addButton('OK', qt.QMessageBox.AcceptRole)
+            q.addButton('OK', QtWidgets.QMessageBox.AcceptRole)
             return q.exec()
 
         oldhook = sys.excepthook

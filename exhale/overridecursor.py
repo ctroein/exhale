@@ -5,7 +5,8 @@ Created on Thu Jan 15 13:53:44 2026
 
 @author: carl
 """
-from silx.gui.qt import Qt, QApplication
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QApplication
 
 class OverrideCursor:
     def __init__(self, cursor=Qt.WaitCursor):

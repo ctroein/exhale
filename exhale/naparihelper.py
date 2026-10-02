@@ -7,7 +7,7 @@ Created on Mon Apr 13 01:02:40 2026
 """
 
 from skimage import morphology
-from silx.gui import qt
+from qtpy import QtGui, QtWidgets
 import napari
 from napari.components import ViewerModel
 from .constants import CONCENTRATION_UNITS
@@ -82,10 +82,10 @@ class NapariHelper():
         return "" if not lines else "Clusters:\n" + "\n".join(lines)
 
     def _tt_hide(self):
-        qt.QToolTip.hideText()
+        QtWidgets.QToolTip.hideText()
 
     def _tt_show(self, text):
-        qt.QToolTip.showText(qt.QCursor.pos(), text, self.qtwidget)
+        QtWidgets.QToolTip.showText(QtGui.QCursor.pos(), text, self.qtwidget)
 
     def _hover(self, obj, event):
         if self.sample is None:

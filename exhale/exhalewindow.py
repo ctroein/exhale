@@ -15,13 +15,9 @@ import re
 import os
 from time import strftime
 
-# Note to users: export QT_API=pyqt5 to force PyQt5 if needed.
-import silx
-from silx.gui import qt, icons, hdf5
-from silx.gui.qt import Qt #, QApplication
-# from silx.gui.plot import PlotWidget
-from silx.gui.plot.items.core import ItemChangedType
-from silx.app.view.DataPanel import DataPanel
+import qtpy
+from qtpy import QtCore, QtGui, QtWidgets
+from qtpy.QtCore import Qt
 
 from .exceptiondialog import ExceptionDialog
 from .overridecursor import OverrideCursor
@@ -32,7 +28,7 @@ from .listwidgets import ElementListWidget, ImageListWidget
 from .imagecomposer import ImageComposer
 from .analysisworker import AnalysisWorker
 from . import projectio
-from .exhale import exhale_version
+from . import exhale_version
 from .source_refs import ElementRef, open_source
 from .constants import CONCENTRATION_UNITS
 
@@ -42,34 +38,34 @@ from .analysisdialog import Ui_AnalysisDialog
 
 _LOAD_NAPARI_EARLY = True
 
-def scale_font(widget: qt.QWidget, scale: float):
+def scale_font(widget: QtWidgets.QWidget, scale: float):
     "Rescale font of widget and its children"
     font = widget.font()
     font.setPointSizeF(font.pointSizeF() * scale)
     widget.setFont(font)
 
-class ImageDialog(qt.QDialog, Ui_ImageDialog):
+class ImageDialog(QtWidgets.QDialog, Ui_ImageDialog):
     def __init__(self, parent=None):
-        qt.QDialog.__init__(self, parent)
+        QtWidgets.QDialog.__init__(self, parent)
         self.setupUi(self)
 
-class AnalysisDialog(qt.QDialog, Ui_AnalysisDialog):
+class AnalysisDialog(QtWidgets.QDialog, Ui_AnalysisDialog):
     def __init__(self, parent=None):
-        qt.QDialog.__init__(self, parent)
+        QtWidgets.QDialog.__init__(self, parent)
         self.setupUi(self)
 
-class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
+class ExhaleWindow(QtWidgets.QMainWindow, Ui_ExhaleWindow):
     "Main window of this thing"
-    selectedElementsChanged = qt.Signal() # The set of selected elements changed
+    selectedElementsChanged = QtCore.Signal() # The set of selected elements changed
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.settings = qt.QSettings('CIPA', 'Exhale')
+        self.settings = QtCore.QSettings('CIPA', 'Exhale')
         # QApplication.instance().installEventFilter(self) # needed why?
         self.setupUi(self)
         self.setWindowTitle(f'Exhale {exhale_version}')
 
-        self.errorMsg = qt.QErrorMessage(self)
+        self.errorMsg = QtWidgets.QErrorMessage(self)
         self.errorMsg.setSizeGripEnabled(True)
         self.errorMsg.setWindowModality(Qt.WindowModal)
 
@@ -104,32 +100,22 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.nucleiExpansion = ad.nucleiExpansion
         self.nucleiMinArea = ad.nucleiMinArea
 
-        def themed_icon(*names):
-            for name in names:
-                icon = None
-                try:
-                    icon = icons.getQIcon(name)
-                except ValueError:
-                    ...
-                if icon is not None and not icon.isNull():
-                    return icon
-                icon = qt.QIcon.fromTheme(name)
-                if not icon.isNull():
-                    return icon
-                print("unknown", name)
-            return qt.QIcon()
+        def themed_icon(name, fallback):
+            icon = QtGui.QIcon.fromTheme(name)
+            return icon if not icon.isNull() else self.style().standardIcon(fallback)
 
         self.actionOpenFile.setIcon(themed_icon(
-            "document-open", "folder-open"))
+            "document-open", QtWidgets.QStyle.SP_DialogOpenButton))
         self.actionClearFiles.setIcon(themed_icon(
-            "edit-clear", "window-close", "close"))
+            "edit-clear", QtWidgets.QStyle.SP_DialogCloseButton))
         self.actionLoadProject.setIcon(themed_icon(
-            "document-open-recent", "folder-open", "document-open"))
+            "document-open-recent", QtWidgets.QStyle.SP_DirOpenIcon))
         self.actionSaveProject.setIcon(themed_icon(
-            "document-save", "media-floppy"))
+            "document-save", QtWidgets.QStyle.SP_DialogSaveButton))
         self.actionAbout.setIcon(themed_icon(
-            "help-about", "dialog-information", "help"))
-        self.actionQuit.setIcon(themed_icon("application-exit"))
+            "help-about", QtWidgets.QStyle.SP_MessageBoxInformation))
+        self.actionQuit.setIcon(themed_icon(
+            "application-exit", QtWidgets.QStyle.SP_DialogCloseButton))
 
         self.actionOpenFile.triggered.connect(self.select_and_open_files)
         self.actionClearFiles.triggered.connect(self.close_all_files)
@@ -137,6 +123,10 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.actionSaveProject.triggered.connect(self.save_project)
         self.actionAbout.triggered.connect(self.showAbout)
         self.actionQuit.triggered.connect(self.close)
+        self._skip_next_quit_confirmation = False
+        QtWidgets.QShortcut(
+            QtGui.QKeySequence("Ctrl+Shift+Q"), self,
+            activated=self.quit_without_confirmation)
 
         """
         Main data classes.
@@ -155,21 +145,22 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
         self.imageSettings = {} # id -> ImageSettings
         self.currentImage = None # ImageSettings
 
-        self._create_silx_view()
         self.create_dataTab()
         self.create_analysisTab()
         self.tabWidget.setCurrentIndex(0)
 
 
     def confirm_quit(self):
-        return qt.QMessageBox.question(
+        return QtWidgets.QMessageBox.question(
             self, "Quit", "Exit the application?",
-            qt.QMessageBox.Yes | qt.QMessageBox.No,
-            qt.QMessageBox.No
-            ) == qt.QMessageBox.Yes
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No
+            ) == QtWidgets.QMessageBox.Yes
 
     def closeEvent(self, ev):
-        if not self.confirm_quit():
+        if self._skip_next_quit_confirmation:
+            self._skip_next_quit_confirmation = False
+        elif not self.confirm_quit():
             ev.ignore()
             return
         self.imageDialog.close()
@@ -179,23 +170,23 @@ class ExhaleWindow(qt.QMainWindow, Ui_ExhaleWindow):
             self._analysisThread.wait()
         ev.accept()
 
+    def quit_without_confirmation(self):
+        """Close immediately without showing the exit question."""
+        self._skip_next_quit_confirmation = True
+        self.close()
+
     def showAbout(self):
         import sys
         import napari
 
-        if hasattr(qt, "PYQT_VERSION_STR"):
-            binding_version = qt.PYQT_VERSION_STR
-        elif hasattr(qt, "PYSIDE_VERSION_STR"):
-            binding_version = qt.PYSIDE_VERSION_STR
-        else:
-            binding_version = "unknown"
+        binding_version = qtpy.PYQT_VERSION or qtpy.PYSIDE_VERSION or "unknown"
 
         def imported_version(modname):
             mod = sys.modules.get(modname)
             if mod is not None:
                 return getattr(mod, "__version__", "unknown")
             return "(not loaded)"
-        qt.QMessageBox.about(
+        QtWidgets.QMessageBox.about(
             self,
             "About EXHALE",
             f"""
@@ -217,9 +208,9 @@ Licensed under the MIT License.
 <p>
 <b>Runtime environment</b><br>
 Python {sys.version.split()[0]}<br>
-Qt {qt.QT_VERSION_STR} with {qt.BINDING} {binding_version}<br>
-silx {silx.version}<br>
+Qt {qtpy.QT_VERSION} with {qtpy.API_NAME} {binding_version}<br>
 napari {imported_version("napari")}<br>
+pyqtgraph {imported_version("pyqtgraph")}<br>
 TensorFlow {imported_version("tensorflow")}<br>
 NumPy {np.__version__}<br>
 </p>
@@ -280,7 +271,7 @@ NumPy {np.__version__}<br>
         self.naparihelper.set_info_widget(self.analysisInfo)
 
         self.analysisSplitter.setSizes([180, 400, 200])
-        hb = qt.QHBoxLayout()
+        hb = QtWidgets.QHBoxLayout()
         hb.setContentsMargins(0, 0, 0, 0)
         hb.addWidget(self.naparihelper.qtwidget, 1)
         self.napariWidget.setLayout(hb)
@@ -301,7 +292,7 @@ NumPy {np.__version__}<br>
         "Update the comboboxes for nuclei/tissue"
         for dd in (self.analysisChNuclei, self.analysisChTissue):
             ddref = dd.currentData()
-            with qt.QSignalBlocker(dd):
+            with QtCore.QSignalBlocker(dd):
                 dd.clear()
                 dd.addItem("None", None)
                 paths = self.selectedElements
@@ -323,11 +314,11 @@ NumPy {np.__version__}<br>
             if (it.checkState() == Qt.CheckState.Unchecked and
                 path in self.selectedElements):
                     unsel.add(path)
-        # with qt.QSignalBlocker(self.analysisElements):
+        # with QtCore.QSignalBlocker(self.analysisElements):
         self.analysisElements.clear()
         for path in self.selectedElements:
             # es = self.elementSettings[path]
-            self.analysisElements.addElementPath(
+            self.analysisElements.addElementRef(
                 self.element_display_name(path), path, path not in unsel)
 
     def update_layer_controls(self):
@@ -340,20 +331,20 @@ NumPy {np.__version__}<br>
 
         scale = .8
         for i, h in enumerate(("Layer", "Alpha", "Blend")):
-            lab = qt.QLabel(h)
+            lab = QtWidgets.QLabel(h)
             self.analysisLayerBox.addWidget(lab, 0, i)
             scale_font(lab, scale)
         blends = {"translucent": "Def", "additive": "Add", "minimum": "Min"}
         for i, layer in enumerate(self.naparihelper.viewer.layers):
             row = i + 1
-            cb = qt.QCheckBox(layer.name)
+            cb = QtWidgets.QCheckBox(layer.name)
             cb.setChecked(layer.visible)
             cb.toggled.connect(lambda checked, lyr=layer:
                                setattr(lyr, "visible", checked))
             scale_font(cb, scale)
             self.analysisLayerBox.addWidget(cb, row, 0)
 
-            alpha = qt.QSpinBox()
+            alpha = QtWidgets.QSpinBox()
             alpha.setRange(0, 100)
             alpha.setValue(int(layer.opacity * 100))
             alpha.valueChanged.connect(lambda val, lyr=layer:
@@ -361,7 +352,7 @@ NumPy {np.__version__}<br>
             scale_font(alpha, scale)
             self.analysisLayerBox.addWidget(alpha, row, 1)
 
-            blend = qt.QComboBox()
+            blend = QtWidgets.QComboBox()
             for bid, bstr in blends.items():
                 blend.addItem(bstr, userData=bid)
             blend.currentIndexChanged.connect(
@@ -371,7 +362,7 @@ NumPy {np.__version__}<br>
             self.analysisLayerBox.addWidget(blend, row, 2)
 
         # Add a strechable empty row and set the scrollarea width
-        self.analysisLayerBox.addWidget(qt.QWidget(), row + 1, 0)
+        self.analysisLayerBox.addWidget(QtWidgets.QWidget(), row + 1, 0)
         self.analysisLayerBox.setRowStretch(row + 1, 1)
         w = self.analysisLayerWidget.width()
         self.scrollArea.setMinimumWidth(w)
@@ -418,7 +409,7 @@ NumPy {np.__version__}<br>
                        for row in range(self.analysisElements.count()))
             if it.checkState() == Qt.CheckState.Checked]
 
-        thread = qt.QThread(self)
+        thread = QtCore.QThread(self)
         worker = AnalysisWorker(
             *(self.elementSettings[ddp] for ddp in ddrefs),
             [self.elementSettings[ep] for ep in element_refs],
@@ -437,7 +428,7 @@ NumPy {np.__version__}<br>
             self._analysisThread = None
             self.set_analysis_busy(False)
 
-        @qt.Slot()
+        @QtCore.Slot()
         def on_finished(sample):
             append_status("Rendering results")
             self.naparihelper.set_sample(sample)
@@ -445,7 +436,7 @@ NumPy {np.__version__}<br>
             worker_cleanup()
             append_status("Done")
 
-        @qt.Slot()
+        @QtCore.Slot()
         def on_failed(details):
             if details == "":
                 append_status("Interrupted")
@@ -470,7 +461,7 @@ NumPy {np.__version__}<br>
         sample = self.naparihelper.sample
         if sample is None:
             return
-        directory = qt.QFileDialog.getExistingDirectory(
+        directory = QtWidgets.QFileDialog.getExistingDirectory(
             self, "Choose export directory",
             self.settings.value("AnalysisExportDir", ""))
         if not directory:
@@ -482,7 +473,7 @@ NumPy {np.__version__}<br>
         except Exception as e:
             self.errorMsg.showMessage(f"Export failed:\n{e}")
             return
-        qt.QMessageBox.information(self, "Export complete",
+        QtWidgets.QMessageBox.information(self, "Export complete",
             f"Analysis results exported to:\n{out}")
 
 
@@ -492,7 +483,7 @@ NumPy {np.__version__}<br>
         "Update what source is shown in the UI"
         source = self.loadedFileComboBox.currentData()
 
-        with qt.QSignalBlocker(self.loadedFileAlias):
+        with QtCore.QSignalBlocker(self.loadedFileAlias):
             if source is None:
                 self.loadedFileAlias.clear()
                 self.loadedFileAlias.setEnabled(False)
@@ -514,7 +505,7 @@ NumPy {np.__version__}<br>
                 if ref in self.elementSettings
                 else candidate.name
             )
-            self.elementList.addElementPath(label, ref, checked=checked)
+            self.elementList.addElementRef(label, ref, checked=checked)
 
     def setImageControlsEnabled(self, enabled : bool):
         "Enable/disable inputs that are relevant to composing an image"
@@ -529,16 +520,20 @@ NumPy {np.__version__}<br>
 
 
     def setElementControlsEnabled(self, enabled : bool):
-        "Enable/disable inputs that are relevant to elementsettings"
-        self.elementName.setEnabled(enabled)
-        self.elementNormalizer.setEnabled(enabled)
-        self.elementNormalizeMin.setEnabled(enabled)
-        self.elementNormalizeMax.setEnabled(enabled)
-        self.gammaValue.setEnabled(enabled)
-        self.elementPercButton.setEnabled(enabled)
-        self.elementSDButton.setEnabled(enabled)
-        self.elementHistogramPlot.setEnabled(enabled)
-        self.elementHistogramPlot.setHidden(not enabled)
+        "Show element settings only while an element is being edited."
+        was_visible = not self.elementSettingsPanel.isHidden()
+        if was_visible == enabled:
+            return
+        splitter_sizes = self.splitter.sizes()
+        self.elementSettingsPanel.setVisible(enabled)
+
+        def finish_layout_change():
+            if sum(splitter_sizes) > 0:
+                self.splitter.setSizes(splitter_sizes)
+            self.elementPlot.fit_image()
+
+        # Wait until the panel visibility has changed the canvas geometry.
+        QtCore.QTimer.singleShot(0, finish_layout_change)
 
     def updateElementNormalizer(self):
         "Hide/show gamma correction and update histogram logscaleness"
@@ -547,58 +542,35 @@ NumPy {np.__version__}<br>
         if es.normalizer == Normalizers.LOG:
             bins = np.geomspace(es.minPositive, es.dataRange[1], bins + 1)
         hist, edges = np.histogram(es.data, bins=bins, range=es.dataRange)
-        self.elementHistogramPlot.getHistogram().setData(
-            hist, edges, baseline=0, copy=False)
+        self.elementHistogramPlot.set_histogram(
+            hist, edges, logarithmic=es.normalizer == Normalizers.LOG)
         isgamma = es.normalizer == Normalizers.GAMMA
-        self.gammaLabel.setHidden(not isgamma)
         self.gammaValue.setHidden(not isgamma)
-        self.elementHistogramPlot.getXAxis().setScale(
-            'log' if es.normalizer == Normalizers.LOG else 'linear')
-        self.elementHistogramPlot.resetZoom()
 
     def updateElementPlot(self):
         "Replot the data after transformation change"
         if es := self.currentElement:
-            # Update existing element image, flipped to be consistent
-            self.elementPlot.addImage(es.transformedData()[::-1], legend='e',
-                                      resetzoom=False, copy=False)
+            self.elementPlot.set_image(es.transformedData())
 
     def showCurrentElement(self):
         "Enable and update the input fields with currentElement data"
         es = self.currentElement
         self.setElementControlsEnabled(True)
-        with qt.QSignalBlocker(self.elementNormalizer):
+        self.imageSpecificSettingsLabel.setVisible(self.currentImage is not None)
+        with QtCore.QSignalBlocker(self.elementNormalizer):
             self.elementNormalizer.setCurrentIndex(es.normalizer.value)
-        with qt.QSignalBlocker(self.elementName):
+        with QtCore.QSignalBlocker(self.elementName):
             self.elementName.setText(es.name)
-        with qt.QSignalBlocker(self.gammaValue):
+        with QtCore.QSignalBlocker(self.gammaValue):
             self.gammaValue.setValue(es.gamma)
         for mm in range(2):
-            with qt.QSignalBlocker(self.elementNormalizeRange[mm]):
+            with QtCore.QSignalBlocker(self.elementNormalizeRange[mm]):
                 self.elementNormalizeRange[mm].setRange(*es.dataRange)
                 self.elementNormalizeRange[mm].setValue(es.trfRange[mm])
 
         self.updateElementNormalizer()
-        self.elementHistogramPlot.remove(kind='marker')
-        self.elementHistogramMarkers = (
-            self.elementHistogramPlot.addXMarker(
-                es.trfRange[0], text="Min", color='#0000a0',
-                draggable=True, constraint=es.minConstraint),
-            self.elementHistogramPlot.addXMarker(
-                es.trfRange[1], text="Max", color='#0000a0',
-                draggable=True, constraint=es.maxConstraint))
-        def marker_ch(mm, ict):
-            if ict != ItemChangedType.POSITION:
-                return
-            es.setMinmax(mm, self.elementHistogramMarkers[mm].getXPosition())
-            self.elementNormalizeRange[mm].setValue(es.trfRange[mm])
-            self.updateElementPlot()
-        for mm in range(2):
-            self.elementHistogramMarkers[mm].sigItemChanged.connect(
-                partial(marker_ch, mm))
-        # Replace any other image
-        self.elementPlot.addImage(es.transformedData()[::-1], legend='e',
-                                  replace=True, copy=False)
+        self.elementHistogramPlot.set_limits(*es.trfRange)
+        self.elementPlot.set_image(es.transformedData(), reset_view=True)
         self._composeMeta = None
 
     def editElement(self, elementref):
@@ -607,7 +579,7 @@ NumPy {np.__version__}<br>
         es = self.elementSettings[elementref]
         self.currentElement = es
         self.currentImage = None
-        with qt.QSignalBlocker(self.imageList):
+        with QtCore.QSignalBlocker(self.imageList):
             self.imageList.setCurrentRow(-1)
         self.setImageControlsEnabled(False)
         self.showCurrentElement()
@@ -639,17 +611,18 @@ NumPy {np.__version__}<br>
         self.imageSettings[num] = im
         self.imageList.addImage(num, im)
 
-    def updateComposedImage(self):
+    def updateComposedImage(self, reset_view=False):
         "Recompute and replace/draw the composed image"
         if im := self.currentImage:
             assert self.currentElement is None
-            self.imageComposer.plot_composed_image(self.elementPlot, im)
+            self.imageComposer.display_composed_image(
+                self.elementPlot, im, reset_view=reset_view)
 
     def updatePickerColors(self):
         "Update the image element color pickers from the current image"
         for i, c in enumerate(self.currentImage.colors()):
             box = self.imageElementBoxes[i]
-            with qt.QSignalBlocker(box):
+            with QtCore.QSignalBlocker(box):
                 box.setColor(c)
 
     def showComposedImage(self, imgnum):
@@ -661,34 +634,34 @@ NumPy {np.__version__}<br>
         self.setImageControlsEnabled(True)
         self.setElementControlsEnabled(False)
 
-        with qt.QSignalBlocker(self.composeLayoutCB):
+        with QtCore.QSignalBlocker(self.composeLayoutCB):
             self.composeLayoutCB.setCurrentIndex(im.layout.value)
-        with qt.QSignalBlocker(self.composeColors):
+        with QtCore.QSignalBlocker(self.composeColors):
             self.composeColors.setCurrentIndex(im.colorscheme.value)
-        with qt.QSignalBlocker(self.composeScalebar):
+        with QtCore.QSignalBlocker(self.composeScalebar):
             self.composeScalebar.setCurrentIndex(im.scalebar.value)
-        with qt.QSignalBlocker(self.composeScalebarColor):
+        with QtCore.QSignalBlocker(self.composeScalebarColor):
             self.composeScalebarColor.setColor(im.scalebarColor)
-        with qt.QSignalBlocker(self.composeScalebarBgColor):
+        with QtCore.QSignalBlocker(self.composeScalebarBgColor):
             self.composeScalebarBgColor.setColor(im.scalebarBgColor)
-        with qt.QSignalBlocker(self.composeScalebarBg):
+        with QtCore.QSignalBlocker(self.composeScalebarBg):
             self.composeScalebarBg.setChecked(im.scalebarBgAlpha is not None)
-        with qt.QSignalBlocker(self.composeFontsize):
+        with QtCore.QSignalBlocker(self.composeFontsize):
             self.composeFontsize.setValue(im.fontsize)
-        with qt.QSignalBlocker(self.composeDPI):
+        with QtCore.QSignalBlocker(self.composeDPI):
             self.composeDPI.setValue(im.dpi)
-        with qt.QSignalBlocker(self.composePanelLabels):
+        with QtCore.QSignalBlocker(self.composePanelLabels):
             self.composePanelLabels.setChecked(im.panelLabels)
-        with qt.QSignalBlocker(self.composeElementLabels):
+        with QtCore.QSignalBlocker(self.composeElementLabels):
             self.composeElementLabels.setChecked(im.elementLabels)
-        with qt.QSignalBlocker(self.composePanelLabelColor):
+        with QtCore.QSignalBlocker(self.composePanelLabelColor):
             self.composePanelLabelColor.setColor(im.panelLabelColor)
-        with qt.QSignalBlocker(self.composeElementBorders):
+        with QtCore.QSignalBlocker(self.composeElementBorders):
             self.composeElementBorders.setChecked(im.elementBorders)
-        with qt.QSignalBlocker(self.composeElementLabelsColored):
+        with QtCore.QSignalBlocker(self.composeElementLabelsColored):
             self.composeElementLabelsColored.setChecked(
                 im.elementLabelsColored)
-        with qt.QSignalBlocker(self.imageHeaderBox):
+        with QtCore.QSignalBlocker(self.imageHeaderBox):
             self.imageHeaderBox.setColor(im.borderColor)
             self.imageHeaderBox.border.setValue(im.borderWidth)
         self.updatePickerColors()
@@ -704,7 +677,7 @@ NumPy {np.__version__}<br>
                     if box.combo.itemData(j) == es.ref:
                         ix = j
                         break
-            with qt.QSignalBlocker(box.combo):
+            with QtCore.QSignalBlocker(box.combo):
                 box.combo.setCurrentIndex(ix)
 
     def refresh_element_display_names(self):
@@ -755,7 +728,7 @@ NumPy {np.__version__}<br>
                 es = ElementSettings(ref=ref, name=name, data=data)
                 self.elementSettings[ref] = es
 
-        def select_element(item : qt.QListWidgetItem):
+        def select_element(item : QtWidgets.QListWidgetItem):
             "Element is selected for use (has been checkboxed)"
             item.setCheckState(Qt.CheckState.Checked)
             ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
@@ -775,7 +748,7 @@ NumPy {np.__version__}<br>
             self.selectedElementsChanged.emit()
         el.itemUnwanted.connect(deselect_element)
 
-        def check_element(item : qt.QListWidgetItem):
+        def check_element(item : QtWidgets.QListWidgetItem):
             "React if item checkbox status has changed"
             if item.checkState() == Qt.CheckState.Checked:
                 select_element(item)
@@ -837,10 +810,7 @@ NumPy {np.__version__}<br>
             if es := self.currentElement:
                 es.setMinmax(mm, self.elementNormalizeRange[mm].value())
                 self.elementNormalizeRange[mm].setValue(es.trfRange[mm])
-                # self.elementTransformP[mm].setValue(es.percent(mm))
-                with qt.QSignalBlocker(self.elementNormalizeRange[mm]):
-                    self.elementHistogramMarkers[mm].setPosition(
-                        es.trfRange[mm], None)
+                self.elementHistogramPlot.set_limits(*es.trfRange)
         self.elementNormalizeRange = [self.elementNormalizeMin,
                                       self.elementNormalizeMax]
         for mm in range(2):
@@ -856,19 +826,18 @@ NumPy {np.__version__}<br>
         self.elementSDButton.clicked.connect(partial(mm_button, 'sd'))
         self.elementPercButton.clicked.connect(partial(mm_button, 'percent'))
 
-        # Initialize histogram plot
-        self.elementHistogramPlot.setKeepDataAspectRatio(False)
-        self.elementHistogramPlot.setAxesDisplayed(False)
-        self.elementHistogramPlot.setDataMargins(.01, .03, .01, .01)
-        self.elementHistogramPlot.setInteractiveMode('pan')
-        self.elementHistogramPlot.addHistogram(
-            [0], [1, 100], color='gray', fill=True, baseline=0, copy=False)
-        self.elementHistogramMarkers = None
+        def histogram_limits_changed(minimum, maximum):
+            if es := self.currentElement:
+                es.trfRange[:] = [minimum, maximum]
+                for field, value in zip(self.elementNormalizeRange,
+                                        es.trfRange):
+                    with QtCore.QSignalBlocker(field):
+                        field.setValue(value)
+                self.updateElementPlot()
+        self.elementHistogramPlot.limitsChanged.connect(
+            histogram_limits_changed)
 
-        self.elementPlot.setKeepDataAspectRatio(True)
-        self.elementPlot.setAxesDisplayed(False)
-
-        def im_element_show(elementnum = -1):
+        def im_element_show(elementnum=-1, reset_view=False):
             "Display/adjust an image-element or the whole composed image"
             if im := self.currentImage:
                 if es := im.elements.get(elementnum):
@@ -878,8 +847,8 @@ NumPy {np.__version__}<br>
                     if self.currentElement:
                         self.currentElement = None
                         self.setElementControlsEnabled(False)
-                    self.updateComposedImage()
-                    with qt.QSignalBlocker(self.imageElementButtonGroup):
+                    self.updateComposedImage(reset_view=reset_view)
+                    with QtCore.QSignalBlocker(self.imageElementButtonGroup):
                         self.imageHeaderBox.edit.setChecked(True)
 
         def im_element_ch(elementnum, index):
@@ -892,13 +861,13 @@ NumPy {np.__version__}<br>
                     ref = box.combo.itemData(index)
                     ensure_exists(ref)
                     im.setElement(elementnum, self.elementSettings[ref])
-                im_element_show(-1) # Show image, not image-elements
+                im_element_show(-1, reset_view=True)
 
         def im_color_ch(elementnum, color):
             "An image-element color changed"
             if im := self.currentImage:
                 im.setColor(elementnum, color)
-                with qt.QSignalBlocker(self.composeColors):
+                with QtCore.QSignalBlocker(self.composeColors):
                     self.composeColors.setCurrentIndex(im.colorscheme.value)
                 im_element_show(-1)
 
@@ -913,7 +882,7 @@ NumPy {np.__version__}<br>
                 im.setBorderColor(color)
                 im_element_show(-1)
 
-        self.imageElementButtonGroup = qt.QButtonGroup(self)
+        self.imageElementButtonGroup = QtWidgets.QButtonGroup(self)
         box = ImageHeaderBox()
         self.imageElementBox.addLayout(box)
         self.imageElementButtonGroup.addButton(box.edit, -1)
@@ -929,6 +898,12 @@ NumPy {np.__version__}<br>
             box.combo.currentIndexChanged.connect(
                 partial(im_element_ch, i))
             box.colorChanged.connect(partial(im_color_ch, i))
+
+        # Keep the plot pane width independent of the optional settings panel.
+        plot_pane = self.splitter.indexOf(self.verticalLayoutWidget)
+        self.splitter.setCollapsible(plot_pane, False)
+        self.verticalLayoutWidget.setMinimumWidth(
+            self.elementSettingsPanel.sizeHint().width())
 
         # Disable after all things have been created
         self.setImageControlsEnabled(False)
@@ -954,11 +929,11 @@ NumPy {np.__version__}<br>
                 return
             num = it.data(ImageListWidget.IMG_NUM_ROLE)
             im = self.imageSettings[num]
-            ans = qt.QMessageBox.question(
+            ans = QtWidgets.QMessageBox.question(
                 self, "Delete image",
                 f"Do you want to delete image '{im.name}'?")
-            if ans == qt.QMessageBox.StandardButton.Yes:
-                self.elementPlot.clear()
+            if ans == QtWidgets.QMessageBox.StandardButton.Yes:
+                self.elementPlot.clear_image()
                 del self.imageSettings[num]
                 self.currentImage = None
                 # Delete last, if new image is selected
@@ -979,7 +954,7 @@ NumPy {np.__version__}<br>
             "Image layout update"
             if im := self.currentImage:
                 im.setLayout(Layouts(self.composeLayoutCB.currentIndex()))
-                im_element_show(-1)
+                im_element_show(-1, reset_view=True)
         self.composeLayoutCB.currentIndexChanged.connect(layout_ch)
         for t in Layouts:
             self.composeLayoutCB.addItem(t.description)
@@ -1022,27 +997,26 @@ NumPy {np.__version__}<br>
             if curr is not None:
                 self.showComposedImage(
                     curr.data(ImageListWidget.IMG_NUM_ROLE))
-                im_element_show(-1)
+                self.updateComposedImage(reset_view=True)
         self.imageList.currentItemChanged.connect(sel_img)
 
         self.imageComposer = ImageComposer()
-        def mouse_over_plot(event):
-            if event["event"] == "mouseMoved":
-                if not (im := self.currentImage):
-                    return
-                ixy = self.imageComposer.map_coordinates(
-                    self.elementPlot, event["x"], event["y"])
-                if ixy is None:
-                    qt.QToolTip.hideText()
-                    return
-                ix, iy = ixy
-                info = f"Pos ({ix}, {iy}):\n" + "\n".join(
-                    [f"{el.name}: {el.data[iy, ix]:.4g} {CONCENTRATION_UNITS}"
-                     for el in im.elements.values()
-                     if iy < el.data.shape[0] and ix < el.data.shape[1]])
-                qt.QToolTip.showText(
-                    qt.QCursor.pos(), info, self.elementPlot)
-        self.elementPlot.sigPlotSignal.connect(mouse_over_plot)
+        def mouse_over_plot(canvas_pixel):
+            if not (im := self.currentImage) or canvas_pixel is None:
+                QtWidgets.QToolTip.hideText()
+                return
+            ixy = self.imageComposer.map_coordinates(*canvas_pixel)
+            if ixy is None:
+                QtWidgets.QToolTip.hideText()
+                return
+            ix, iy = ixy
+            info = f"Pos ({ix}, {iy}):\n" + "\n".join(
+                [f"{el.name}: {el.data[iy, ix]:.4g} {CONCENTRATION_UNITS}"
+                 for el in im.elements.values()
+                 if iy < el.data.shape[0] and ix < el.data.shape[1]])
+            QtWidgets.QToolTip.showText(
+                QtGui.QCursor.pos(), info, self.elementPlot)
+        self.elementPlot.pixelHovered.connect(mouse_over_plot)
 
         def save_im():
             if not (im := self.currentImage):
@@ -1092,172 +1066,9 @@ NumPy {np.__version__}<br>
         # Don't call createImage because we want the default values this once.
         im = ImageSettings("Untitled")
         self.imageSettings[1] = im
-        with qt.QSignalBlocker(self.imageList):
+        with QtCore.QSignalBlocker(self.imageList):
             self.imageList.addImage(1, im)
 
-
-    ## Begin Silx viewer stuff
-
-    def _create_silx_view(self):
-        "Create widgets for the HDF5 exploration tab"
-        treeView = hdf5.Hdf5TreeView(self)
-        treeModel = hdf5.Hdf5TreeModel(treeView, ownFiles=False)
-        self._treeView = treeView
-        self._treeModel = treeModel
-
-        toolbar = qt.QToolBar(self)
-        toolbar.setIconSize(qt.QSize(16, 16))
-        toolbar.setStyleSheet("QToolBar { border: 0px }")
-        toolbar.addAction(self.actionOpenFile)
-
-        action = qt.QAction("Close file", toolbar)
-        action.setIcon(icons.getQIcon("close"))
-        action.setToolTip("Close current file(s)")
-        action.triggered.connect(self.close_files_silxview)
-        toolbar.addAction(action)
-
-        toolbar.addSeparator()
-
-        action = qt.QAction(toolbar)
-        action.setIcon(icons.getQIcon("tree-expand-all"))
-        action.setText("Expand all")
-        action.setToolTip("Expand all selected items")
-        action.triggered.connect(self._expandAllSelected)
-        action.setShortcut(qt.QKeySequence(qt.Qt.CTRL | qt.Qt.Key_Plus))
-        toolbar.addAction(action)
-        treeView.addAction(action)
-
-        action = qt.QAction(toolbar)
-        action.setIcon(icons.getQIcon("tree-collapse-all"))
-        action.setText("Collapse all")
-        action.triggered.connect(self._collapseAllSelected)
-        action.setShortcut(qt.QKeySequence(qt.Qt.CTRL | qt.Qt.Key_Minus))
-        toolbar.addAction(action)
-        treeView.addAction(action)
-
-        treeView.setSelectionMode(treeView.ExtendedSelection)
-        treeView.activated.connect(self.displaySelectedData)
-        treeModel.setDatasetDragEnabled(True)
-        treeView.setModel(treeModel)
-        treeView.setSizePolicy(qt.QSizePolicy.Preferred,
-                               qt.QSizePolicy.Preferred)
-        treeView.header().setStretchLastSection(True)
-        treeView.header().resizeSections(qt.QHeaderView.ResizeToContents)
-
-        columns = list(treeModel.COLUMN_IDS)
-        columns.remove(treeModel.VALUE_COLUMN)
-        columns.remove(treeModel.NODE_COLUMN)
-        columns.remove(treeModel.DESCRIPTION_COLUMN)
-        columns.insert(3, treeModel.DESCRIPTION_COLUMN)
-        treeView.header().setSections(columns)
-
-        # Lay out the explorer and viewer
-        treewidget = qt.QWidget(self)
-        layout = qt.QVBoxLayout(treewidget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(3)
-        layout.addWidget(toolbar)
-        layout.addWidget(treeView)
-
-        self._dataPanel = DataPanel(self)
-
-        split = qt.QSplitter(self)
-        split.setHandleWidth(2)
-        split.addWidget(treewidget)
-        split.addWidget(self._dataPanel)
-        split.setStretchFactor(1, 2)
-        split.setCollapsible(0, False)
-        split.setCollapsible(1, False)
-
-        tablayout = qt.QVBoxLayout()
-        tablayout.setContentsMargins(0, 0, 0, 0)
-        tablayout.addWidget(split)
-        self.silxTab.setLayout(tablayout)
-        return layout
-
-    def displaySelectedData(self):
-        """Called to update the dataviewer with the selected data.
-        """
-        selected = list(self._treeView.selectedH5Nodes(
-            ignoreBrokenLinks=False))
-        if len(selected) == 1:
-            # Update the viewer for a single selection
-            self._dataPanel.setData(selected[0])
-
-    def _expandAllSelected(self):
-        """Expand all selected items of the tree.
-
-        The depth is fixed to avoid infinite loop with recurssive links.
-        """
-        with OverrideCursor():
-            indexes = self._treeView.selectionModel().selectedIndexes()
-            model = self._treeView.model()
-            while len(indexes) > 0:
-                index = indexes.pop(0)
-                if isinstance(index, tuple):
-                    index, depth = index
-                else:
-                    depth = 0
-                if index.column() != 0:
-                    continue
-
-                if depth > 10:
-                    # Avoid infinite loop with recursive links
-                    break
-
-                if model.hasChildren(index):
-                    self._treeView.setExpanded(index, True)
-                    for row in range(model.rowCount(index)):
-                        childIndex = model.index(row, 0, index)
-                        indexes.append((childIndex, depth + 1))
-
-    def _collapseAllSelected(self):
-        """Collapse all selected items of the tree.
-
-        The depth is limited to avoid infinite loop with recursive links.
-        """
-        selection = self._treeView.selectionModel()
-        indexes = selection.selectedIndexes()
-        model = self._treeView.model()
-        while len(indexes) > 0:
-            index = indexes.pop(0)
-            if isinstance(index, tuple):
-                index, depth = index
-            else:
-                depth = 0
-            if index.column() != 0:
-                continue
-
-            if depth > 10:
-                # Avoid infinite loop with recursive links
-                break
-
-            if model.hasChildren(index):
-                self._treeView.setExpanded(index, False)
-                for row in range(model.rowCount(index)):
-                    childIndex = model.index(row, 0, index)
-                    indexes.append((childIndex, depth + 1))
-
-    def close_files_silxview(self):
-        "Close HDF5 sources selected in the silx viewer."
-        with OverrideCursor():
-            selection = self._treeView.selectionModel()
-            indexes = selection.selectedIndexes()
-            model = self._treeView.model()
-            source_ids = set()
-
-            for index in indexes:
-                if index.column() != 0:
-                    continue
-                h5 = model.data(
-                    index, role=silx.gui.hdf5.Hdf5TreeModel.H5PY_OBJECT_ROLE)
-                if h5 is not None:
-                    source_ids.add(h5.file.filename)
-
-            for source_id in source_ids:
-                self.close_source(source_id)
-
-    # End Silx stuff
 
     def select_and_open_files(self):
         "Open HDF5/TIFF files"
@@ -1289,17 +1100,13 @@ NumPy {np.__version__}<br>
             source_id = source.source_id
 
             if source_id in self.fileSettings and self.fileSettings[source_id].is_open:
+                source.close()
                 print("Warning: opened already opened file", source_id)
                 last_source = self.fileSettings[source_id]
                 continue
 
             self.fileSettings[source_id] = source
             self.loadedFileComboBox.addItem(source.filename, source)
-
-            if source.kind == "hdf5":
-                self._treeModel.insertH5pyObject(source.handle, source.filename)
-                if source.root is not None:
-                    self._treeView.setSelectedH5Node(source.root)
 
             last_source = source
 
@@ -1317,9 +1124,6 @@ NumPy {np.__version__}<br>
         source = self.fileSettings.get(source_id)
         if source is None or not source.is_open:
             return
-        if source.kind == "hdf5":
-            self._dataPanel.removeDatasetsFrom(source.handle)
-            self._treeModel.removeH5pyObject(source.handle)
         source.close()
 
         ix = self.loadedFileComboBox.findData(source)
@@ -1356,10 +1160,8 @@ NumPy {np.__version__}<br>
         self.analysisElements.clear()
         self.imageList.clear()
 
-        self.elementPlot.clear()
-        self.elementHistogramPlot.clear()
-        self.elementHistogramPlot.addHistogram(
-            [0], [1, 100], color='gray', fill=True, baseline=0, copy=False)
+        self.elementPlot.clear_image()
+        self.elementHistogramPlot.clear_histogram()
 
         # Reset image-analysis / napari state if wanted
         if self.naparihelper is not None:
@@ -1374,8 +1176,6 @@ NumPy {np.__version__}<br>
         for source in self.fileSettings.values():
             if source.is_open:
                 self.loadedFileComboBox.addItem(source.filename, source)
-                if source.kind == "hdf5" and source.handle is not None:
-                    self._treeModel.insertH5pyObject(source.handle, source.filename)
 
         # Rebuild image list
         self.imageList.clear()
@@ -1439,13 +1239,13 @@ NumPy {np.__version__}<br>
                                       ) if settingname is not None else None
         if directory is None:
             directory = setting if type(setting) is str else None
-        dialog = qt.QFileDialog(parent=self, caption=title,
+        dialog = QtWidgets.QFileDialog(parent=self, caption=title,
                                 directory=directory, filter=filter)
         if defaultfilename is not None:
             dialog.selectFile(defaultfilename)
-        dialog.setOption(qt.QFileDialog.DontUseNativeDialog, True)
+        dialog.setOption(QtWidgets.QFileDialog.DontUseNativeDialog, True)
         if save:
-            dialog.setAcceptMode(qt.QFileDialog.AcceptSave)
+            dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
             def fix_ext(filt):
                 exts = re.findall(r"\.[a-z]*", filt)
                 f = dialog.selectedFiles()[0]
@@ -1455,9 +1255,9 @@ NumPy {np.__version__}<br>
                         dialog.selectFile(fb + exts[0])
             dialog.filterSelected.connect(fix_ext)
         elif multiple:
-            dialog.setFileMode(qt.QFileDialog.ExistingFiles)
+            dialog.setFileMode(QtWidgets.QFileDialog.ExistingFiles)
         else:
-            dialog.setFileMode(qt.QFileDialog.ExistingFile)
+            dialog.setFileMode(QtWidgets.QFileDialog.ExistingFile)
         dialog.exec()
         files = dialog.selectedFiles()
         if not dialog.result() or not files:

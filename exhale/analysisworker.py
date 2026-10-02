@@ -8,14 +8,14 @@ Created on Fri Mar 27 00:34:39 2026
 
 import importlib
 from .elementsettings import ElementSettings
-from silx.gui import qt
+from qtpy import QtCore
 import contextlib
 
 
-class AnalysisWorker(qt.QObject):
-    progress = qt.Signal(str)
-    finished = qt.Signal(object)   # XRFSample
-    failed = qt.Signal(str)
+class AnalysisWorker(QtCore.QObject):
+    progress = QtCore.Signal(str)
+    finished = QtCore.Signal(object)   # XRFSample
+    failed = QtCore.Signal(str)
 
     def __init__(self, nuclei_es: ElementSettings, tissue_es: ElementSettings,
                  element_settings: list, **process_args):
@@ -26,7 +26,7 @@ class AnalysisWorker(qt.QObject):
         self.process_args = process_args
         self._abort = False
 
-    @qt.Slot()
+    @QtCore.Slot()
     def run(self):
         try:
             sample = self.xrf_analysis()
@@ -38,7 +38,7 @@ class AnalysisWorker(qt.QObject):
         else:
             self.finished.emit(sample)
 
-    @qt.Slot()
+    @QtCore.Slot()
     def abort(self):
         self._abort = True
 

@@ -7,21 +7,19 @@ Created on Thu Aug  7 16:40:56 2025
 """
 
 from enum import Enum
-import h5py
-from silx.gui.colors import Colormap
 from scipy.stats import rankdata
 import numpy as np
 
 from .source_refs import ElementRef
 
 class Normalizers(Enum):
-    "An Enum of the silx color normalizers, plus some of our own"
-    LINEAR = 0, Colormap.LINEAR, "Linear"
-    GAMMA = 1, Colormap.GAMMA, "Gamma"
-    LOG = 2, Colormap.LOGARITHM, "Logarithmic"
+    "Available intensity normalizers"
+    LINEAR = 0, 'linear', "Linear"
+    GAMMA = 1, 'gamma', "Gamma"
+    LOG = 2, 'log', "Logarithmic"
     RANK = 3, "rank", "Rank"
-    SQRT = 4, Colormap.SQRT, "Square root"
-    ARCSINH = 5, Colormap.ARCSINH, "Arcsinh"
+    SQRT = 4, 'sqrt', "Square root"
+    ARCSINH = 5, 'arcsinh', "Arcsinh"
 
     def __new__(cls, *args, **kwds):
         obj = object.__new__(cls)
@@ -42,27 +40,9 @@ class Normalizers(Enum):
         return self._description_
 
 class ElementSettings():
-    def __init__(self, dataset=None, ref=None, *, name=None, data=None):
+    def __init__(self, ref: ElementRef, *, data, name=None):
         self.ref = ref
-
-        self._h5id = None
-        if dataset is not None:
-            self._h5id = getattr(dataset, "id", None)
-            if ref is None:
-                ref = ElementRef(dataset.file.filename, dataset.name)
-                self.ref = ref
-            if name is None:
-                name = dataset.name.rsplit("/", 1).pop()
-            if data is None:
-                data = dataset[()]
-
-        if ref is None:
-            raise ValueError("ElementSettings needs ref or dataset")
-        if data is None:
-            raise ValueError("ElementSettings needs data or dataset")
-
-        self.ref = ref
-        self.name = name if name is not None else ref.item_id.rsplit("/", 1).pop()
+        self.name = name if name is not None else ref.item_id.rsplit("/", 1)[-1]
         self.data = data
 
         self.dataRange = (self.data.min(), self.data.max())
@@ -73,21 +53,6 @@ class ElementSettings():
         self.gamma = 1
         self.color = None
         self.setMinmaxByMode("sd")
-
-    @property
-    def path(self):
-        """Compatibility alias during ElementRef migration."""
-        return self.ref
-
-    @property
-    def h5(self):
-        """Return the original h5py dataset when one exists and is still open."""
-        if self._h5id is None:
-            return None
-        try:
-            return h5py.Dataset(self._h5id)
-        except Exception:
-            return None
 
     def copy(self):
         e = type(self).__new__(self.__class__)
@@ -140,10 +105,6 @@ class ElementSettings():
             self.trfRange[0] = max(self.dataRange[0], mm[0])
             self.trfRange[1] = min(self.dataRange[1], mm[1])
 
-    # @property
-    # def h5Data(self):
-    #     return self.h5[()]
-
     def transformedData(self):
         data = self.data
         vmin, vmax = self.trfRange
@@ -171,10 +132,6 @@ class ElementSettings():
         data[~np.isfinite(data)] = 0
         # print("trf", data.min(), data.max(), self.normalizer.description, vmin, vmax)
         return data
-
-    @path.setter
-    def path(self, ref):
-        self.ref = ref
 
     def minConstraint(self, x, y):
         return max(self.dataRange[0], min(self.trfRange[1], x)), y
