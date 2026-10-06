@@ -56,14 +56,14 @@ class ElementListWidget(ExhaleListWidget):
     def addElementRef(self, name: str, ref: ElementRef, checked=False):
         "Add element via ElementRef."
         item = QtWidgets.QListWidgetItem(
-            icons.icon(icons.IconName.FILE), name)
+            icons.icon(icons.IconName.ELEMENT), name)
         item.setData(self.ELEMENT_REF_ROLE, ref)
         item.setCheckState(Qt.CheckState.Checked if checked
                            else Qt.CheckState.Unchecked)
         self.addItem(item)
 
     def reload_icons(self):
-        icon = icons.icon(icons.IconName.FILE)
+        icon = icons.icon(icons.IconName.ELEMENT)
         for row in range(self.count()):
             self.item(row).setIcon(icon)
 
@@ -91,7 +91,7 @@ class ImageListWidget(ExhaleListWidget):
     def addImage(self, num : int, imageSettings : ImageSettings):
         "Add image to this list by id and settings object"
         item = QtWidgets.QListWidgetItem(
-            icons.icon(icons.IconName.PICTURE), imageSettings.name)
+            icons.icon(icons.IconName.IMAGE), imageSettings.name)
         item.setData(ImageListWidget.IMG_NUM_ROLE, num)
         item.setFlags(Qt.ItemFlag.ItemIsSelectable |
                       Qt.ItemFlag.ItemIsEditable |
@@ -104,7 +104,7 @@ class ImageListWidget(ExhaleListWidget):
         self.setCurrentItem(item)
 
     def reload_icons(self):
-        icon = icons.icon(icons.IconName.PICTURE)
+        icon = icons.icon(icons.IconName.IMAGE)
         for row in range(self.count()):
             self.item(row).setIcon(icon)
 

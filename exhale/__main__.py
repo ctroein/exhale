@@ -100,16 +100,14 @@ def _run_application(pyi_splash=None):
 
     from qtpy import QtCore
     from qtpy.QtWidgets import QApplication
-    from qtpy.QtGui import QIcon
     app = QApplication.instance()
     if not app:
 #        QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True) # why?
         app = QApplication(sys.argv)
-    if sys.platform != "darwin":
-        app.setWindowIcon(QIcon(str(resdir.joinpath("icons/lungs.png"))))
-
-    from . import appearance
+    from . import appearance, icons
     appearance.initialize(QtCore.QSettings("CIPA", application_name))
+    if sys.platform != "darwin":
+        app.setWindowIcon(icons.icon(icons.IconName.LOGO))
     from .main_window import MainWindow
     window = MainWindow()
     window.show()

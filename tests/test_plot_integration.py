@@ -13,6 +13,7 @@ import numpy as np
 from qtpy import QtCore, QtWidgets
 
 from exhale.main_window import MainWindow
+from exhale.elementsettings import Normalizers
 from exhale.histogramwidget import HistogramWidget
 from exhale.imagecanvas import ImageCanvas
 from exhale.imagesettings import ImageSettings, Layouts, Scalebars
@@ -71,6 +72,22 @@ class PlotIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(element.trfRange[0], new_minimum)
         self.assertAlmostEqual(
             self.window.elementNormalizeMin.value(), new_minimum)
+
+    def test_transformation_minimum_accepts_zero_below_data_range(self):
+        ref = self.select_element()
+        element = self.window.elementSettings[ref]
+        self.assertGreater(element.dataRange[0], 0)
+
+        self.window.elementNormalizeMin.setValue(0)
+
+        self.assertEqual(element.trfRange[0], 0)
+        self.assertEqual(self.window.elementNormalizeMin.value(), 0)
+        self.assertEqual(self.window.elementHistogramPlot.limits[0], 0)
+
+        self.window.elementNormalizer.setCurrentIndex(Normalizers.LOG.value)
+        self.window.elementNormalizeMin.setValue(0)
+        self.assertEqual(element.trfRange[0], 0)
+        self.assertEqual(self.window.elementHistogramPlot.limits[0], 0)
 
     def test_composed_image_and_hover_use_canvas_coordinates(self):
         ref = self.select_element()

@@ -97,9 +97,12 @@ class HistogramWidget(pg.PlotWidget):
         self.curve.setData(display_edges, counts, stepMode="center")
 
         if old_limits is not None:
-            low = max(self._domain[0], old_limits[0])
+            if self._logarithmic and old_limits[0] == 0:
+                low = 0
+            else:
+                low = max(self._domain[0], old_limits[0])
             high = min(self._domain[1], old_limits[1])
-            if low <= high and (not self._logarithmic or low > 0):
+            if low <= high:
                 self.set_limits(low, high)
             else:
                 self.clear_limits()
@@ -112,14 +115,18 @@ class HistogramWidget(pg.PlotWidget):
             raise RuntimeError("Set histogram data before setting limits")
         minimum = float(minimum)
         maximum = float(maximum)
-        if not (self._domain[0] <= minimum <= maximum <= self._domain[1]):
+        domain_minimum = 0 if self._logarithmic else self._domain[0]
+        if not (domain_minimum <= minimum <= maximum <= self._domain[1]):
             raise ValueError("Limits must be ordered and inside the histogram range")
-        if self._logarithmic and minimum <= 0:
-            raise ValueError("Logarithmic limits must be positive")
 
         self._updating_markers = True
         try:
-            low = self._to_display(minimum)
+            # Zero represents the lower end of a logarithmic transformation;
+            # draw its marker at the first positive histogram edge.
+            displayed_minimum = (self._domain[0]
+                                 if self._logarithmic and minimum == 0
+                                 else minimum)
+            low = self._to_display(displayed_minimum)
             high = self._to_display(maximum)
             domain_low = self._to_display(self._domain[0])
             domain_high = self._to_display(self._domain[1])

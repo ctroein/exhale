@@ -14,6 +14,7 @@ from .appearance import is_dark
 
 
 class IconName(str, Enum):
+    LOGO = "xrf_cells_b.png"
     OPEN = "open.svg"
     FOLDER = "folder-open.svg"
     PROJECT = "folder-open.svg"
@@ -25,7 +26,9 @@ class IconName(str, Enum):
     QUIT = "x-mark.svg"
     MAXIMIZE = "arrows-maximize.svg"
     DELETE = "trash.svg"
-    PICTURE = "photo.svg"
+    IMAGE = "photo.svg"
+    ADD_IMAGE = "photo-plus.svg"
+    ELEMENT = "atom.svg"
     FILE = "file-dots.svg"
 
 

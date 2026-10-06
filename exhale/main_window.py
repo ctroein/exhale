@@ -29,7 +29,7 @@ from .analysisworker import AnalysisWorker
 from .projectmanager import ProjectManager
 from .projectstatemanager import ProjectStateManager
 from . import (appearance, application_description, application_name,
-               application_title, icons, resdir)
+               application_title, icons)
 from .source_refs import ElementRef, open_source
 from .constants import CONCENTRATION_UNITS
 from .widgets import IconToolButton, initialize_splitter_on_show
@@ -184,9 +184,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.actionSettings.setIcon(icons.icon(icons.IconName.SETTINGS))
         self.actionAbout.setIcon(icons.icon(icons.IconName.INFO))
         self.actionQuit.setIcon(icons.icon(icons.IconName.QUIT))
+        self.addImageButton.set_icon_name(icons.IconName.ADD_IMAGE)
+        self.addImageButton.setToolTip("Add image")
         self.deleteImageButton.set_icon_name(icons.IconName.DELETE)
         self.deleteImageButton.setToolTip("Delete image")
-        self.composeSave.setIcon(icons.icon(icons.IconName.PICTURE))
+        self.composeSave.setIcon(icons.icon(icons.IconName.IMAGE))
         for button in self.findChildren(IconToolButton):
             button.reload_icon()
 
@@ -215,9 +217,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         heading = QtWidgets.QHBoxLayout()
         logo_height = round(self.fontMetrics().height() * 4)
-        pixmap = QtGui.QPixmap(str(resdir.joinpath("icons/lungs.png")))
-        pixmap = pixmap.scaledToHeight(
-            logo_height, QtCore.Qt.SmoothTransformation)
+        pixmap = icons.icon_pixmap(icons.IconName.LOGO, logo_height)
         logo = QtWidgets.QLabel(dialog)
         logo.setPixmap(pixmap)
         logo.setFixedSize(pixmap.size())
@@ -584,7 +584,10 @@ Licensed under the MIT License.</p>
         bins = 256
         if es.normalizer == Normalizers.LOG:
             bins = np.geomspace(es.minPositive, es.dataRange[1], bins + 1)
-        hist, edges = np.histogram(es.data, bins=bins, range=es.dataRange)
+            histogram_range = None
+        else:
+            histogram_range = (min(0, es.dataRange[0]), es.dataRange[1])
+        hist, edges = np.histogram(es.data, bins=bins, range=histogram_range)
         self.elementHistogramPlot.set_histogram(
             hist, edges, logarithmic=es.normalizer == Normalizers.LOG)
         isgamma = es.normalizer == Normalizers.GAMMA
@@ -606,9 +609,12 @@ Licensed under the MIT License.</p>
             self.elementName.setText(es.name)
         with QtCore.QSignalBlocker(self.gammaValue):
             self.gammaValue.setValue(es.gamma)
+        lower_bound = (0 if es.normalizer == Normalizers.LOG
+                       else min(0, es.dataRange[0]))
         for mm in range(2):
             with QtCore.QSignalBlocker(self.elementNormalizeRange[mm]):
-                self.elementNormalizeRange[mm].setRange(*es.dataRange)
+                self.elementNormalizeRange[mm].setRange(
+                    lower_bound, es.dataRange[1])
                 self.elementNormalizeRange[mm].setValue(es.trfRange[mm])
 
         self.updateElementNormalizer()

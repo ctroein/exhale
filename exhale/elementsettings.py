@@ -134,7 +134,8 @@ class ElementSettings():
         return data
 
     def minConstraint(self, x, y):
-        return max(self.dataRange[0], min(self.trfRange[1], x)), y
+        lower_bound = (0 if self.normalizer == Normalizers.LOG
+                       else min(0, self.dataRange[0]))
+        return max(lower_bound, min(self.trfRange[1], x)), y
     def maxConstraint(self, x, y):
         return min(self.dataRange[1], max(self.trfRange[0], x)), y
-
