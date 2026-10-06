@@ -1,4 +1,4 @@
-"""Stable source/item identities and readers for EXHALE element maps."""
+"""Stable source/item identities and readers for Exhale element maps."""
 
 from dataclasses import dataclass
 import os

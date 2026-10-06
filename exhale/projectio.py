@@ -9,7 +9,9 @@ Created on Thu Apr 16 14:43:38 2026
 # -*- coding: utf-8 -*-
 
 import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Any
 
 from .elementsettings import Normalizers
@@ -22,13 +24,6 @@ PROJECT_VERSION = 1
 
 def _ref_to_json(ref: ElementRef) -> dict[str, str]:
     return ref.to_json()
-
-
-def _ref_from_json(obj: dict[str, str]) -> ElementRef:
-    # Accept version-1 projects written before ElementRef.
-    if "source" in obj and "item" in obj:
-        return ElementRef.from_json(obj)
-    return ElementRef(source_id=obj["file"], item_id=obj["dataset"])
 
 
 def _elementsettings_to_json(es) -> dict[str, Any]:
@@ -102,7 +97,7 @@ def _imagesettings_from_json(obj: dict[str, Any], win) -> ImageSettings:
     im.colorscheme = Colorschemes[obj["colorscheme"]]
     im.customColors = obj["custom_colors"]
     im.dpi = obj["dpi"]
-    im.clipColors = obj.get("clip_colors", True)
+    im.clipColors = obj["clip_colors"]
     im.resolution = list(obj["resolution"])
 
     if im.customColors is not None:
@@ -112,7 +107,7 @@ def _imagesettings_from_json(obj: dict[str, Any], win) -> ImageSettings:
 
     for slot_s, es_obj in obj["elements"].items():
         slot = int(slot_s)
-        ref = _ref_from_json(es_obj.get("ref", es_obj.get("path")))
+        ref = ElementRef.from_json(es_obj["ref"])
 
         fs = win.fileSettings.get(ref.source_id)
         if fs is None or not fs.is_open:
@@ -126,7 +121,7 @@ def _imagesettings_from_json(obj: dict[str, Any], win) -> ImageSettings:
 
 def export_project_state(win) -> dict[str, Any]:
     """
-    Build a JSON-serializable project-state dict from ExhaleWindow.
+    Build a JSON-serializable project-state dict from MainWindow.
     """
     files = []
     for filename, fs in win.fileSettings.items():
@@ -167,23 +162,8 @@ def export_project_state(win) -> dict[str, Any]:
     }
 
 
-def save_project(win, filename: str | Path) -> None:
-    """
-    Save current project state to JSON.
-    """
-    filename = Path(filename)
-    state = export_project_state(win)
-    with filename.open("w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
-
-
-def load_project_state(win, state: dict[str, Any], *, open_files: bool = True) -> None:
-    """
-    Restore a saved project into ExhaleWindow.
-
-    Assumes `win` is an ExhaleWindow-like object with the same attributes
-    and helper methods as your current code.
-    """
+def validate_project_state(state: dict[str, Any]) -> None:
+    """Check the project header before replacing the current project."""
     if state.get("format") != PROJECT_FORMAT:
         raise ValueError(f"Not an {PROJECT_FORMAT!r} file")
     version = state.get("version")
@@ -191,6 +171,45 @@ def load_project_state(win, state: dict[str, Any], *, open_files: bool = True) -
         raise ValueError(
             f"Unsupported project version {version}, expected {PROJECT_VERSION}"
         )
+
+
+def save_project(win, filename: str | Path) -> None:
+    """
+    Save current project state to JSON.
+    """
+    save_project_state(export_project_state(win), filename)
+
+
+def save_project_state(state: dict[str, Any], filename: str | Path) -> None:
+    """Atomically write an already exported project state."""
+    filename = Path(filename)
+    filename.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=filename.parent,
+            prefix=f".{filename.name}.", suffix=".tmp", delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            json.dump(state, stream, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, filename)
+    except Exception:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        raise
+
+
+def load_project_state(win, state: dict[str, Any], *, open_files: bool = True) -> None:
+    """
+    Restore a saved project into MainWindow.
+
+    Assumes `win` is a MainWindow-like object with the same attributes
+    and helper methods as your current code.
+    """
+    validate_project_state(state)
 
     # ------------------------------------------------------------------
     # Files
@@ -211,7 +230,7 @@ def load_project_state(win, state: dict[str, Any], *, open_files: bool = True) -
     # ------------------------------------------------------------------
     # Ensure all referenced elements exist
     for eobj in state["elements"]:
-        ref = _ref_from_json(eobj.get("ref", eobj.get("path")))
+        ref = ElementRef.from_json(eobj["ref"])
 
         from .elementsettings import ElementSettings
         fs = win.fileSettings.get(ref.source_id)
@@ -225,7 +244,7 @@ def load_project_state(win, state: dict[str, Any], *, open_files: bool = True) -
     # ------------------------------------------------------------------
     win.selectedElements.clear()
     for pobj in state["selected_elements"]:
-        ref = _ref_from_json(pobj)
+        ref = ElementRef.from_json(pobj)
         if ref in win.elementSettings:
             win.selectedElements.add(ref)
 
@@ -271,4 +290,3 @@ def load_project(win, filename: str | Path, *, open_files: bool = True) -> None:
     with filename.open("r", encoding="utf-8") as f:
         state = json.load(f)
     load_project_state(win, state, open_files=open_files)
-

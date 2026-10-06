@@ -13,6 +13,7 @@ import numpy as np
 from .elementsettings import ElementSettings
 from .imagesettings import ImageSettings
 from .source_refs import ElementRef
+from . import icons
 
 class ExhaleListWidget(QtWidgets.QListWidget):
     "Base class for the lists below"
@@ -55,11 +56,16 @@ class ElementListWidget(ExhaleListWidget):
     def addElementRef(self, name: str, ref: ElementRef, checked=False):
         "Add element via ElementRef."
         item = QtWidgets.QListWidgetItem(
-            QtGui.QIcon.fromTheme("applications-education-science"), name)
+            icons.icon(icons.IconName.FILE), name)
         item.setData(self.ELEMENT_REF_ROLE, ref)
         item.setCheckState(Qt.CheckState.Checked if checked
                            else Qt.CheckState.Unchecked)
         self.addItem(item)
+
+    def reload_icons(self):
+        icon = icons.icon(icons.IconName.FILE)
+        for row in range(self.count()):
+            self.item(row).setIcon(icon)
 
 
 class ImageListWidget(ExhaleListWidget):
@@ -85,7 +91,7 @@ class ImageListWidget(ExhaleListWidget):
     def addImage(self, num : int, imageSettings : ImageSettings):
         "Add image to this list by id and settings object"
         item = QtWidgets.QListWidgetItem(
-            QtGui.QIcon.fromTheme("view-list-icons"), imageSettings.name)
+            icons.icon(icons.IconName.PICTURE), imageSettings.name)
         item.setData(ImageListWidget.IMG_NUM_ROLE, num)
         item.setFlags(Qt.ItemFlag.ItemIsSelectable |
                       Qt.ItemFlag.ItemIsEditable |
@@ -96,6 +102,11 @@ class ImageListWidget(ExhaleListWidget):
         # for me it's usually (but not always) added at the top. Weird.
         self.addItem(item)
         self.setCurrentItem(item)
+
+    def reload_icons(self):
+        icon = icons.icon(icons.IconName.PICTURE)
+        for row in range(self.count()):
+            self.item(row).setIcon(icon)
 
 class ColorButton(QtWidgets.QPushButton):
     "A blank button with a color and associated color picker"
@@ -198,4 +209,3 @@ class ImageElementBox(ImageElementBoxBase):
     def setWidgetsEnabled(self, enabled : bool):
         super().setWidgetsEnabled(enabled)
         self.combo.setEnabled(enabled)
-

@@ -18,7 +18,7 @@ class HistogramWidget(pg.PlotWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
-        self.setBackground(QtWidgets.QApplication.palette().window().color())
+        self.reload_appearance()
         self.setMenuEnabled(False)
         self.hideButtons()
         self.hideAxis("left")
@@ -52,6 +52,10 @@ class HistogramWidget(pg.PlotWidget):
         self._domain = None
         self._limits = None
         self._updating_markers = False
+
+    def reload_appearance(self):
+        """Apply the current application palette to the plot."""
+        self.setBackground(QtWidgets.QApplication.palette().window().color())
 
     @property
     def logarithmic(self):

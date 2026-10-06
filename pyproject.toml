@@ -12,7 +12,7 @@ authors=[
     {name="Bryan Falcones"},
     {name="Karina Thånell"}
 ]
-description="EXHALE, Efficient X-ray Hub Aiding Lung Explorations"
+description="Exhale, Efficient X-ray Hub Aiding Lung Explorations"
 license = "MIT"
 license-files = [ "LICENSE" ]
 classifiers = [ "Topic :: Scientific/Engineering :: Medical Science Apps." ]
@@ -45,6 +45,7 @@ dependencies = [
 "exhale" = [
   "resources/icons/*.svg",
   "resources/icons/*.png",
+  "resources/icons/*.txt",
   "resources/models/2D_versatile_fluo_copy/*",
 ]
 

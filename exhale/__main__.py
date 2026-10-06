@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Main entry point for EXHALE GUI.
+Main entry point for the Exhale GUI.
 
 @author: carl
 
@@ -10,7 +10,8 @@ Main entry point for EXHALE GUI.
 import sys
 import traceback
 import os
-from . import exhale_version, resdir
+from . import (application_description, application_name, application_title,
+               exhale_version, resdir)
 
 
 def _recompile_ui(uipath, pypath):
@@ -39,7 +40,7 @@ def _recompile_ui(uipath, pypath):
 
 
 def _run_application(pyi_splash=None):
-    "Run the EXHALE Qt application"
+    "Run the Exhale Qt application"
 
     import sys
     if sys.platform == "win32":
@@ -57,19 +58,19 @@ def _run_application(pyi_splash=None):
 
     has_ui_files = os.path.exists(resdir.joinpath("ui"))
     parser = argparse.ArgumentParser(
-        description="""EXHALE, Efficient X-ray Hub Aiding Lung Explorations.
-            Graphical application for processing of XRF lung images.""")
+        description=(f"{application_name}, {application_description}. "
+                     "Graphical application for processing of XRF lung images."))
     if has_ui_files:
         parser.add_argument('-r', '--recompile', action='store_true',
                             help='recompile modified UI files')
-    parser.add_argument('-p', '--project', metavar='file.xhp',
-                        dest='project_file',
-                        help='saved project to load')
+    parser.add_argument('-p', '--project', metavar='DIR',
+                        dest='project_dir',
+                        help='saved project directory to load')
     parser.add_argument('files', metavar='file', nargs='*',
                         help='initial input files to load')
-    parameters=['project_file', 'files']
+    parameters=['project_dir', 'files']
 
-    progver = f'Exhale {exhale_version}'
+    progver = application_title
     windowparams = {}
     parser.add_argument('--version', action='version',
                         version=progver)
@@ -84,10 +85,11 @@ def _run_application(pyi_splash=None):
 
     # Rebuild UI code on the fly; useful while developing
     if has_ui_files:
-        ui_files = ["exhale_qt", "imagedialog", "analysisdialog"]
+        ui_files = ["main_window", "image_settings_dialog",
+                    "analysis_settings_dialog", "settings_dialog"]
         for uif in ui_files:
             uip = resdir.joinpath("ui", uif + ".ui")
-            py = os.path.join(os.path.dirname(__file__), uif + ".py")
+            py = os.path.join(os.path.dirname(__file__), uif + "_ui.py")
             if (os.path.exists(uip) and (not os.path.exists(py) or
                 os.path.getmtime(uip) > os.path.getmtime(py))):
                 if args.recompile:
@@ -96,6 +98,7 @@ def _run_application(pyi_splash=None):
                 else:
                     print(f"Run with -r to recompile updated {uif} UI file")
 
+    from qtpy import QtCore
     from qtpy.QtWidgets import QApplication
     from qtpy.QtGui import QIcon
     app = QApplication.instance()
@@ -105,8 +108,10 @@ def _run_application(pyi_splash=None):
     if sys.platform != "darwin":
         app.setWindowIcon(QIcon(str(resdir.joinpath("icons/lungs.png"))))
 
-    from .exhalewindow import ExhaleWindow
-    window = ExhaleWindow()
+    from . import appearance
+    appearance.initialize(QtCore.QSettings("CIPA", application_name))
+    from .main_window import MainWindow
+    window = MainWindow()
     window.show()
 
     if pyi_splash is not None:
@@ -123,7 +128,7 @@ def _run_application(pyi_splash=None):
 
 
 def main():
-    "Run the EXHALE GUI"
+    "Run the Exhale GUI"
 
     pyi_splash = None
     # print("startup: frozen?", getattr(sys, "frozen", False))
@@ -137,7 +142,7 @@ def main():
             # print("startup: is_alive =", pyi_splash.is_alive())
             if pyi_splash.is_alive():
                 pyi_splash.update_text(
-                    f"Initializing EXHALE {exhale_version}")
+                    f"Initializing {application_title}")
         except Exception as e:
             print("pyi_splash failed:", repr(e))
             traceback.print_exc()

@@ -6,6 +6,9 @@ import numpy as np
 from qtpy import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 
+from . import icons
+from .widgets import IconToolButton
+
 
 class ImageViewBox(pg.ViewBox):
     """Square pixels with x rightward and y downward from the top left."""
@@ -80,7 +83,7 @@ class ImageCanvas(pg.GraphicsLayoutWidget):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
-        self.setBackground(QtWidgets.QApplication.palette().window().color())
+        self.reload_appearance()
         self.ci.layout.setContentsMargins(0, 0, 0, 0)
         self.view_box = ImageViewBox()
         self.addItem(self.view_box)
@@ -89,12 +92,17 @@ class ImageCanvas(pg.GraphicsLayoutWidget):
         self.view_box.disableAutoRange()
         self.scene().sigMouseMoved.connect(self._mouse_moved)
 
-        self.fit_button = QtWidgets.QToolButton(self)
-        self.fit_button.setText("Fit")
+        self.fit_button = IconToolButton(icons.IconName.MAXIMIZE, self)
         self.fit_button.setToolTip("Fit the full image (Home)")
         self.fit_button.setAutoRaise(True)
         self.fit_button.clicked.connect(self.fit_image)
         self._place_fit_button()
+
+    def reload_appearance(self):
+        """Apply the current application palette to the canvas."""
+        self.setBackground(QtWidgets.QApplication.palette().window().color())
+        if hasattr(self, "fit_button"):
+            self.fit_button.reload_icon()
 
     def _place_fit_button(self):
         """Keep the fit control inside the canvas's upper-right corner."""

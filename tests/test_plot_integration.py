@@ -12,7 +12,7 @@ import h5py
 import numpy as np
 from qtpy import QtCore, QtWidgets
 
-from exhale.exhalewindow import ExhaleWindow
+from exhale.main_window import MainWindow
 from exhale.histogramwidget import HistogramWidget
 from exhale.imagecanvas import ImageCanvas
 from exhale.imagesettings import ImageSettings, Layouts, Scalebars
@@ -32,9 +32,9 @@ class PlotIntegrationTests(unittest.TestCase):
         with h5py.File(self.filename, "w") as handle:
             handle.attrs["default"] = "entry"
             handle.create_dataset("entry/plotselect/Fe", data=self.data)
-        with patch.object(ExhaleWindow, "create_analysisTab",
+        with patch.object(MainWindow, "create_analysisTab",
                           lambda window: setattr(window, "naparihelper", None)):
-            self.window = ExhaleWindow()
+            self.window = MainWindow()
         self.addCleanup(self.dispose)
         self.window.open_files([self.filename])
 

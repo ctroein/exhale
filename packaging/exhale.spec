@@ -25,12 +25,11 @@ def get_version():
             "EXHALE_VERSION or build from a tagged git checkout.")
 
 exhale_version = get_version()
-print("Building EXHALE", exhale_version)
+print("Building Exhale", exhale_version)
 
 
 res = join(pardir, "exhale", "resources")
 datas = [
-#    (join(res, "icons", "document-open.svg"), "exhale/resources/icons"),
     (join(res, "models", "2D_versatile_fluo_copy", "*"),
         "exhale/resources/models/2D_versatile_fluo_copy"),
 ]
@@ -85,7 +84,7 @@ if do_splash:
                     text_pos=(15, 30),
                     text_size=11,
                     text_color='#a070ff',
-                    text_default=f"Loading EXHALE {exhale_version}")
+                    text_default=f"Loading Exhale {exhale_version}")
 
     toexec = ([a.scripts, a.binaries, a.datas, splash, splash.binaries]
               if onefile else [splash, a.scripts])

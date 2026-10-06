@@ -46,7 +46,7 @@ about:
   home: https://github.com/ctroein/exhale
   license: MIT
   license_file: LICENSE
-  summary: "EXHALE, Efficient X-ray Hub Aiding Lung Explorations"
+  summary: "Exhale, Efficient X-ray Hub Aiding Lung Explorations"
 
 extra:
   recipe-maintainers:

@@ -15,11 +15,10 @@ import re
 import os
 from time import strftime
 
-import qtpy
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import Qt
 
-from .exceptiondialog import ExceptionDialog
+from .exceptiondialog import ExceptionDetailsDialog, ExceptionDialog
 from .overridecursor import OverrideCursor
 from .elementsettings import ElementSettings, Normalizers
 from .imagesettings import ImageSettings, Layouts, Colorschemes, Scalebars
@@ -27,14 +26,19 @@ from .listwidgets import ImageElementBox, ImageHeaderBox
 from .listwidgets import ElementListWidget, ImageListWidget
 from .imagecomposer import ImageComposer
 from .analysisworker import AnalysisWorker
-from . import projectio
-from . import exhale_version
+from .projectmanager import ProjectManager
+from .projectstatemanager import ProjectStateManager
+from . import (appearance, application_description, application_name,
+               application_title, icons, resdir)
 from .source_refs import ElementRef, open_source
 from .constants import CONCENTRATION_UNITS
+from .widgets import IconToolButton, initialize_splitter_on_show
+from .runtimeinfo import runtime_environment_html
+from .settings_dialog import SettingsDialog
+from .image_settings_dialog import ImageSettingsDialog
+from .analysis_settings_dialog import AnalysisSettingsDialog
 
-from .exhale_qt import Ui_ExhaleWindow
-from .imagedialog import Ui_ImageDialog
-from .analysisdialog import Ui_AnalysisDialog
+from .main_window_ui import Ui_MainWindow
 
 _LOAD_NAPARI_EARLY = True
 
@@ -44,39 +48,30 @@ def scale_font(widget: QtWidgets.QWidget, scale: float):
     font.setPointSizeF(font.pointSizeF() * scale)
     widget.setFont(font)
 
-class ImageDialog(QtWidgets.QDialog, Ui_ImageDialog):
-    def __init__(self, parent=None):
-        QtWidgets.QDialog.__init__(self, parent)
-        self.setupUi(self)
-
-class AnalysisDialog(QtWidgets.QDialog, Ui_AnalysisDialog):
-    def __init__(self, parent=None):
-        QtWidgets.QDialog.__init__(self, parent)
-        self.setupUi(self)
-
-class ExhaleWindow(QtWidgets.QMainWindow, Ui_ExhaleWindow):
+class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     "Main window of this thing"
     selectedElementsChanged = QtCore.Signal() # The set of selected elements changed
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.settings = QtCore.QSettings('CIPA', 'Exhale')
+        self.settings = QtCore.QSettings('CIPA', application_name)
+        self.appearance = appearance.initialize(self.settings)
+        self.project_dir = None
+        self.project_manager = ProjectManager(self)
         # QApplication.instance().installEventFilter(self) # needed why?
         self.setupUi(self)
-        self.setWindowTitle(f'Exhale {exhale_version}')
+        self.setWindowTitle(application_title)
 
-        self.errorMsg = QtWidgets.QErrorMessage(self)
-        self.errorMsg.setSizeGripEnabled(True)
-        self.errorMsg.setWindowModality(Qt.WindowModal)
+        self._exception_dialog = ExceptionDetailsDialog(self)
 
-        imd = ImageDialog()
-        self.imageDialog = imd
+        imd = ImageSettingsDialog(self)
+        self.image_settings_dialog = imd
         self.composeSettings.clicked.connect(imd.show)
         self.composeSettings.clicked.connect(imd.raise_)
         imd.buttonBox.clicked.connect(imd.hide)
 
-        ad = AnalysisDialog()
-        self.analysisDialog = ad
+        ad = AnalysisSettingsDialog(self)
+        self.analysis_settings_dialog = ad
         self.analysisOptions.clicked.connect(ad.show)
         self.analysisOptions.clicked.connect(ad.raise_)
         ad.buttonBox.clicked.connect(ad.hide)
@@ -100,27 +95,17 @@ class ExhaleWindow(QtWidgets.QMainWindow, Ui_ExhaleWindow):
         self.nucleiExpansion = ad.nucleiExpansion
         self.nucleiMinArea = ad.nucleiMinArea
 
-        def themed_icon(name, fallback):
-            icon = QtGui.QIcon.fromTheme(name)
-            return icon if not icon.isNull() else self.style().standardIcon(fallback)
-
-        self.actionOpenFile.setIcon(themed_icon(
-            "document-open", QtWidgets.QStyle.SP_DialogOpenButton))
-        self.actionClearFiles.setIcon(themed_icon(
-            "edit-clear", QtWidgets.QStyle.SP_DialogCloseButton))
-        self.actionLoadProject.setIcon(themed_icon(
-            "document-open-recent", QtWidgets.QStyle.SP_DirOpenIcon))
-        self.actionSaveProject.setIcon(themed_icon(
-            "document-save", QtWidgets.QStyle.SP_DialogSaveButton))
-        self.actionAbout.setIcon(themed_icon(
-            "help-about", QtWidgets.QStyle.SP_MessageBoxInformation))
-        self.actionQuit.setIcon(themed_icon(
-            "application-exit", QtWidgets.QStyle.SP_DialogCloseButton))
+        self.reload_icons()
+        self.appearance.changed.connect(self.reload_appearance)
 
         self.actionOpenFile.triggered.connect(self.select_and_open_files)
         self.actionClearFiles.triggered.connect(self.close_all_files)
-        self.actionLoadProject.triggered.connect(self.load_project)
-        self.actionSaveProject.triggered.connect(self.save_project)
+        self.actionNewProject.triggered.connect(self.project_manager.new_project)
+        self.actionOpenProject.triggered.connect(self.project_manager.open_project)
+        self.actionSaveProject.triggered.connect(self.project_manager.save_project)
+        self.actionSaveProjectAs.triggered.connect(
+            self.project_manager.save_project_as)
+        self.actionSettings.triggered.connect(self.show_settings)
         self.actionAbout.triggered.connect(self.showAbout)
         self.actionQuit.triggered.connect(self.close)
         self._skip_next_quit_confirmation = False
@@ -146,28 +131,42 @@ class ExhaleWindow(QtWidgets.QMainWindow, Ui_ExhaleWindow):
         self.currentImage = None # ImageSettings
 
         self.create_dataTab()
+        self._splitter_initializer = initialize_splitter_on_show(
+            self.splitter, self.dataTab, (1, 1, 2),
+            self.settings.value("window/splitters/splitter"))
         self.create_analysisTab()
         self.tabWidget.setCurrentIndex(0)
+        self.project_state_manager = ProjectStateManager(self)
+        self.project_state_manager.connect_sources()
+        self.project_state_manager.dirtyChanged.connect(
+            lambda _dirty: self.update_window_title())
+        self.project_state_manager.mark_saved()
+        self.update_window_title()
 
 
-    def confirm_quit(self):
-        return QtWidgets.QMessageBox.question(
-            self, "Quit", "Exit the application?",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-            QtWidgets.QMessageBox.No
-            ) == QtWidgets.QMessageBox.Yes
+    def update_window_title(self):
+        project_name = (
+            self.project_dir.name if self.project_dir is not None else "Untitled")
+        self.setWindowTitle(
+            f"{application_title} — {project_name}[*]")
+        dirty = getattr(self, "project_state_manager", None)
+        self.setWindowModified(dirty is not None and dirty.is_dirty)
 
     def closeEvent(self, ev):
         if self._skip_next_quit_confirmation:
             self._skip_next_quit_confirmation = False
-        elif not self.confirm_quit():
+        elif not self.project_state_manager.prepare_to_leave_project(
+                f"exiting {application_name}"):
             ev.ignore()
             return
-        self.imageDialog.close()
-        self.analysisDialog.close()
+        self.image_settings_dialog.close()
+        self.analysis_settings_dialog.close()
         if self._analysisWorker is not None:
             self._analysisWorker.abort()
             self._analysisThread.wait()
+        if self._splitter_initializer.initialized:
+            self.settings.setValue(
+                "window/splitters/splitter", self.splitter.saveState())
         ev.accept()
 
     def quit_without_confirmation(self):
@@ -175,47 +174,89 @@ class ExhaleWindow(QtWidgets.QMainWindow, Ui_ExhaleWindow):
         self._skip_next_quit_confirmation = True
         self.close()
 
+    def reload_icons(self):
+        """Reload palette-dependent icons throughout the main window."""
+        self.actionOpenFile.setIcon(icons.icon(icons.IconName.OPEN))
+        self.actionClearFiles.setIcon(icons.icon(icons.IconName.CLEAR_FILES))
+        self.actionOpenProject.setIcon(icons.icon(icons.IconName.PROJECT))
+        self.actionSaveProject.setIcon(icons.icon(icons.IconName.SAVE))
+        self.actionSaveProjectAs.setIcon(icons.icon(icons.IconName.SAVE_AS))
+        self.actionSettings.setIcon(icons.icon(icons.IconName.SETTINGS))
+        self.actionAbout.setIcon(icons.icon(icons.IconName.INFO))
+        self.actionQuit.setIcon(icons.icon(icons.IconName.QUIT))
+        self.deleteImageButton.set_icon_name(icons.IconName.DELETE)
+        self.deleteImageButton.setToolTip("Delete image")
+        self.composeSave.setIcon(icons.icon(icons.IconName.PICTURE))
+        for button in self.findChildren(IconToolButton):
+            button.reload_icon()
+
+    def reload_appearance(self):
+        """Refresh components that cache palette-derived resources."""
+        icons.initialize()
+        self.reload_icons()
+        self.elementPlot.reload_appearance()
+        self.elementHistogramPlot.reload_appearance()
+        self.elementList.reload_icons()
+        self.imageList.reload_icons()
+
+    def show_settings(self):
+        SettingsDialog(self.settings, self).exec()
+
+    def show_error(self, summary, details=None, title="Error"):
+        details = summary if details is None else details
+        self._exception_dialog.show_exception(
+            title=title, summary=str(summary), details=str(details))
+
     def showAbout(self):
-        import sys
-        import napari
+        """Show application credits and the detected runtime environment."""
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle(f"About {application_name}")
+        layout = QtWidgets.QVBoxLayout(dialog)
 
-        binding_version = qtpy.PYQT_VERSION or qtpy.PYSIDE_VERSION or "unknown"
+        heading = QtWidgets.QHBoxLayout()
+        logo_height = round(self.fontMetrics().height() * 4)
+        pixmap = QtGui.QPixmap(str(resdir.joinpath("icons/lungs.png")))
+        pixmap = pixmap.scaledToHeight(
+            logo_height, QtCore.Qt.SmoothTransformation)
+        logo = QtWidgets.QLabel(dialog)
+        logo.setPixmap(pixmap)
+        logo.setFixedSize(pixmap.size())
+        heading.addWidget(logo, 0, QtCore.Qt.AlignVCenter)
+        title = QtWidgets.QLabel(
+            f'<span style="font-size: xx-large; font-weight: bold">'
+            f'{application_title}</span>', dialog)
+        title.setTextFormat(QtCore.Qt.RichText)
+        heading.addWidget(title, 0, QtCore.Qt.AlignVCenter)
+        layout.addLayout(heading)
 
-        def imported_version(modname):
-            mod = sys.modules.get(modname)
-            if mod is not None:
-                return getattr(mod, "__version__", "unknown")
-            return "(not loaded)"
-        QtWidgets.QMessageBox.about(
-            self,
-            "About EXHALE",
-            f"""
-<h3>EXHALE {exhale_version}</h3>
-
-<p>
-EXHALE (Efficient X-ray Hub Aiding Lung Explorations) is part of the
-EXHALE project at Lund University and MAX IV,
+        information = QtWidgets.QLabel(f"""
+<p>{application_name} ({application_description}) is part of the<br>
+{application_name} project at Lund University and MAX IV,<br>
 <a href="https://www.vr.se/english/swecris.html?project=2023-02821_Vinnova#/">
-funded by Vinnova</a>.
-</p>
+funded by Vinnova</a>.</p>
+<p>Copyright © 2023–2026 Carl Troein, Tom Delaire,<br>
+Bryan Falcones, Emanuel Larsson and Karina Thånell<br>
+Licensed under the MIT License.</p>
+<b>Runtime environment</b>{runtime_environment_html()}
+""", dialog)
+        information.setTextFormat(QtCore.Qt.RichText)
+        information.setOpenExternalLinks(True)
+        information.setWordWrap(False)
+        layout.addWidget(information)
 
-<p>
-Copyright © 2023–2026 Carl Troein, Tom Delaire, Bryan Falcones,
-Emanuel Larsson<br>
-Licensed under the MIT License.
-</p>
+        attribution = QtWidgets.QLabel(
+            'Icons derived from <a href="https://tabler.io/icons">Tabler Icons</a> '
+            'by Paweł Kuna, available under the MIT licence.', dialog)
+        attribution.setTextFormat(QtCore.Qt.RichText)
+        attribution.setOpenExternalLinks(True)
+        layout.addWidget(attribution)
 
-<p>
-<b>Runtime environment</b><br>
-Python {sys.version.split()[0]}<br>
-Qt {qtpy.QT_VERSION} with {qtpy.API_NAME} {binding_version}<br>
-napari {imported_version("napari")}<br>
-pyqtgraph {imported_version("pyqtgraph")}<br>
-TensorFlow {imported_version("tensorflow")}<br>
-NumPy {np.__version__}<br>
-</p>
-"""
-    )
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok, parent=dialog)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
+        layout.setSizeConstraint(QtWidgets.QLayout.SetFixedSize)
+        dialog.exec()
 
 
     def open_file_count(self):
@@ -395,13 +436,11 @@ NumPy {np.__version__}<br>
         dds = (self.analysisChNuclei, self.analysisChTissue)
         ddrefs = [dd.currentData() for dd in dds]
         if None in ddrefs:
-            self.errorMsg.showMessage(
-                "Select channels for nuclei and tissue first.")
+            self.show_error("Select channels for nuclei and tissue first.")
             return
 
         # if ddrefs[0] == ddrefs[1]:
-        #     self.errorMsg.showMessage(
-        #         "Nuclei and tissue channels must differ.")
+        #     self.show_error("Nuclei and tissue channels must differ.")
         #     return
         element_refs = [
             it.data(ElementListWidget.ELEMENT_REF_ROLE)
@@ -442,7 +481,7 @@ NumPy {np.__version__}<br>
                 append_status("Interrupted")
             else:
                 append_status("Failed")
-                self.errorMsg.showMessage("<pre>"+details+"</pre>")
+                self.show_error("Analysis failed", details)
             worker_cleanup()
 
         self.set_analysis_busy(True)
@@ -471,7 +510,7 @@ NumPy {np.__version__}<br>
         try:
             out = sample.export_results(directory)
         except Exception as e:
-            self.errorMsg.showMessage(f"Export failed:\n{e}")
+            self.show_error("Export failed", str(e))
             return
         QtWidgets.QMessageBox.information(self, "Export complete",
             f"Analysis results exported to:\n{out}")
@@ -533,7 +572,11 @@ NumPy {np.__version__}<br>
             self.elementPlot.fit_image()
 
         # Wait until the panel visibility has changed the canvas geometry.
-        QtCore.QTimer.singleShot(0, finish_layout_change)
+        timer = QtCore.QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(finish_layout_change)
+        timer.timeout.connect(timer.deleteLater)
+        timer.start(0)
 
     def updateElementNormalizer(self):
         "Hide/show gamma correction and update histogram logscaleness"
@@ -1062,8 +1105,10 @@ NumPy {np.__version__}<br>
         el.model().dataChanged.connect(sync_settings_and_compose)
         self.selectedElementsChanged.connect(sync_settings_and_compose)
 
-        # Set everything up before creating the initial image
-        # Don't call createImage because we want the default values this once.
+        self.initialize_empty_project()
+
+    def initialize_empty_project(self):
+        """Install the default image belonging to a new blank project."""
         im = ImageSettings("Untitled")
         self.imageSettings[1] = im
         with QtCore.QSignalBlocker(self.imageList):
@@ -1087,7 +1132,7 @@ NumPy {np.__version__}<br>
             self.open_files(filenames)
 
     def open_files(self, filenames):
-        "Open one or more files, with ExhaleWindow owning the source handles."
+        "Open one or more files, with MainWindow owning the source handles."
         last_source = None
 
         for filename in filenames:
@@ -1115,6 +1160,8 @@ NumPy {np.__version__}<br>
             if ix >= 0:
                 self.loadedFileComboBox.setCurrentIndex(ix)
             self.loadedFileChanged()
+            if hasattr(self, "project_state_manager"):
+                self.project_state_manager.project_changed()
 
     def close_all_files(self):
         for source_id in list(self.fileSettings):
@@ -1130,13 +1177,17 @@ NumPy {np.__version__}<br>
         if ix >= 0:
             self.loadedFileComboBox.removeItem(ix)
         self.refresh_element_display_names()
+        if hasattr(self, "project_state_manager"):
+            self.project_state_manager.project_changed()
 
 
-    def post_setup(self, project_file, files):
+    def post_setup(self, project_dir, files):
         "Called after setting up UI to start loading data etc"
         ExceptionDialog.install(self)
-        if project_file is not None:
-            self.load_project_file(project_file)
+        if project_dir is not None:
+            self.project_manager.load_project_dir(project_dir)
+        else:
+            self.project_state_manager.recover_unsaved_project()
         if files is not None and files:
             self.open_files(files)
 
@@ -1195,40 +1246,6 @@ NumPy {np.__version__}<br>
         else:
             self.setImageControlsEnabled(False)
             self.setElementControlsEnabled(False)
-
-    PROJECT_FILTERS = ";;".join(["EXHALE projects (*.xhp)", "All files (*)"])
-    def load_project(self):
-        "Load project settings"
-        filename = self.askFileName(
-            title="Load EXHALE project", filter=self.PROJECT_FILTERS,
-            settingname="Project")
-        if not filename:
-            return
-        return self.load_project_file(filename)
-
-    def load_project_file(self, filename):
-        self.clear_project()
-        try:
-            with OverrideCursor():
-                projectio.load_project(self, filename)
-        except Exception as e:
-            self.errorMsg.showMessage(f"Loading failed:\n{e}")
-        self.refresh_project_ui()
-
-    def save_project(self):
-        "Load project settings"
-        filename = self.askFileName(
-            title="Save EXHALE project", filter=self.PROJECT_FILTERS,
-            settingname="Project", save=True)
-        if not filename:
-            return
-        try:
-            with OverrideCursor():
-                projectio.save_project(self, filename)
-        except Exception as e:
-            self.errorMsg.showMessage(f"Saving failed:\n{e}")
-            return
-
 
     def askFileName(self, title, filter=None, settingname=None,
                     save=False, multiple=False,

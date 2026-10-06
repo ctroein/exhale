@@ -1,4 +1,4 @@
-# EXHALE
+# Exhale
 ## Efficient X-ray Hub Aiding Lung Explorations
 
 This project aims to develop a specialized tool for investigating elemental aspects of chronic lung diseases. 

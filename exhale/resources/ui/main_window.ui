@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>ExhaleWindow</class>
- <widget class="QMainWindow" name="ExhaleWindow">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -176,9 +176,9 @@
                </widget>
               </item>
               <item>
-               <widget class="QToolButton" name="deleteImageButton">
+               <widget class="IconToolButton" name="deleteImageButton">
                 <property name="text">
-                 <string>Del</string>
+                 <string/>
                 </property>
                </widget>
               </item>
@@ -585,11 +585,19 @@
     <addaction name="actionOpenFile"/>
     <addaction name="actionClearFiles"/>
     <addaction name="separator"/>
-    <addaction name="actionLoadProject"/>
+    <addaction name="actionNewProject"/>
+    <addaction name="actionOpenProject"/>
     <addaction name="separator"/>
     <addaction name="actionSaveProject"/>
+    <addaction name="actionSaveProjectAs"/>
     <addaction name="separator"/>
     <addaction name="actionQuit"/>
+   </widget>
+   <widget class="QMenu" name="menuEdit">
+    <property name="title">
+     <string>&amp;Edit</string>
+    </property>
+    <addaction name="actionSettings"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -598,25 +606,42 @@
     <addaction name="actionAbout"/>
    </widget>
    <addaction name="menuFile"/>
+   <addaction name="menuEdit"/>
    <addaction name="menuHelp"/>
   </widget>
+  <action name="actionSettings">
+   <property name="text">
+    <string>&amp;Settings…</string>
+   </property>
+   <property name="toolTip">
+    <string>Application settings</string>
+   </property>
+  </action>
   <action name="actionAbout">
    <property name="text">
     <string>&amp;About</string>
    </property>
    <property name="toolTip">
-    <string>About EXHALE</string>
+    <string>About Exhale</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+A</string>
    </property>
   </action>
-  <action name="actionLoadProject">
+  <action name="actionNewProject">
    <property name="text">
-    <string>&amp;Load Project</string>
+    <string>&amp;New Project</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+N</string>
+   </property>
+  </action>
+  <action name="actionOpenProject">
+   <property name="text">
+    <string>&amp;Open Project…</string>
    </property>
    <property name="toolTip">
-    <string>Load EXHALE project</string>
+    <string>Open Exhale project directory</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+L</string>
@@ -627,10 +652,21 @@
     <string>&amp;Save Project</string>
    </property>
    <property name="toolTip">
-    <string>Save EXHALE project</string>
+    <string>Save Exhale project</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+S</string>
+   </property>
+  </action>
+  <action name="actionSaveProjectAs">
+   <property name="text">
+    <string>Save Project &amp;As…</string>
+   </property>
+   <property name="toolTip">
+    <string>Save the project in another directory</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Shift+S</string>
    </property>
   </action>
   <action name="actionOpenFile">
@@ -665,6 +701,11 @@
   </action>
  </widget>
  <customwidgets>
+  <customwidget>
+   <class>IconToolButton</class>
+   <extends>QToolButton</extends>
+   <header>exhale.widgets</header>
+  </customwidget>
   <customwidget>
    <class>ElementListWidget</class>
    <extends>QListWidget</extends>

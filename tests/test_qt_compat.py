@@ -18,9 +18,10 @@ from exhale.listwidgets import ColorButton
 class UiCompilerTests(unittest.TestCase):
     def test_compile_all_forms_through_qtpy(self):
         with tempfile.TemporaryDirectory() as directory:
-            for name in ("exhale_qt", "imagedialog", "analysisdialog"):
+            for name in ("main_window", "image_settings_dialog",
+                         "analysis_settings_dialog", "settings_dialog"):
                 with self.subTest(name=name):
-                    output = Path(directory) / (name + ".py")
+                    output = Path(directory) / (name + "_ui.py")
                     _recompile_ui(str(resdir / "ui" / (name + ".ui")), output)
                     code = output.read_text()
                     self.assertIn("from qtpy import", code)
