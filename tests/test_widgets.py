@@ -1,9 +1,11 @@
 """Splitter initialization behavior that depends on realized widget geometry."""
 
 import os
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import unittest
+
 from qtpy import QtCore, QtWidgets
 
 from exhale.widgets import initialize_splitter_on_show
@@ -26,14 +28,12 @@ class SplitterInitializerTests(unittest.TestCase):
 
     def test_three_pane_default_proportions(self):
         splitter = self.make_splitter()
-        initializer = initialize_splitter_on_show(
-            splitter, splitter, (1, 1, 2))
+        initializer = initialize_splitter_on_show(splitter, splitter, (1, 1, 2))
         initializer.initialize()
 
         available = splitter.width() - 2 * splitter.handleWidth()
         quarter = round(available / 4)
-        self.assertEqual(splitter.sizes(),
-                         [quarter, quarter, available - 2 * quarter])
+        self.assertEqual(splitter.sizes(), [quarter, quarter, available - 2 * quarter])
 
     def test_saved_state_replaces_default_proportions(self):
         source = self.make_splitter()
@@ -41,8 +41,7 @@ class SplitterInitializerTests(unittest.TestCase):
         saved_state = source.saveState()
 
         restored = self.make_splitter()
-        initializer = initialize_splitter_on_show(
-            restored, restored, (1, 1, 2), saved_state)
+        initializer = initialize_splitter_on_show(restored, restored, (1, 1, 2), saved_state)
         initializer.initialize()
 
         self.assertEqual(restored.sizes(), source.sizes())

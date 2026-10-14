@@ -1,6 +1,8 @@
 """Exact mapping from composed-image display pixels to source pixels."""
 
 import unittest
+from contextlib import ExitStack
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
@@ -18,10 +20,11 @@ class NearestLookupTests(unittest.TestCase):
             for target_size in range(1, 23):
                 with self.subTest(source=source_size, target=target_size):
                     resized = Image.fromarray(source, mode="I").resize(
-                        (target_size, 1), Image.Resampling.NEAREST)
+                        (target_size, 1), Image.Resampling.NEAREST
+                    )
                     np.testing.assert_array_equal(
-                        _nearest_lookup(source_size, target_size),
-                        np.asarray(resized)[0])
+                        _nearest_lookup(source_size, target_size), np.asarray(resized)[0]
+                    )
 
 
 class ComposedImageMappingTests(unittest.TestCase):
@@ -35,8 +38,7 @@ class ComposedImageMappingTests(unittest.TestCase):
         image.scalebar = Scalebars.NONE
         for slot, shape in enumerate(((5, 7), (3, 11))):
             data = np.arange(np.prod(shape), dtype=float).reshape(shape)
-            image.elements[slot] = ElementSettings(
-                ElementRef(f"source-{slot}", "map"), data=data)
+            image.elements[slot] = ElementSettings(ElementRef(f"source-{slot}", "map"), data=data)
         return image
 
     def test_all_layouts_map_every_merged_display_pixel(self):
@@ -51,10 +53,10 @@ class ComposedImageMappingTests(unittest.TestCase):
                     for local_x in range(mapping.width):
                         self.assertEqual(
                             composer.map_coordinates(
-                                mapping.x + local_x + 0.5,
-                                mapping.y + local_y + 0.5),
-                            (int(mapping.source_x[local_x]),
-                             int(mapping.source_y[local_y])))
+                                mapping.x + local_x + 0.5, mapping.y + local_y + 0.5
+                            ),
+                            (int(mapping.source_x[local_x]), int(mapping.source_y[local_y])),
+                        )
 
     def test_edges_use_half_open_pixel_rectangles(self):
         composer = ImageComposer()
@@ -62,18 +64,44 @@ class ComposedImageMappingTests(unittest.TestCase):
         mapping = composer.coord_mapping
         self.assertEqual(
             composer.map_coordinates(mapping.x, mapping.y),
-            (int(mapping.source_x[0]), int(mapping.source_y[0])))
+            (int(mapping.source_x[0]), int(mapping.source_y[0])),
+        )
         self.assertEqual(
             composer.map_coordinates(
-                mapping.x + mapping.width - 1e-9,
-                mapping.y + mapping.height - 1e-9),
-            (int(mapping.source_x[-1]), int(mapping.source_y[-1])))
+                mapping.x + mapping.width - 1e-9, mapping.y + mapping.height - 1e-9
+            ),
+            (int(mapping.source_x[-1]), int(mapping.source_y[-1])),
+        )
         for x, y in (
-                (mapping.x - 1e-9, mapping.y),
-                (mapping.x, mapping.y - 1e-9),
-                (mapping.x + mapping.width, mapping.y),
-                (mapping.x, mapping.y + mapping.height)):
+            (mapping.x - 1e-9, mapping.y),
+            (mapping.x, mapping.y - 1e-9),
+            (mapping.x + mapping.width, mapping.y),
+            (mapping.x, mapping.y + mapping.height),
+        ):
             self.assertIsNone(composer.map_coordinates(x, y))
+
+    def test_color_changes_reuse_transformed_element_layers(self):
+        image = self.make_image(Layouts.IL)
+        composer = ImageComposer()
+        with ExitStack() as stack:
+            transformed = [
+                stack.enter_context(
+                    patch.object(element, "transformedData", wraps=element.transformedData)
+                )
+                for element in image.elements.values()
+            ]
+
+            composer.compose(image)
+            image.setColor(0, [0.8, 0.2, 0.1])
+            composer.compose(image)
+
+            self.assertTrue(all(method.call_count == 1 for method in transformed))
+
+            image.elements[0].gamma += 0.1
+            composer.compose(image)
+
+            self.assertEqual(transformed[0].call_count, 2)
+            self.assertTrue(all(method.call_count == 1 for method in transformed[1:]))
 
 
 if __name__ == "__main__":

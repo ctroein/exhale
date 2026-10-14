@@ -1,23 +1,24 @@
 """Main-window integration for the pyqtgraph image and histogram widgets."""
 
 import os
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import h5py
 import numpy as np
 from qtpy import QtCore, QtWidgets
 
-from exhale.main_window import MainWindow
 from exhale.elementsettings import Normalizers
 from exhale.histogramwidget import HistogramWidget
 from exhale.imagecanvas import ImageCanvas
 from exhale.imagesettings import ImageSettings, Layouts, Scalebars
 from exhale.listwidgets import ElementListWidget
+from exhale.main_window import MainWindow
 
 
 class PlotIntegrationTests(unittest.TestCase):
@@ -33,8 +34,9 @@ class PlotIntegrationTests(unittest.TestCase):
         with h5py.File(self.filename, "w") as handle:
             handle.attrs["default"] = "entry"
             handle.create_dataset("entry/plotselect/Fe", data=self.data)
-        with patch.object(MainWindow, "create_analysisTab",
-                          lambda window: setattr(window, "naparihelper", None)):
+        with patch.object(
+            MainWindow, "create_analysisTab", lambda window: setattr(window, "naparihelper", None)
+        ):
             self.window = MainWindow()
         self.addCleanup(self.dispose)
         self.window.open_files([self.filename])
@@ -56,13 +58,11 @@ class PlotIntegrationTests(unittest.TestCase):
 
     def test_element_selection_populates_image_histogram_and_markers(self):
         ref = self.select_element()
-        element = self.window.elementSettings[ref]
+        element = self.window.project_data.element_settings[ref]
         np.testing.assert_allclose(
-            self.window.elementPlot.image_item.image,
-            element.transformedData())
-        self.assertEqual(
-            self.window.elementHistogramPlot.limits,
-            tuple(element.trfRange))
+            self.window.elementPlot.image_item.image, element.transformedData()
+        )
+        self.assertEqual(self.window.elementHistogramPlot.limits, tuple(element.trfRange))
         x, counts = self.window.elementHistogramPlot.curve.getData()
         self.assertEqual(len(x), 257)
         self.assertEqual(int(np.sum(counts)), self.data.size)
@@ -70,12 +70,11 @@ class PlotIntegrationTests(unittest.TestCase):
         new_minimum = float(sum(element.trfRange) / 2)
         self.window.elementHistogramPlot.minimum_marker.setValue(new_minimum)
         self.assertAlmostEqual(element.trfRange[0], new_minimum)
-        self.assertAlmostEqual(
-            self.window.elementNormalizeMin.value(), new_minimum)
+        self.assertAlmostEqual(self.window.elementNormalizeMin.value(), new_minimum)
 
     def test_transformation_minimum_accepts_zero_below_data_range(self):
         ref = self.select_element()
-        element = self.window.elementSettings[ref]
+        element = self.window.project_data.element_settings[ref]
         self.assertGreater(element.dataRange[0], 0)
 
         self.window.elementNormalizeMin.setValue(0)
@@ -91,7 +90,7 @@ class PlotIntegrationTests(unittest.TestCase):
 
     def test_composed_image_and_hover_use_canvas_coordinates(self):
         ref = self.select_element()
-        element = self.window.elementSettings[ref]
+        element = self.window.project_data.element_settings[ref]
         image = ImageSettings("Composed")
         image.layout = Layouts.MERGED
         image.scalebar = Scalebars.NONE
@@ -116,36 +115,115 @@ class PlotIntegrationTests(unittest.TestCase):
 
     def test_layout_and_element_changes_reset_composed_image_zoom(self):
         ref = self.select_element()
-        image = ImageSettings("Composed")
+        sample, channel = self.window.project_data.channel_for_ref(ref)
+        image = ImageSettings(
+            "Composed", sample_id=sample.sample_id, sample_source_ids=sample.asset_ids
+        )
         image.layout = Layouts.MERGED
         image.scalebar = Scalebars.NONE
         image.panelLabels = False
         image.elementLabels = False
-        image.elements[0] = self.window.elementSettings[ref].copy()
+        image.setElement(0, self.window.project_data.element_settings[ref], channel.key)
         self.window.imageSettings[1] = image
         self.window.imageList.addImage(1, image)
         self.window.imageElementBoxes[0].combo.addItem("Fe", ref)
         self.window.showComposedImage(1)
         self.window.updateComposedImage(reset_view=True)
         self.app.processEvents()
+        self.assertTrue(self.window.imageElementBoxes[0].edit.isEnabled())
+        self.assertFalse(self.window.imageElementBoxes[1].edit.isEnabled())
 
         canvas = self.window.elementPlot
         canvas._zoom(0.5)
-        self.window.composeLayoutCB.setCurrentIndex(Layouts.IL.value)
-        self.app.processEvents()
-        self.assertTrue(canvas.view_box.viewRect().contains(
-            canvas.image_item.boundingRect()))
+        with patch.object(
+            self.window.imageComposer,
+            "display_composed_image",
+            wraps=self.window.imageComposer.display_composed_image,
+        ) as render:
+            self.window.composeLayoutCB.setCurrentIndex(Layouts.IL.value)
+            self.app.processEvents()
+        render.assert_called_once()
+        self.assertTrue(canvas.view_box.viewRect().contains(canvas.image_item.boundingRect()))
 
         canvas._zoom(0.5)
-        self.window.imageElementBoxes[0].combo.setCurrentIndex(0)
-        self.app.processEvents()
+        with patch.object(
+            self.window.imageComposer,
+            "display_composed_image",
+            wraps=self.window.imageComposer.display_composed_image,
+        ) as render:
+            self.window.imageElementBoxes[0].combo.setCurrentIndex(0)
+            self.app.processEvents()
+        render.assert_called_once()
         self.assertIsNone(canvas.image_item.image)
+        self.assertFalse(self.window.imageElementBoxes[0].edit.isEnabled())
 
         combo = self.window.imageElementBoxes[0].combo
         combo.setCurrentIndex(combo.findData(ref))
         self.app.processEvents()
-        self.assertTrue(canvas.view_box.viewRect().contains(
-            canvas.image_item.boundingRect()))
+        self.assertTrue(canvas.view_box.viewRect().contains(canvas.image_item.boundingRect()))
+
+    def test_image_element_override_is_explicit_and_reversible(self):
+        ref = self.select_element()
+        sample, channel = self.window.project_data.channel_for_ref(ref)
+        global_settings = self.window.project_data.element_settings[ref]
+        image = ImageSettings(
+            "Composed", sample_id=sample.sample_id, sample_source_ids=sample.asset_ids
+        )
+        image.setElement(0, global_settings, channel.key)
+        self.window.imageSettings[1] = image
+        self.window.imageList.addImage(1, image)
+        self.window.imageElementBoxes[0].combo.addItem("Fe", ref)
+        self.window.showComposedImage(1)
+        self.window.updateComposedImage()
+        composed = self.window.elementPlot.image_item.image.copy()
+
+        self.window.imageElementBoxes[0].edit.click()
+        self.assertEqual(self.window.imageElementBoxes[0].edit.text(), "Adjust")
+        self.assertIs(self.window.currentImage, image)
+        np.testing.assert_array_equal(self.window.elementPlot.image_item.image, composed)
+        self.assertFalse(self.window.elementSettingsPanel.isHidden())
+        self.assertFalse(self.window.showSingleElementButton.isHidden())
+        self.assertFalse(self.window.showSingleElementButton.isChecked())
+        self.assertIs(image.elements[0], global_settings)
+        self.assertEqual(self.window.imageChannelNameLabel.text(), "Fe:")
+        self.assertEqual(self.window.imageSettingsScopeCombo.currentText(), "Element map settings")
+        sample_gamma = global_settings.gamma + 0.25
+        with patch.object(
+            self.window.imageComposer,
+            "display_composed_image",
+            wraps=self.window.imageComposer.display_composed_image,
+        ) as render:
+            self.window.gammaValue.setValue(sample_gamma)
+        render.assert_called_once()
+        self.assertEqual(global_settings.gamma, sample_gamma)
+
+        self.window.showSingleElementButton.click()
+        self.assertEqual(self.window.elementPlot.image_item.image.ndim, 2)
+        self.assertIs(self.window.currentImage, image)
+        self.window.showSingleElementButton.click()
+        self.assertEqual(self.window.elementPlot.image_item.image.ndim, 3)
+
+        self.window.imageSettingsScopeCombo.setCurrentIndex(1)
+        self.assertIsNot(image.elements[0], global_settings)
+        self.assertIn(0, image.element_overrides)
+        self.assertEqual(
+            self.window.imageSettingsScopeCombo.currentText(), "Image-specific settings"
+        )
+
+        self.window.gammaValue.setValue(global_settings.gamma + 0.5)
+        self.assertNotEqual(image.elements[0].gamma, global_settings.gamma)
+
+        self.window.imageSettingsScopeCombo.setCurrentIndex(0)
+        self.assertIs(image.elements[0], global_settings)
+        self.assertNotIn(0, image.element_overrides)
+
+        self.window.showSingleElementButton.click()
+        self.assertEqual(self.window.elementPlot.image_item.image.ndim, 2)
+        self.window.imageHeaderBox.edit.click()
+        self.assertIsNone(self.window.currentElement)
+        self.assertTrue(self.window.elementSettingsPanel.isHidden())
+        self.assertEqual(self.window.elementPlot.image_item.image.ndim, 3)
+        self.assertTrue(self.window.showSingleElementButton.isChecked())
 
 
 if __name__ == "__main__":

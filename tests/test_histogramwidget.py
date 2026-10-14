@@ -1,6 +1,7 @@
 """Histogram rendering and normalization-marker invariants."""
 
 import os
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import unittest
@@ -55,8 +56,7 @@ class HistogramWidgetTests(unittest.TestCase):
         self.widget.set_histogram([1, 3, 2], [0, 1, 2, 3])
         self.widget.set_limits(0.5, 2.5)
         changes = []
-        self.widget.limitsChanged.connect(
-            lambda low, high: changes.append((low, high)))
+        self.widget.limitsChanged.connect(lambda low, high: changes.append((low, high)))
 
         self.widget.minimum_marker.setValue(1.25)
         self.assertEqual(changes[-1], (1.25, 2.5))
@@ -70,8 +70,7 @@ class HistogramWidgetTests(unittest.TestCase):
     def test_programmatic_limits_emit_only_when_requested(self):
         self.widget.set_histogram([1, 2], [1, 2, 3])
         changes = []
-        self.widget.limitsChanged.connect(
-            lambda low, high: changes.append((low, high)))
+        self.widget.limitsChanged.connect(lambda low, high: changes.append((low, high)))
         self.widget.set_limits(1.25, 2.75)
         self.assertEqual(changes, [])
         self.widget.set_limits(1.5, 2.5, emit=True)
@@ -81,13 +80,10 @@ class HistogramWidgetTests(unittest.TestCase):
         counts = [1, 2]
         self.widget.set_histogram(counts, [0.1, 1, 10])
         self.widget.set_limits(0.2, 5)
-        self.widget.set_histogram(
-            counts, [0.1, 1, 10], logarithmic=True, reset_view=False)
+        self.widget.set_histogram(counts, [0.1, 1, 10], logarithmic=True, reset_view=False)
         np.testing.assert_allclose(self.widget.limits, (0.2, 5))
-        self.assertAlmostEqual(
-            self.widget.minimum_marker.value(), np.log10(0.2))
-        self.assertAlmostEqual(
-            self.widget.maximum_marker.value(), np.log10(5))
+        self.assertAlmostEqual(self.widget.minimum_marker.value(), np.log10(0.2))
+        self.assertAlmostEqual(self.widget.maximum_marker.value(), np.log10(5))
 
     def test_invalid_histograms_and_limits_are_rejected(self):
         invalid = (

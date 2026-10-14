@@ -14,7 +14,7 @@ from .appearance import is_dark
 
 
 class IconName(str, Enum):
-    LOGO = "xrf_cells_b.png"
+    LOGO = "xrf_cells.png"
     OPEN = "open.svg"
     FOLDER = "folder-open.svg"
     PROJECT = "folder-open.svg"
@@ -29,11 +29,19 @@ class IconName(str, Enum):
     IMAGE = "photo.svg"
     ADD_IMAGE = "photo-plus.svg"
     ELEMENT = "atom.svg"
+    ELEMENT_ONLY = "atom-square.svg"
     FILE = "file-dots.svg"
+    REFRESH = "refresh.svg"
+    CHECK = "checkmark.svg"
+    MAP_YES = "checkmark.svg"
+    MAP_NO = "x-mark.svg"
+    MAP_PROJECT_YES = "atom-checkmark.svg"
+    MAP_PROJECT_NO = "atom-x-mark.svg"
 
 
 _ICON_ROOT = Path(resdir) / "icons"
 _cache: dict[IconName, QtGui.QIcon] = {}
+
 
 class SvgIconEngine(QtGui.QIconEngine):
     def __init__(self, svg):

@@ -11,6 +11,7 @@ from qtpy import QtCore, QtWidgets
 from . import application_name, projectio
 
 PROJECT_AUTOSAVE_KEY = "behavior/autosave_project"
+PROJECT_SAVE_ON_EXIT_KEY = "behavior/save_project_on_exit"
 PROJECT_AUTOSAVE_DELAY_MS = 750
 PROJECT_AUTOSAVE_FILENAME = "project.autosave.xhp"
 UNSAVED_AUTOSAVE_FILENAME = "unsaved-project.autosave.xhp"
@@ -50,7 +51,6 @@ class ProjectStateManager(QtCore.QObject):
         """Connect controls that modify serialized project state."""
         w = self.window
         signals = [
-            w.loadedFileAlias.textEdited,
             w.elementList.itemChanged,
             w.elementName.editingFinished,
             w.elementNormalizer.currentIndexChanged,
@@ -74,15 +74,8 @@ class ProjectStateManager(QtCore.QObject):
             w.composeElementBorders.toggled,
             w.composeElementLabelsColored.toggled,
             w.composePanelLabelColor.colorChanged,
-            w.resolutionValue.valueChanged,
-            w.resolutionUnits.currentIndexChanged,
             w.imageHeaderBox.border.valueChanged,
             w.imageHeaderBox.colorChanged,
-            w.clusterMinK.valueChanged,
-            w.clusterMaxK.valueChanged,
-            w.clusterNInit.valueChanged,
-            w.nucleiExpansion.valueChanged,
-            w.nucleiMinArea.valueChanged,
         ]
         for box in w.imageElementBoxes:
             signals.extend((box.combo.currentIndexChanged, box.colorChanged))
@@ -131,9 +124,11 @@ class ProjectStateManager(QtCore.QObject):
             self.window,
             "Unsaved project changes",
             f"Save changes before {action}?",
-            (QtWidgets.QMessageBox.Save
-             | QtWidgets.QMessageBox.Discard
-             | QtWidgets.QMessageBox.Cancel),
+            (
+                QtWidgets.QMessageBox.Save
+                | QtWidgets.QMessageBox.Discard
+                | QtWidgets.QMessageBox.Cancel
+            ),
             QtWidgets.QMessageBox.Save,
         )
         if answer == QtWidgets.QMessageBox.Cancel:
@@ -143,9 +138,22 @@ class ProjectStateManager(QtCore.QObject):
         self.discard_autosave()
         return True
 
+    def prepare_to_exit(self, *, skip_confirmation: bool = False) -> bool:
+        """Save or resolve changes before closing the application."""
+        if not self.compare_now():
+            return True
+        if self.save_on_exit_enabled():
+            return self.window.project_manager.save_project()
+        if skip_confirmation:
+            self.discard_autosave()
+            return True
+        return self.prepare_to_leave_project(f"exiting {application_name}")
+
     def autosave_enabled(self) -> bool:
-        return self.window.settings.value(
-            PROJECT_AUTOSAVE_KEY, True, type=bool)
+        return self.window.settings.value(PROJECT_AUTOSAVE_KEY, True, type=bool)
+
+    def save_on_exit_enabled(self) -> bool:
+        return self.window.settings.value(PROJECT_SAVE_ON_EXIT_KEY, True, type=bool)
 
     def autosave_setting_changed(self) -> None:
         if self.autosave_enabled() and self._dirty:
@@ -158,14 +166,14 @@ class ProjectStateManager(QtCore.QObject):
             project_dir = self.window.project_dir
         if project_dir is not None:
             return Path(project_dir) / PROJECT_AUTOSAVE_FILENAME
-        data_dir = Path(QtCore.QStandardPaths.writableLocation(
-            QtCore.QStandardPaths.AppDataLocation))
+        data_dir = Path(
+            QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.AppDataLocation)
+        )
         return data_dir / UNSAVED_AUTOSAVE_FILENAME
 
     def write_autosave(self) -> Path:
         path = self.autosave_path()
-        projectio.save_project_state(
-            projectio.export_project_state(self.window), path)
+        projectio.save_project_state(projectio.export_project_state(self.window), path)
         return path
 
     def discard_autosave(self, project_dir=None) -> None:
@@ -200,8 +208,7 @@ class ProjectStateManager(QtCore.QObject):
         answer = QtWidgets.QMessageBox.question(
             self.window,
             "Recover unsaved project?",
-            f"{application_name} found autosaved changes from an unsaved project. "
-            "Recover them?",
+            f"{application_name} found autosaved changes from an unsaved project. Recover them?",
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
             QtWidgets.QMessageBox.Yes,
         )
@@ -223,9 +230,7 @@ class ProjectStateManager(QtCore.QObject):
 
     @staticmethod
     def _canonical_state(state) -> str:
-        return json.dumps(
-            state,
-            sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return json.dumps(state, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
     def _set_dirty(self, dirty: bool) -> None:
         if dirty == self._dirty:

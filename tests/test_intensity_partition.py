@@ -1,4 +1,5 @@
 """Regression tests for deterministic one-dimensional intensity clustering."""
+
 from time import perf_counter
 
 import numpy as np
@@ -12,11 +13,13 @@ from exhale.xrf_refcopy import xrf_utils as xu
 def test_histogram_partition_matches_seeded_kmeans_search():
     """The exact weighted partition agrees with the former 1-D KMeans search."""
     rng = np.random.default_rng(1729)
-    intensities = np.concatenate((
-        rng.normal(20, 2.0, 600),
-        rng.normal(65, 4.0, 450),
-        rng.normal(125, 3.0, 300),
-    ))
+    intensities = np.concatenate(
+        (
+            rng.normal(20, 2.0, 600),
+            rng.normal(65, 4.0, 450),
+            rng.normal(125, 3.0, 300),
+        )
+    )
     image = np.rint(np.clip(intensities, 0, 255)).astype(np.uint8).reshape(45, 30)
     flat = image.reshape(-1, 1)
 
@@ -34,7 +37,10 @@ def test_histogram_partition_matches_seeded_kmeans_search():
     started = perf_counter()
     for k in range(2, 6):
         model = KMeans(
-            n_clusters=k, init="k-means++", max_iter=25, n_init=100,
+            n_clusters=k,
+            init="k-means++",
+            max_iter=25,
+            n_init=100,
             random_state=1729,
         ).fit(flat)
         score = silhouette_score(flat, model.labels_)
@@ -68,10 +74,7 @@ def test_histogram_partition_matches_seeded_kmeans_search():
 def test_adaptive_partition_40000_distinct_pixels_k10():
     """Report adaptive-histogram runtime for a high-cardinality image."""
     rng = np.random.default_rng(1729)
-    intensities = np.concatenate([
-        rng.normal(20 + 20 * group, 1.8, 4_000)
-        for group in range(10)
-    ])
+    intensities = np.concatenate([rng.normal(20 + 20 * group, 1.8, 4_000) for group in range(10)])
     image = intensities.reshape(200, 200)
 
     started = perf_counter()

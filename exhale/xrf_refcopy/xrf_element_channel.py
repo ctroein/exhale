@@ -1,9 +1,10 @@
-import numpy as np
-import pandas as pd
-from . import xrf_utils as xu
 from collections.abc import Callable
 
-#import xrf_clustering as xc
+import numpy as np
+import pandas as pd
+
+# import xrf_clustering as xc
+
 
 class ElementChannel:
     """
@@ -40,10 +41,15 @@ class ElementChannel:
     # Public API
     # ------------------------------------------------------------------
 
-    def process(self, min_k: int = 3, max_k: int = 5, n_init: int = 100,
-                max_cluster_size: int = 10_000, min_area: int = 1,
-                callback: Callable[[str], None] = None
-                ) -> "ElementChannel":
+    def process(
+        self,
+        min_k: int = 3,
+        max_k: int = 5,
+        n_init: int = 100,
+        max_cluster_size: int = 10_000,
+        min_area: int = 1,
+        callback: Callable[[str], None] = None,
+    ) -> "ElementChannel":
         """
         Run the full processing pipeline:
           1. Log-transform the raw image.
@@ -68,17 +74,22 @@ class ElementChannel:
         self  (allows chaining: channel.process().cluster_df)
         """
         if callback is None:
-            callback = lambda x: None
+
+            def callback(_message):
+                pass
+
+        from . import xrf_utils as xu
 
         callback(f"Processing element {self.name}")
         self.log_image = xu.log_transform(self.raw)
-        partition = xu.find_optimal_partition(
-            self.log_image, min_k, max_k, callback=callback)
+        partition = xu.find_optimal_partition(self.log_image, min_k, max_k, callback=callback)
         self.intensity_thresholds = partition.thresholds
         self.cluster_labels, self.cluster_df = self._run_pipeline(
-            partition.labels, self.raw,
-            max_cluster_size=max_cluster_size, min_area=min_area,
-            callback=callback
+            partition.labels,
+            self.raw,
+            max_cluster_size=max_cluster_size,
+            min_area=min_area,
+            callback=callback,
         )
         self._processed = True
         return self
@@ -91,11 +102,16 @@ class ElementChannel:
     # Full pipeline (private)
     # ------------------------------------------------------------------
 
-    def _run_pipeline(self, k_labels: np.ndarray, raw_img: np.ndarray,
-                      max_cluster_size: int,
-                      min_area: int,
-                      callback: Callable[[str], None]
-                      ) -> tuple[np.ndarray, pd.DataFrame]:
+    def _run_pipeline(
+        self,
+        k_labels: np.ndarray,
+        raw_img: np.ndarray,
+        max_cluster_size: int,
+        min_area: int,
+        callback: Callable[[str], None],
+    ) -> tuple[np.ndarray, pd.DataFrame]:
+        from . import xrf_utils as xu
+
         callback("Extracting masks")
         mask = xu.extract_small_cluster_mask(k_labels, max_cluster_size)
         callback("Building segmented image")

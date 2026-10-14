@@ -1,7 +1,7 @@
 """Stable source/item identities and readers for Exhale element maps."""
 
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 from typing import Any
 
 import h5py
@@ -15,6 +15,7 @@ class ElementRef:
 
     HDF5 item IDs are dataset paths; TIFF item IDs are zero-based page/<n>.
     """
+
     source_id: str
     item_id: str
 
@@ -33,13 +34,49 @@ class ElementRef:
 @dataclass
 class ElementCandidate:
     """A selectable element, independent of its storage format."""
+
     ref: ElementRef
     name: str
+
+
+@dataclass(frozen=True)
+class TiffComponent:
+    """One two-dimensional component extracted from a three-dimensional TIFF page."""
+
+    page: Any
+    axis: int
+    index: int
+
+    @property
+    def shape(self):
+        return tuple(size for axis, size in enumerate(self.page.shape) if axis != self.axis)
+
+    @property
+    def dtype(self):
+        return self.page.dtype
+
+    def asarray(self):
+        return np.take(self.page.asarray(), self.index, axis=self.axis)
+
+
+def _tiff_component_axis(page) -> int | None:
+    """Return the non-spatial axis of a valid 3-D page, or None for a 2-D page."""
+    if len(page.shape) == 2:
+        return None
+    if len(page.shape) != 3:
+        raise ValueError(
+            "TIFF maps must have two spatial dimensions and at most one component axis"
+        )
+    axes = page.axes
+    if len(axes) != 3 or axes.count("Y") != 1 or axes.count("X") != 1:
+        raise ValueError(f"Cannot identify two spatial axes in TIFF axes {axes!r}")
+    return next(index for index, axis in enumerate(axes) if axis not in "YX")
 
 
 @dataclass
 class LoadedSource:
     """Own the backing file; materialized element arrays survive close()."""
+
     source_id: str
     filename: str
     alias: str
@@ -63,6 +100,13 @@ class LoadedSource:
 
     def default_element_name(self, ref: ElementRef) -> str:
         if self.kind == "tiff":
+            parts = ref.item_id.split("/")
+            if len(parts) == 4 and parts[2] == "component":
+                page = self.handle.pages[int(parts[1])]
+                component = int(parts[3])
+                if page.photometric == 2 and page.shape[_tiff_component_axis(page)] in (3, 4):
+                    return ("Red", "Green", "Blue", "Alpha")[component]
+                return f"{self.alias} [component {component + 1}]"
             if self.handle is not None and len(self.handle.pages) == 1:
                 return self.alias
             return f"{self.alias} [page {int(ref.item_id.split('/')[1]) + 1}]"
@@ -72,35 +116,72 @@ class LoadedSource:
         if not self.is_open:
             return []
         if self.kind == "hdf5":
-            return [ElementCandidate(ElementRef(self.source_id, entity.name), key)
-                    for key, entity in self.root.items()
-                    if isinstance(entity, h5py.Dataset)]
+            return [
+                ElementCandidate(ElementRef(self.source_id, entity.name), key)
+                for key, entity in self.root.items()
+                if isinstance(entity, h5py.Dataset)
+            ]
         if self.kind == "tiff":
-            refs = [ElementRef(self.source_id, f"page/{i}")
-                    for i in range(len(self.handle.pages))]
-            return [ElementCandidate(ref, self.default_element_name(ref))
-                    for ref in refs]
+            refs = []
+            for page_index, page in enumerate(self.handle.pages):
+                component_axis = _tiff_component_axis(page)
+                if component_axis is None:
+                    refs.append(ElementRef(self.source_id, f"page/{page_index}"))
+                else:
+                    refs.extend(
+                        ElementRef(self.source_id, f"page/{page_index}/component/{component_index}")
+                        for component_index in range(page.shape[component_axis])
+                    )
+            return [ElementCandidate(ref, self.default_element_name(ref)) for ref in refs]
         raise NotImplementedError(self.kind)
 
-    def load_array(self, ref: ElementRef) -> np.ndarray:
+    def data_object(self, ref: ElementRef):
+        """Return the HDF5 dataset or TIFF page identified by ``ref``."""
         if ref.source_id != self.source_id:
-            raise ValueError(f"ElementRef belongs to {ref.source_id!r}, "
-                             f"not {self.source_id!r}")
+            raise ValueError(f"ElementRef belongs to {ref.source_id!r}, not {self.source_id!r}")
         if not self.is_open:
             raise RuntimeError(f"Source is closed: {self.filename}")
         if self.kind == "hdf5":
-            dataset = self.handle[ref.item_id]
-            if not isinstance(dataset, h5py.Dataset):
+            item = self.handle[ref.item_id]
+            if not isinstance(item, h5py.Dataset):
                 raise ValueError(f"Not an HDF5 dataset: {ref.item_id}")
-            data = dataset[()]
+            return item
         elif self.kind == "tiff":
-            prefix, separator, number = ref.item_id.partition("/")
-            if (prefix != "page" or not separator or not number.isdecimal() or
-                    str(int(number)) != number or int(number) >= len(self.handle.pages)):
+            parts = ref.item_id.split("/")
+            if (
+                len(parts) not in (2, 4)
+                or parts[0] != "page"
+                or not parts[1].isdecimal()
+                or str(int(parts[1])) != parts[1]
+                or int(parts[1]) >= len(self.handle.pages)
+            ):
                 raise ValueError(f"Invalid TIFF element: {ref.item_id!r}")
-            data = self.handle.pages[int(number)].asarray()
+            page = self.handle.pages[int(parts[1])]
+            if len(parts) == 2:
+                if _tiff_component_axis(page) is not None:
+                    raise ValueError(f"TIFF element requires a component: {ref.item_id!r}")
+                return page
+            if parts[2] != "component" or not parts[3].isdecimal():
+                raise ValueError(f"Invalid TIFF element: {ref.item_id!r}")
+            component = int(parts[3])
+            if str(component) != parts[3]:
+                raise ValueError(f"Invalid TIFF element: {ref.item_id!r}")
+            axis = _tiff_component_axis(page)
+            if axis is None or component >= page.shape[axis]:
+                raise ValueError(f"Invalid TIFF element: {ref.item_id!r}")
+            return TiffComponent(page, axis, component)
         else:
             raise NotImplementedError(self.kind)
+
+    def channel_data(self, ref: ElementRef):
+        """Return a cached-on-demand accessor for one channel map."""
+        from .channeldata import SourceChannelData
+
+        return SourceChannelData(self, ref)
+
+    def load_array(self, ref: ElementRef) -> np.ndarray:
+        item = self.data_object(ref)
+        data = item[()] if self.kind == "hdf5" else item.asarray()
         if data.ndim != 2 or data.size == 0 or data.dtype.kind not in "buif":
             raise ValueError(f"Element {ref.item_id!r} must be a nonempty 2-D real-valued map")
         return data
@@ -129,10 +210,15 @@ def open_source(filename: str) -> LoadedSource:
         if not len(handle.pages):
             raise ValueError(f"{filename!r} contains no TIFF pages")
         for index, page in enumerate(handle.pages):
-            if (len(page.shape) != 2 or page.samplesperpixel != 1 or
-                    page.photometric not in (0, 1) or
-                    not all(page.shape) or page.dtype.kind not in "buif"):
-                raise ValueError(f"TIFF page {index + 1} must be a nonempty 2-D grayscale map")
+            try:
+                component_axis = _tiff_component_axis(page)
+            except ValueError as exc:
+                raise ValueError(f"TIFF page {index + 1}: {exc}") from exc
+            map_shape = tuple(
+                size for axis, size in enumerate(page.shape) if axis != component_axis
+            )
+            if len(map_shape) != 2 or not all(map_shape) or page.dtype.kind not in "buif":
+                raise ValueError(f"TIFF page {index + 1} must contain nonempty 2-D numeric maps")
         return LoadedSource(filename, filename, alias, "tiff", handle)
     except Exception:
         handle.close()

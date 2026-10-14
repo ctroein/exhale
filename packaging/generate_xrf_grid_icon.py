@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Generate the combined RGB guide used for XRF icon image generation."""
 
-from argparse import ArgumentParser
 import csv
+from argparse import ArgumentParser
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
-from scipy.interpolate import splprep, splev
+from scipy.interpolate import splev, splprep
 from scipy.ndimage import gaussian_filter, label
-
 
 HERE = Path(__file__).resolve().parent
 ICONS = HERE / "icons"
@@ -20,7 +19,7 @@ def component_boundary(component: np.ndarray) -> np.ndarray:
     """Trace the exact outer grid boundary of a 4-connected component."""
     edges = []
     rows, columns = component.shape
-    for row, column in zip(*np.nonzero(component)):
+    for row, column in zip(*np.nonzero(component), strict=True):
         if row == 0 or not component[row - 1, column]:
             edges.append(((column, row), (column + 1, row)))
         if column == columns - 1 or not component[row, column + 1]:
@@ -48,8 +47,7 @@ def resample_boundary(boundary: np.ndarray, count: int) -> np.ndarray:
     positions = np.linspace(0.0, cumulative[-1], count, endpoint=False)
     controls = []
     for position in positions:
-        edge = min(np.searchsorted(cumulative, position, side="right") - 1,
-                   len(boundary) - 1)
+        edge = min(np.searchsorted(cumulative, position, side="right") - 1, len(boundary) - 1)
         fraction = (position - cumulative[edge]) / lengths[edge]
         controls.append(closed[edge] + fraction * (closed[edge + 1] - closed[edge]))
     return np.asarray(controls)
@@ -100,9 +98,9 @@ def polygon_self_intersects(points: np.ndarray) -> bool:
     count = len(points)
     indices = np.arange(count)
     adjacent = (
-        indices[:, None] == indices[None, :]
-    ) | ((indices[:, None] - indices[None, :]) % count == 1) | (
-        (indices[None, :] - indices[:, None]) % count == 1
+        (indices[:, None] == indices[None, :])
+        | ((indices[:, None] - indices[None, :]) % count == 1)
+        | ((indices[None, :] - indices[:, None]) % count == 1)
     )
     return bool(np.any(crossing & ~adjacent))
 
@@ -246,9 +244,7 @@ def anneal_component(
         first = int(rng.integers(control_count))
         indices = (first + np.arange(block_size)) % control_count
 
-        tangent = (
-            np.roll(controls, -1, axis=0) - np.roll(controls, 1, axis=0)
-        )
+        tangent = np.roll(controls, -1, axis=0) - np.roll(controls, 1, axis=0)
         tangent /= np.maximum(np.linalg.norm(tangent, axis=1, keepdims=True), 1e-9)
         normal = np.column_stack((tangent[:, 1], -tangent[:, 0]))
         window = np.sin(np.linspace(0.2, np.pi - 0.2, block_size))
@@ -256,8 +252,7 @@ def anneal_component(
         normal_move += rng.normal(0.0, 0.035, block_size)
         tangent_move = rng.normal(0.0, 0.035, block_size)
         proposal[indices] += (
-            normal[indices] * normal_move[:, None]
-            + tangent[indices] * tangent_move[:, None]
+            normal[indices] * normal_move[:, None] + tangent[indices] * tangent_move[:, None]
         )
         proposal = np.clip(proposal, -0.35, component.shape[0] + 0.35)
 
@@ -278,8 +273,7 @@ def anneal_component(
             uphill_count += 1
             uphill_sum += difference
         accepted = difference <= 0.0 or (
-            np.isfinite(difference)
-            and rng.random() < np.exp(-difference / temperature)
+            np.isfinite(difference) and rng.random() < np.exp(-difference / temperature)
         )
         if accepted:
             accepted_count += 1
@@ -292,24 +286,26 @@ def anneal_component(
             best = proposed
 
         if (step + 1) % interval == 0 or step + 1 == steps:
-            diagnostics.append({
-                "step": step + 1,
-                "temperature": temperature,
-                "current_energy": current[0],
-                "best_energy": best[0],
-                "current_length": current[4],
-                "best_length": best[4],
-                "current_spill": current[2],
-                "best_spill": best[2],
-                "current_missed": current[3],
-                "best_missed": best[3],
-                "acceptance_rate": accepted_count / proposed_count,
-                "uphill_acceptance_rate": (
-                    uphill_accepted / uphill_count if uphill_count else 0.0
-                ),
-                "mean_uphill_delta": uphill_sum / uphill_count if uphill_count else 0.0,
-                "invalid_rate": invalid_count / proposed_count,
-            })
+            diagnostics.append(
+                {
+                    "step": step + 1,
+                    "temperature": temperature,
+                    "current_energy": current[0],
+                    "best_energy": best[0],
+                    "current_length": current[4],
+                    "best_length": best[4],
+                    "current_spill": current[2],
+                    "best_spill": best[2],
+                    "current_missed": current[3],
+                    "best_missed": best[3],
+                    "acceptance_rate": accepted_count / proposed_count,
+                    "uphill_acceptance_rate": (
+                        uphill_accepted / uphill_count if uphill_count else 0.0
+                    ),
+                    "mean_uphill_delta": uphill_sum / uphill_count if uphill_count else 0.0,
+                    "invalid_rate": invalid_count / proposed_count,
+                }
+            )
             proposed_count = 0
             accepted_count = 0
             uphill_count = 0
@@ -340,7 +336,7 @@ def spline_mask(
     )
     rng = np.random.default_rng(seed)
     diagonal_contacts = []
-    for row, column in zip(*np.nonzero(small)):
+    for row, column in zip(*np.nonzero(small), strict=True):
         for dr, dc in ((1, -1), (1, 1)):
             other = (row + dr, column + dc)
             if not (0 <= other[0] < grid_size and 0 <= other[1] < grid_size):
@@ -464,16 +460,13 @@ def generate_guide(
     )
 
     background_rng = np.random.default_rng(9042)
-    background_noise = gaussian_filter(
-        background_rng.standard_normal((size, size)), blur * 2.25
-    )
+    background_noise = gaussian_filter(background_rng.standard_normal((size, size)), blur * 2.25)
     background_noise /= max(float(background_noise.std()), 1e-9)
 
     guide = np.empty((size, size, 3), dtype=np.uint8)
     guide[:] = (7, 48, 24)
     guide = np.clip(
-        guide.astype(np.float32)
-        * (1.0 + background_noise[..., None] * 0.08),
+        guide.astype(np.float32) * (1.0 + background_noise[..., None] * 0.08),
         0,
         255,
     ).astype(np.uint8)
@@ -498,19 +491,21 @@ def generate_guide(
             writer = csv.DictWriter(stream, fieldnames=rows[0].keys())
             writer.writeheader()
             writer.writerows(rows)
-    return (
-        yellow_spill, yellow_missed, yellow_merged, yellow_contacts
-    ), (
-        blue_spill, blue_missed, blue_merged, blue_contacts
+    return (yellow_spill, yellow_missed, yellow_merged, yellow_contacts), (
+        blue_spill,
+        blue_missed,
+        blue_merged,
+        blue_contacts,
     )
 
 
 def parse_args() -> ArgumentParser:
-    parser = ArgumentParser(
-        description="Generate a combined RGB XRF guide from the 16px masks."
-    )
+    parser = ArgumentParser(description="Generate a combined RGB XRF guide from the 16px masks.")
     parser.add_argument(
-        "-o", "--output", type=Path, default=DEFAULT_OUTPUT,
+        "-o",
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT,
         help=f"output PNG (default: {DEFAULT_OUTPUT})",
     )
     parser.add_argument("--size", type=int, default=512)
@@ -522,7 +517,8 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--length-coefficient", type=float, default=1.0)
     parser.add_argument("--curvature-coefficient", type=float, default=0.08)
     parser.add_argument(
-        "--annealing-log", type=Path,
+        "--annealing-log",
+        type=Path,
         help="write interval-level simulated annealing diagnostics as CSV",
     )
     return parser

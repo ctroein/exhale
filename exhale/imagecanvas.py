@@ -3,8 +3,8 @@
 import math
 
 import numpy as np
-from qtpy import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
+from qtpy import QtCore, QtWidgets
 
 from . import icons
 from .widgets import IconToolButton
@@ -14,8 +14,7 @@ class ImageViewBox(pg.ViewBox):
     """Square pixels with x rightward and y downward from the top left."""
 
     def __init__(self):
-        super().__init__(lockAspect=True, invertY=True, enableMenu=False,
-                         defaultPadding=0)
+        super().__init__(lockAspect=True, invertY=True, enableMenu=False, defaultPadding=0)
         self.setMouseMode(self.PanMode)
         self.full_image_rect = None
         self._constraining_range = False
@@ -31,8 +30,7 @@ class ImageViewBox(pg.ViewBox):
 
         ranges = self.viewRange()
         spans = [limits[1] - limits[0] for limits in ranges]
-        image_spans = [self.full_image_rect.width(),
-                       self.full_image_rect.height()]
+        image_spans = [self.full_image_rect.width(), self.full_image_rect.height()]
         if min(spans) <= 0 or min(image_spans) <= 0:
             return
 
@@ -51,7 +49,7 @@ class ImageViewBox(pg.ViewBox):
             (self.full_image_rect.top(), self.full_image_rect.bottom()),
         ]
         constrained = []
-        for limits, span, image_span in zip(ranges, spans, image_spans):
+        for limits, span, image_span in zip(ranges, spans, image_spans, strict=True):
             image_min, image_max = image_limits[len(constrained)]
             if span >= image_span:
                 center = (image_min + image_max) / 2
@@ -60,13 +58,14 @@ class ImageViewBox(pg.ViewBox):
                 minimum = min(max(limits[0], image_min), image_max - span)
                 constrained.append((minimum, minimum + span))
 
-        if all(np.allclose(old, new, rtol=1e-12, atol=1e-12)
-               for old, new in zip(ranges, constrained)):
+        if all(
+            np.allclose(old, new, rtol=1e-12, atol=1e-12)
+            for old, new in zip(ranges, constrained, strict=True)
+        ):
             return
         self._constraining_range = True
         try:
-            super().setRange(
-                xRange=constrained[0], yRange=constrained[1], padding=0)
+            super().setRange(xRange=constrained[0], yRange=constrained[1], padding=0)
         finally:
             self._constraining_range = False
 
@@ -110,8 +109,7 @@ class ImageCanvas(pg.GraphicsLayoutWidget):
             return
         margin = 6
         self.fit_button.adjustSize()
-        self.fit_button.move(
-            self.width() - self.fit_button.width() - margin, margin)
+        self.fit_button.move(self.width() - self.fit_button.width() - margin, margin)
         self.fit_button.raise_()
 
     def resizeEvent(self, event):
@@ -131,8 +129,10 @@ class ImageCanvas(pg.GraphicsLayoutWidget):
             raise ValueError("Expected a nonempty 2-D grayscale or uint8 RGBA image")
         first_image = self.image_item.image is None
         self.image_item.setImage(
-            np.array(data, copy=True, order="C"), autoLevels=False,
-            levels=(0, 1) if grayscale else None)
+            np.array(data, copy=True, order="C"),
+            autoLevels=False,
+            levels=(0, 1) if grayscale else None,
+        )
         self.view_box.full_image_rect = self.image_item.boundingRect()
         if first_image or reset_view:
             self.fit_image()
@@ -150,8 +150,8 @@ class ImageCanvas(pg.GraphicsLayoutWidget):
         """Move by a fraction of the currently visible data range."""
         x_range, y_range = self.view_box.viewRange()
         self.view_box.translateBy(
-            x=x_fraction * (x_range[1] - x_range[0]),
-            y=y_fraction * (y_range[1] - y_range[0]))
+            x=x_fraction * (x_range[1] - x_range[0]), y=y_fraction * (y_range[1] - y_range[0])
+        )
 
     def _zoom(self, factor):
         """Zoom around the centre of the current view."""

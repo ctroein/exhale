@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Tue Apr 21 10:43:55 2026
 
@@ -14,7 +13,6 @@ import tempfile
 from pathlib import Path
 
 from PIL import Image
-
 
 ICONSET_SPECS: list[tuple[str, int]] = [
     ("icon_16x16.png", 16),
@@ -45,7 +43,8 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Generate .icns and .ico files from a single 1024x1024 PNG. "
             "Requires Pillow, plus either Apple's `iconutil` on macOS or "
-            "`png2icns` on Linux for the .icns step.")
+            "`png2icns` on Linux for the .icns step."
+        )
     )
     parser.add_argument("input_png", type=Path, help="Source PNG, ideally 1024x1024 RGBA")
     parser.add_argument(
@@ -65,9 +64,7 @@ def parse_args() -> argparse.Namespace:
 
 def require_square_1024(img: Image.Image, path: Path) -> None:
     if img.size != (1024, 1024):
-        raise ValueError(
-            f"Expected a 1024x1024 PNG, got {img.size[0]}x{img.size[1]} for {path}"
-        )
+        raise ValueError(f"Expected a 1024x1024 PNG, got {img.size[0]}x{img.size[1]} for {path}")
 
 
 def load_rgba(path: Path) -> Image.Image:
@@ -87,14 +84,11 @@ def build_ico(img: Image.Image, out_path: Path) -> None:
     img.save(out_path, format="ICO", sizes=ICO_SIZES)
 
 
-
 def build_icns(iconset_dir: Path, out_path: Path) -> str:
     try:
         from icnsutil import IcnsFile
     except ImportError as e:
-        raise RuntimeError(
-            "icnsutil is not installed. Run: pip install icnsutil"
-        ) from e
+        raise RuntimeError("icnsutil is not installed. Run: pip install icnsutil") from e
 
     icns = IcnsFile()
     for filename, _size in ICONSET_SPECS:

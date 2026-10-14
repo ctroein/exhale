@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Fri Aug 15 19:07:15 2025
 
 @author: carl
 """
 
-
-import numpy as np
+from copy import deepcopy
 from enum import Enum
 
-from .elementsettings import ElementSettings
+import numpy as np
+
 from .constants import DISPLAY_UNITS
+from .elementsettings import ElementSettings
+
 
 class Layouts(Enum):
     "Ways of laying out images to be composed"
+
     MERGED = 0, "Merged only"
     IL = 1, "Images left"
     IR = 2, "Images right"
@@ -35,14 +37,19 @@ class Layouts(Enum):
     def description(self):
         return self._description_
 
-_COLORSCHEME_COLORS = np.array([
-    [[1,0,0],[0,1,0],[0,0,1],[.7,.7,.7]],
-    [[0,1,1],[1,0,1],[1,1,0],[.7,.7,.7]],
-    [[1,.5,0],[0,1,.5],[.5,0,1],[.5,.5,.5]],
-])
+
+_COLORSCHEME_COLORS = np.array(
+    [
+        [[1, 0, 0], [0, 1, 0], [0, 0, 1], [0.7, 0.7, 0.7]],
+        [[0, 1, 1], [1, 0, 1], [1, 1, 0], [0.7, 0.7, 0.7]],
+        [[1, 0.5, 0], [0, 1, 0.5], [0.5, 0, 1], [0.5, 0.5, 0.5]],
+    ]
+)
+
 
 class Colorschemes(Enum):
     "Predefined color schemes"
+
     RGB = 0, "RGB"
     CMY = 1, "CMY"
     CUSTOM = 2, "Custom"
@@ -68,8 +75,10 @@ class Colorschemes(Enum):
         "Update a (presumably custom) colorscheme"
         _COLORSCHEME_COLORS[self.value] = rgb
 
+
 class Scalebars(Enum):
     "Predefined scale bar settings"
+
     NONE = 0, "None"
     LL = 1, "Lower left"
     LR = 2, "Lower right"
@@ -88,47 +97,90 @@ class Scalebars(Enum):
     def description(self):
         return self._description_
 
+
 class ImageSettings:
     "Settings for an image and its composition"
-    MAX_ELEMENTS = 4
 
-    def __init__(self, name : str):
+    MAX_ELEMENTS = 4
+    PRESENTATION_FIELDS = (
+        "layout",
+        "scalebar",
+        "scalebarColor",
+        "scalebarBgColor",
+        "scalebarBgAlpha",
+        "fontsize",
+        "borderColor",
+        "borderWidth",
+        "panelLabels",
+        "panelLabelColor",
+        "elementLabels",
+        "elementBorders",
+        "elementLabelsColored",
+        "colorscheme",
+        "customColors",
+        "dpi",
+        "clipColors",
+    )
+
+    def __init__(self, name: str, *, sample_id=None, sample_source_ids=()):
         self.name = name
+        self.sample_id = sample_id
+        self.sample_source_ids = tuple(sample_source_ids)
         self.layout = Layouts.IL
         self.scalebar = Scalebars.LL
-        self.scalebarColor = [1.,1.,0.]
-        self.scalebarBgColor = [0.,0.,0.]
+        self.scalebarColor = [1.0, 1.0, 0.0]
+        self.scalebarBgColor = [0.0, 0.0, 0.0]
         self.scalebarBgAlpha = None
         self.fontsize = 11
         self.borderColor = np.zeros(3)
         self.borderWidth = 9
         self.panelLabels = True
-        self.panelLabelColor = [1.,1.,1.]
+        self.panelLabelColor = [1.0, 1.0, 1.0]
         self.elementLabels = True
         self.elementBorders = True
-        self.elementLabelsColored = True
+        self.elementLabelsColored = False
         self.colorscheme = Colorschemes.RGB
         self.customColors = None
-        self.elements = {} # position -> ElementSettings
+        self.elements = {}  # position -> ElementSettings
+        self.channel_keys = {}  # position -> sample channel key
+        self.element_overrides = set()  # positions with image-local settings
+        self.suspended_elements = {}  # position -> (ElementSettings, channel key, local override)
         self.dpi = 300
-        self.clipColors = True # Hard clip of RGB or rescale by theor. max
+        self.clipColors = True  # Hard clip of RGB or rescale by theor. max
         self.resolution = [200, "nm"]
         # self.pdfSize = [10., 10.]
         # self.pdfKeepDim = 0 # keep width(0) or height(1) when aspect changes
 
-    def setLayout(self, l : Layouts):
-        "Set layout type"
-        if not isinstance(l, Layouts):
-            raise ValueError(f"Expected Layouts, not {type(l)}")
-        self.layout = l
+    def copyForSample(self, name, sample_id, source_ids):
+        "Return an empty image initialized from these composition settings."
+        image = deepcopy(self)
+        image.name = name
+        image.sample_id = sample_id
+        image.sample_source_ids = tuple(source_ids)
+        image.elements = {}
+        image.channel_keys = {}
+        image.element_overrides = set()
+        image.suspended_elements = {}
+        return image
 
-    def setScalebar(self, sb : Scalebars):
+    def applyPresentationFrom(self, source):
+        """Copy image presentation settings without identity, elements, or resolution."""
+        for field in self.PRESENTATION_FIELDS:
+            setattr(self, field, deepcopy(getattr(source, field)))
+
+    def setLayout(self, layout: Layouts):
+        "Set layout type"
+        if not isinstance(layout, Layouts):
+            raise ValueError(f"Expected Layouts, not {type(layout)}")
+        self.layout = layout
+
+    def setScalebar(self, sb: Scalebars):
         "Set scalebar position"
         if not isinstance(sb, Scalebars):
             raise ValueError(f"Expected Scalebars, not {type(sb)}")
         self.scalebar = sb
 
-    def setColorscheme(self, cs : Colorschemes):
+    def setColorscheme(self, cs: Colorschemes):
         "Set the colorscheme and possibly copy custom colors"
         if not isinstance(cs, Colorschemes):
             raise ValueError(f"Expected colorscheme, not {type(cs)}")
@@ -195,18 +247,60 @@ class ImageSettings:
     #     "Compute dpi from selected size"
     #     return None
 
-    def setElement(self, index : int, element : ElementSettings):
-        "Copy an element into this image"
+    def setElement(self, index: int, element: ElementSettings, channel_key=None):
+        "Select a sample element for an image slot."
         if index < 0 or index >= self.MAX_ELEMENTS:
-            raise ValueError("Element index must be between "
-                             f"{0} and {self.MAX_ELEMENTS - 1}")
+            raise ValueError(f"Element index must be between {0} and {self.MAX_ELEMENTS - 1}")
+        self.suspended_elements.pop(index, None)
         if element is None:
-            del self.elements[index]
+            self.elements.pop(index, None)
+            self.channel_keys.pop(index, None)
+            self.element_overrides.discard(index)
         else:
-            # Shallow copy; no need to copy the transformed data etc.
-            self.elements[index] = element.copy()
+            self.elements[index] = element
+            self.channel_keys[index] = channel_key
+            self.element_overrides.discard(index)
 
+    def reconcileChannels(self, available_keys):
+        """Suspend unavailable slots and restore unedited slots that become available."""
+        available_keys = set(available_keys)
+        changed = False
+        for slot in list(self.elements):
+            key = self.channel_keys[slot]
+            if key in available_keys:
+                continue
+            self.suspended_elements[slot] = (
+                self.elements.pop(slot),
+                self.channel_keys.pop(slot),
+                slot in self.element_overrides,
+            )
+            self.element_overrides.discard(slot)
+            changed = True
 
+        for slot, (element, key, overridden) in list(self.suspended_elements.items()):
+            if key not in available_keys:
+                continue
+            if slot not in self.elements:
+                self.elements[slot] = element
+                self.channel_keys[slot] = key
+                if overridden:
+                    self.element_overrides.add(slot)
+                changed = True
+            del self.suspended_elements[slot]
+        return changed
 
+    def createElementOverride(self, index: int):
+        "Create and return image-local settings for a selected slot."
+        if index not in self.elements:
+            raise KeyError(index)
+        if index not in self.element_overrides:
+            self.elements[index] = self.elements[index].copy()
+            self.element_overrides.add(index)
+        return self.elements[index]
 
-
+    def revertElementOverride(self, index: int, element: ElementSettings):
+        "Use sample settings again for an overridden slot."
+        if index not in self.elements:
+            raise KeyError(index)
+        self.elements[index] = element
+        self.element_overrides.discard(index)

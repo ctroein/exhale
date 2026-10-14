@@ -11,7 +11,6 @@ from . import application_name, projectio
 from .overridecursor import OverrideCursor
 from .projectstatemanager import PROJECT_AUTOSAVE_FILENAME
 
-
 PROJECT_FILENAME = "project.xhp"
 PROJECT_DIRECTORY_SETTING = "ProjectDirectory"
 
@@ -25,21 +24,19 @@ class ProjectManager:
     def default_dialog_directory(self) -> str:
         if self.window.project_dir is not None:
             return str(self.window.project_dir)
-        return self.window.settings.value(
-            PROJECT_DIRECTORY_SETTING, str(Path.home()))
+        return self.window.settings.value(PROJECT_DIRECTORY_SETTING, str(Path.home()))
 
     def remember_directory(self, directory: str | Path) -> None:
-        self.window.settings.setValue(
-            PROJECT_DIRECTORY_SETTING, str(Path(directory)))
+        self.window.settings.setValue(PROJECT_DIRECTORY_SETTING, str(Path(directory)))
 
     def new_project(self) -> bool:
         w = self.window
-        if not w.project_state_manager.prepare_to_leave_project(
-                "creating a new project"):
+        if not w.project_state_manager.prepare_to_leave_project("creating a new project"):
             return False
         with w.project_state_manager.suspend_notifications():
             w.clear_project()
             w.project_dir = None
+            w.reset_project_defaults()
             w.initialize_empty_project()
             w.refresh_project_ui()
         w.project_state_manager.mark_saved()
@@ -49,7 +46,7 @@ class ProjectManager:
     def open_project(self) -> bool:
         directory = QtWidgets.QFileDialog.getExistingDirectory(
             self.window,
-            f"Open {application_name} project",
+            f"Load {application_name} project",
             self.default_dialog_directory(),
         )
         if not directory:
@@ -68,7 +65,8 @@ class ProjectManager:
             return False
 
         if not self.window.project_state_manager.prepare_to_leave_project(
-                "opening another project"):
+            "opening another project"
+        ):
             return False
 
         state = saved_state
@@ -89,9 +87,11 @@ class ProjectManager:
                         "Recover autosaved changes?",
                         f"{application_name} found autosaved changes for this project. "
                         "Recover them?",
-                        (QtWidgets.QMessageBox.Yes
-                         | QtWidgets.QMessageBox.No
-                         | QtWidgets.QMessageBox.Cancel),
+                        (
+                            QtWidgets.QMessageBox.Yes
+                            | QtWidgets.QMessageBox.No
+                            | QtWidgets.QMessageBox.Cancel
+                        ),
                         QtWidgets.QMessageBox.Yes,
                     )
                     if answer == QtWidgets.QMessageBox.Cancel:
@@ -108,7 +108,7 @@ class ProjectManager:
         try:
             with manager.suspend_notifications(), OverrideCursor():
                 self.window.clear_project()
-                projectio.load_project_state(self.window, state)
+                issues = projectio.load_project_state(self.window, state, project_dir=directory)
         except Exception as exc:
             self._show_error("Loading failed", exc)
             self.window.refresh_project_ui()
@@ -119,6 +119,12 @@ class ProjectManager:
         self.window.refresh_project_ui()
         manager.mark_loaded(saved_state, recovered=recovered)
         self.window.update_window_title()
+        if issues:
+            QtWidgets.QMessageBox.warning(
+                self.window,
+                "Project loaded with problems",
+                "Some project data could not be restored:\n\n" + "\n".join(issues),
+            )
         return True
 
     def save_project(self) -> bool:
@@ -159,10 +165,10 @@ class ProjectManager:
         self.remember_directory(directory)
         self.window.project_state_manager.mark_saved()
         if old_project_dir is not None:
-            self.window.project_state_manager.discard_autosave(
-                old_project_dir)
+            self.window.project_state_manager.discard_autosave(old_project_dir)
         self.window.project_state_manager.discard_autosave(directory)
         self.window.project_state_manager.discard_unsaved_autosave()
+        self.window.project_tab.refresh()
         self.window.update_window_title()
         return True
 
@@ -170,8 +176,7 @@ class ProjectManager:
         try:
             directory.mkdir(parents=True, exist_ok=True)
             with OverrideCursor():
-                projectio.save_project(
-                    self.window, directory / PROJECT_FILENAME)
+                projectio.save_project(self.window, directory / PROJECT_FILENAME)
         except Exception as exc:
             self._show_error("Saving failed", exc)
             return False
@@ -184,8 +189,7 @@ class ProjectManager:
         if not directory.is_dir():
             return False
         return all(
-            entry.name in {
-                PROJECT_FILENAME, PROJECT_AUTOSAVE_FILENAME, ".DS_Store"}
+            entry.name in {PROJECT_FILENAME, PROJECT_AUTOSAVE_FILENAME, ".DS_Store"}
             for entry in directory.iterdir()
         )
 

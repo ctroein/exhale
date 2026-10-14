@@ -36,13 +36,21 @@ class HistogramWidget(pg.PlotWidget):
 
         marker_pen = pg.mkPen("#0000a0", width=2)
         self.minimum_marker = pg.InfiniteLine(
-            angle=90, movable=True, pen=marker_pen,
-            hoverPen=pg.mkPen("#3030d0", width=2), label="Min",
-            labelOpts={"position": 0.9})
+            angle=90,
+            movable=True,
+            pen=marker_pen,
+            hoverPen=pg.mkPen("#3030d0", width=2),
+            label="Min",
+            labelOpts={"position": 0.9},
+        )
         self.maximum_marker = pg.InfiniteLine(
-            angle=90, movable=True, pen=marker_pen,
-            hoverPen=pg.mkPen("#3030d0", width=2), label="Max",
-            labelOpts={"position": 0.9})
+            angle=90,
+            movable=True,
+            pen=marker_pen,
+            hoverPen=pg.mkPen("#3030d0", width=2),
+            label="Max",
+            labelOpts={"position": 0.9},
+        )
         for marker in (self.minimum_marker, self.maximum_marker):
             self.addItem(marker)
             marker.hide()
@@ -72,19 +80,21 @@ class HistogramWidget(pg.PlotWidget):
 
     def _from_display(self, value):
         if self._logarithmic:
-            return 10.0 ** value
+            return 10.0**value
         return float(value)
 
-    def set_histogram(self, counts, edges, *, logarithmic=False,
-                      reset_view=True):
+    def set_histogram(self, counts, edges, *, logarithmic=False, reset_view=True):
         """Set bin counts and edges, optionally using a logarithmic x-axis."""
         counts = np.asarray(counts)
         edges = np.asarray(edges)
-        if (counts.ndim != 1 or edges.ndim != 1 or
-                len(edges) != len(counts) + 1 or len(counts) == 0):
+        if counts.ndim != 1 or edges.ndim != 1 or len(edges) != len(counts) + 1 or len(counts) == 0:
             raise ValueError("Histogram needs one-dimensional counts and N+1 edges")
-        if (not np.all(np.isfinite(counts)) or np.any(counts < 0) or
-                not np.all(np.isfinite(edges)) or np.any(np.diff(edges) <= 0)):
+        if (
+            not np.all(np.isfinite(counts))
+            or np.any(counts < 0)
+            or not np.all(np.isfinite(edges))
+            or np.any(np.diff(edges) <= 0)
+        ):
             raise ValueError("Histogram counts and edges must be finite and ordered")
         if logarithmic and edges[0] <= 0:
             raise ValueError("Logarithmic histogram edges must be positive")
@@ -92,8 +102,7 @@ class HistogramWidget(pg.PlotWidget):
         old_limits = self._limits
         self._logarithmic = bool(logarithmic)
         self._domain = (float(edges[0]), float(edges[-1]))
-        display_edges = (np.log10(edges) if self._logarithmic
-                         else edges.astype(float, copy=False))
+        display_edges = np.log10(edges) if self._logarithmic else edges.astype(float, copy=False)
         self.curve.setData(display_edges, counts, stepMode="center")
 
         if old_limits is not None:
@@ -123,9 +132,7 @@ class HistogramWidget(pg.PlotWidget):
         try:
             # Zero represents the lower end of a logarithmic transformation;
             # draw its marker at the first positive histogram edge.
-            displayed_minimum = (self._domain[0]
-                                 if self._logarithmic and minimum == 0
-                                 else minimum)
+            displayed_minimum = self._domain[0] if self._logarithmic and minimum == 0 else minimum
             low = self._to_display(displayed_minimum)
             high = self._to_display(maximum)
             domain_low = self._to_display(self._domain[0])
@@ -163,10 +170,8 @@ class HistogramWidget(pg.PlotWidget):
         self._limits = (minimum, maximum)
         domain_low = self._to_display(self._domain[0])
         domain_high = self._to_display(self._domain[1])
-        self.minimum_marker.setBounds(
-            (domain_low, self.maximum_marker.value()))
-        self.maximum_marker.setBounds(
-            (self.minimum_marker.value(), domain_high))
+        self.minimum_marker.setBounds((domain_low, self.maximum_marker.value()))
+        self.maximum_marker.setBounds((self.minimum_marker.value(), domain_high))
         self.limitsChanged.emit(minimum, maximum)
 
     def reset_view(self):

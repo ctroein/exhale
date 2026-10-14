@@ -1,10 +1,12 @@
 """Qt wrapper and UI compiler regressions; run with QT_QPA_PLATFORM=offscreen."""
+
 import os
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
@@ -18,8 +20,12 @@ from exhale.listwidgets import ColorButton
 class UiCompilerTests(unittest.TestCase):
     def test_compile_all_forms_through_qtpy(self):
         with tempfile.TemporaryDirectory() as directory:
-            for name in ("main_window", "image_settings_dialog",
-                         "analysis_settings_dialog", "settings_dialog"):
+            for name in (
+                "main_window",
+                "image_settings_dialog",
+                "analysis_settings_dialog",
+                "settings_dialog",
+            ):
                 with self.subTest(name=name):
                     output = Path(directory) / (name + "_ui.py")
                     _recompile_ui(str(resdir / "ui" / (name + ".ui")), output)
@@ -36,14 +42,19 @@ class UiCompilerTests(unittest.TestCase):
             output = Path(directory) / "form.py"
             for binding in ("PyQt5", "PyQt6", "PySide2", "PySide6"):
                 with self.subTest(binding=binding):
-                    def compile_ui(source, buffer):
-                        buffer.write(f"# Created by: {binding}\n"
-                                     f"from {binding} import QtCore, QtWidgets\n"
-                                     "value = 42\n")
+
+                    def compile_ui(source, buffer, binding=binding):
+                        buffer.write(
+                            f"# Created by: {binding}\n"
+                            f"from {binding} import QtCore, QtWidgets\n"
+                            "value = 42\n"
+                        )
+
                     with patch.object(uic, "compileUi", side_effect=compile_ui):
                         _recompile_ui("unused.ui", output)
-                    self.assertEqual(output.read_text(),
-                                     "from qtpy import QtCore, QtWidgets\nvalue = 42\n")
+                    self.assertEqual(
+                        output.read_text(), "from qtpy import QtCore, QtWidgets\nvalue = 42\n"
+                    )
 
     def test_compiler_failure_preserves_existing_output(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -64,10 +75,13 @@ class ColorButtonTests(unittest.TestCase):
         button = ColorButton()
         emitted = []
         button.colorChanged.connect(emitted.append)
-        for color in ([0.2, 0.4, 0.6], np.array([0.2, 0.4, 0.6, 0.8]),
-                      QtGui.QColor.fromRgbF(0.2, 0.4, 0.6)):
+        for color in (
+            [0.2, 0.4, 0.6],
+            np.array([0.2, 0.4, 0.6, 0.8]),
+            QtGui.QColor.fromRgbF(0.2, 0.4, 0.6),
+        ):
             button.setColor(color)
-            np.testing.assert_allclose(button.color(), [0.2, 0.4, 0.6], atol=1/255)
+            np.testing.assert_allclose(button.color(), [0.2, 0.4, 0.6], atol=1 / 255)
             np.testing.assert_allclose(emitted[-1], button.color())
         button.dialog.deleteLater()
         button.deleteLater()

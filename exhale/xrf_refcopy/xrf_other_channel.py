@@ -1,9 +1,8 @@
+from collections.abc import Callable
+
 import numpy as np
 import pandas as pd
 from skimage import measure
-from collections.abc import Callable
-
-from . import xrf_utils as xu
 
 
 class NucleiChannel:
@@ -38,8 +37,9 @@ class NucleiChannel:
     # Public API
     # ------------------------------------------------------------------
 
-    def process(self, expansion_px: int = 15, min_area: int = 100,
-                callback: Callable[[str], None] = None) -> "NucleiChannel":
+    def process(
+        self, expansion_px: int = 15, min_area: int = 100, callback: Callable[[str], None] = None
+    ) -> "NucleiChannel":
         """
         Run the full nuclei processing pipeline:
           1. Normalise raw image.
@@ -60,7 +60,12 @@ class NucleiChannel:
         self
         """
         if callback is None:
-            callback = lambda x: None
+
+            def callback(_message):
+                pass
+
+        from . import xrf_utils as xu
+
         normalised = self._normalise(self.raw)
         callback("Segmenting nuclei")
         raw_labels = xu.segment_nuclei(normalised)
@@ -77,36 +82,28 @@ class NucleiChannel:
     def is_processed(self) -> bool:
         return self._processed
 
-
     @staticmethod
     def _normalise(img: np.ndarray) -> np.ndarray:
         """Shift image so minimum is zero ."""
         return img - img.min()
 
-
     @staticmethod
-    def _filter_nuclei(labels: np.ndarray, raw: np.ndarray,
-                       min_area: int) -> np.ndarray:
+    def _filter_nuclei(labels: np.ndarray, raw: np.ndarray, min_area: int) -> np.ndarray:
         """
         Keep only nuclei whose mean intensity exceeds (mean + std) of the
         raw image AND whose area exceeds min_area.
         """
         intensity_thresh = raw.mean() + raw.std()
 
-        df = pd.DataFrame(measure.regionprops_table(
-            labels, raw,
-            properties=('label', 'area', 'mean_intensity')
-        ))
-        keep = df[
-            (df['mean_intensity'] > intensity_thresh) &
-            (df['area'] > min_area)
-        ]
+        df = pd.DataFrame(
+            measure.regionprops_table(labels, raw, properties=("label", "area", "mean_intensity"))
+        )
+        keep = df[(df["mean_intensity"] > intensity_thresh) & (df["area"] > min_area)]
 
-        mask = np.isin(labels, keep['label'])
+        mask = np.isin(labels, keep["label"])
         filtered = np.zeros_like(labels)
         filtered[mask] = labels[mask]
         return filtered
-
 
 
 class TissueChannel:
@@ -138,8 +135,7 @@ class TissueChannel:
     # Public API
     # ------------------------------------------------------------------
 
-    def process(self, callback: Callable[[str], None] = None
-                ) -> "TissueChannel":
+    def process(self, callback: Callable[[str], None] = None) -> "TissueChannel":
         """
         Run the tissue processing pipeline:
           1. Log-transform the raw image.
@@ -152,6 +148,8 @@ class TissueChannel:
         """
         if callback is not None:
             callback("Labeling tissues")
+        from . import xrf_utils as xu
+
         self.log_image = xu.log_transform(self.raw)
         self.tissue_mask = self.log_image > 0
         self.tissue_labels = measure.label(self.tissue_mask, connectivity=2)
@@ -162,8 +160,9 @@ class TissueChannel:
     def is_processed(self) -> bool:
         return self._processed
 
-    def compute_tissue_stats(self, element_log: np.ndarray,
-                             min_area: int = 20) -> tuple[float, float]:
+    def compute_tissue_stats(
+        self, element_log: np.ndarray, min_area: int = 20
+    ) -> tuple[float, float]:
         """
         Compute total tissue area and mean element intensity over tissue regions.
 
@@ -181,9 +180,10 @@ class TissueChannel:
         if not self._processed:
             raise RuntimeError("Call process() before compute_tissue_stats().")
 
-        df = pd.DataFrame(measure.regionprops_table(
-            self.tissue_labels, element_log,
-            properties=['area', 'mean_intensity']
-        ))
-        df = df[df['area'] > min_area]
-        return float(df['area'].sum()), float(df['mean_intensity'].mean())
+        df = pd.DataFrame(
+            measure.regionprops_table(
+                self.tissue_labels, element_log, properties=["area", "mean_intensity"]
+            )
+        )
+        df = df[df["area"] > min_area]
+        return float(df["area"].sum()), float(df["mean_intensity"].mean())

@@ -1,0 +1,22 @@
+target-version = "py310"
+line-length = 100
+extend-exclude = [
+    "exhale/*_ui.py",
+]
+
+[lint]
+select = [
+    "E301", "E302", "E303", "E304", "E305", "E306",
+    "E4", "E7", "E9", "F", "W",
+    "I", "B", "UP", "RUF100",
+]
+ignore = ["E501"]
+preview = true
+explicit-preview-rules = true
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+skip-magic-trailing-comma = false
+docstring-code-format = false

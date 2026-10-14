@@ -1,24 +1,29 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Mon Apr 13 01:02:40 2026
 
 @author: carl
 """
 
-from skimage import morphology
-from qtpy import QtGui, QtWidgets
 import napari
 from napari.components import ViewerModel
+from qtpy import QtGui, QtWidgets
+from skimage import morphology
+
 from .constants import CONCENTRATION_UNITS
 
-class NapariHelper():
+
+class NapariHelper:
     "All Napari-related things that aren't strongly tied to our Qt widgets"
+
     def __init__(self, theme="light"):
         viewer_model = ViewerModel()
         viewer_model.theme = theme
         self.viewer = viewer_model
         self.qtwidget = napari.qt.QtViewer(viewer_model)
+        # Napari leaves two pixels above and below its canvas. The embedded
+        # viewer should align with the adjacent panes in Exhale.
+        self.qtwidget.widget(0).layout().setContentsMargins(0, 0, 0, 0)
         self.sample = None
         self.nuc_layer = None
         self.mem_layer = None
@@ -35,9 +40,9 @@ class NapariHelper():
             return None
         return tuple(map(int, pos[-2:]))
 
-    def _build_tooltip_text(self,
-            label_val: int, region_df, element_names: list[str],
-            region_name: str) -> str:
+    def _build_tooltip_text(
+        self, label_val: int, region_df, element_names: list[str], region_name: str
+    ) -> str:
         rows = region_df[region_df["label"] == label_val]
         if rows.empty:
             return ""
@@ -69,8 +74,7 @@ class NapariHelper():
         for name, ch in self.sample.elements.items():
             if ch.cluster_labels is None:
                 continue
-            if not (0 <= y < ch.cluster_labels.shape[0] and
-                    0 <= x < ch.cluster_labels.shape[1]):
+            if not (0 <= y < ch.cluster_labels.shape[0] and 0 <= x < ch.cluster_labels.shape[1]):
                 continue
             label = int(ch.cluster_labels[y, x])
             row = self._cluster_row(ch, label)
@@ -78,7 +82,8 @@ class NapariHelper():
                 continue
             lines.append(
                 f"{name} ({row['area']:.0f} px, "
-                f"avg {row['mean_intensity']:.4g} {CONCENTRATION_UNITS})")
+                f"avg {row['mean_intensity']:.4g} {CONCENTRATION_UNITS})"
+            )
         return "" if not lines else "Clusters:\n" + "\n".join(lines)
 
     def _tt_hide(self):
@@ -106,10 +111,12 @@ class NapariHelper():
         text = None
         if self.nuc_layer.visible and nuc_label > 0:
             text = self._build_tooltip_text(
-                nuc_label, sample.df_nuclei, sample.element_names, "Nucleus")
+                nuc_label, sample.df_nuclei, sample.element_names, "Nucleus"
+            )
         elif self.mem_layer.visible and mem_label > 0:
             text = self._build_tooltip_text(
-                mem_label, sample.df_membrane, sample.element_names, "Membrane")
+                mem_label, sample.df_membrane, sample.element_names, "Membrane"
+            )
         cluster_text = self._cluster_tooltip_text(y, x)
         if text and cluster_text:
             text += "\n\n" + cluster_text
@@ -172,39 +179,37 @@ class NapariHelper():
             lines.extend(["", elem])
 
             if 0 <= y < ch.raw.shape[0] and 0 <= x < ch.raw.shape[1]:
-                lines.append(
-                    f"Point intensity: {ch.raw[y, x]:.4g} "
-                    f"{CONCENTRATION_UNITS}")
+                lines.append(f"Point intensity: {ch.raw[y, x]:.4g} {CONCENTRATION_UNITS}")
 
             if region_df is not None:
                 rows = region_df[
-                    (region_df["label"] == region_label) &
-                    (region_df["element"] == elem)
+                    (region_df["label"] == region_label) & (region_df["element"] == elem)
                 ]
                 if not rows.empty:
                     r = rows.iloc[0]
                     lines.append(
                         f"Average intensity in {region_name.lower()}: "
                         f"{r['average_element_intensity']:.4g} "
-                        f"{CONCENTRATION_UNITS}")
+                        f"{CONCENTRATION_UNITS}"
+                    )
 
             if region_mask is not None and ch.cluster_labels is not None:
                 cluster_ids = sorted(
-                    int(v) for v in set(ch.cluster_labels[region_mask])
-                    if int(v) > 0)
+                    int(v) for v in set(ch.cluster_labels[region_mask]) if int(v) > 0
+                )
                 if cluster_ids:
                     lines.append("Overlapping element clusters:")
                     for cid in cluster_ids:
                         row = self._cluster_row(ch, cid)
                         if row is None:
                             continue
-                        overlap = int(
-                            ((ch.cluster_labels == cid) & region_mask).sum())
+                        overlap = int(((ch.cluster_labels == cid) & region_mask).sum())
                         lines.append(
                             f"  {cid}: size {row['area']:.0f} px, "
                             f"overlap {overlap} px, "
                             f"avg {row['mean_intensity']:.4g} "
-                            f"{CONCENTRATION_UNITS}")
+                            f"{CONCENTRATION_UNITS}"
+                        )
 
             if ch.cluster_labels is not None:
                 cid = int(ch.cluster_labels[y, x])
@@ -214,7 +219,8 @@ class NapariHelper():
                     lines.append(
                         f"  {cid}: size {row['area']:.0f} px, "
                         f"avg {row['mean_intensity']:.4g} "
-                        f"{CONCENTRATION_UNITS}")
+                        f"{CONCENTRATION_UNITS}"
+                    )
 
         self.info_widget.setPlainText("\n".join(lines))
 
@@ -222,6 +228,9 @@ class NapariHelper():
         "Set/update the XRFSample, replacing layers"
         self.sample = sample
         if sample is None:
+            self.viewer.layers.clear()
+            self.nuc_layer = None
+            self.mem_layer = None
             return
         viewer = self.viewer
         viewer.layers.clear()
@@ -232,12 +241,12 @@ class NapariHelper():
         for name, ch in sample.elements.items():
             viewer.add_image(ch.raw, name=f"{name} raw", visible=False)
             if ch.cluster_labels is not None:
-                viewer.add_labels(ch.cluster_labels,
-                                  name=f"{name} clusters", visible=False)
+                viewer.add_labels(ch.cluster_labels, name=f"{name} clusters", visible=False)
 
-        self.mem_layer = viewer.add_labels(sample.nuclei.membrane_labels,
-                                      name="Membrane labels", visible=False)
-        self.nuc_layer = viewer.add_labels(morphology.erosion(
-            sample.nuclei.nuclei_labels), name="Nuclei labels", opacity=.6)
+        self.mem_layer = viewer.add_labels(
+            sample.nuclei.membrane_labels, name="Membrane labels", visible=False
+        )
+        self.nuc_layer = viewer.add_labels(
+            morphology.erosion(sample.nuclei.nuclei_labels), name="Nuclei labels", opacity=0.6
+        )
         # attach_napari_hover(sample, viewer, widget, nuc_layer, mem_layer)
-

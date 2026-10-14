@@ -27,8 +27,7 @@ class ExceptionDetailsDialog(QtWidgets.QDialog):
         self.summaryLabel.setWordWrap(True)
         self.summaryLabel.setTextFormat(QtCore.Qt.PlainText)
         self.summaryLabel.setTextInteractionFlags(
-            QtCore.Qt.TextSelectableByMouse
-            | QtCore.Qt.TextSelectableByKeyboard
+            QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard
         )
         layout.addWidget(self.summaryLabel)
 
@@ -39,8 +38,7 @@ class ExceptionDetailsDialog(QtWidgets.QDialog):
         self.tracebackEdit.setFont(font)
         layout.addWidget(self.tracebackEdit, 1)
 
-        self.buttonBox = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.Close, parent=self)
+        self.buttonBox = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close, parent=self)
         self.buttonBox.rejected.connect(self.reject)
         layout.addWidget(self.buttonBox)
 
@@ -61,11 +59,12 @@ class ExceptionDialog:
     @staticmethod
     def install(window):
         """Install a graphical handler for otherwise unhandled exceptions."""
+
         def ehook(exctype, value, tb):
-            summary = "Unhandled exception: " + repr(value)
+            summary = f"{exctype.__name__}: {value}"
             details = "".join(traceback.format_exception(exctype, value, tb))
             print(summary, "\n", details)
-            window.show_error(summary, details)
+            window.show_error(summary, details, title="Unexpected error")
 
         oldhook = sys.excepthook
         sys.excepthook = ehook

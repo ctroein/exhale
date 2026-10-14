@@ -1,14 +1,14 @@
-import os
-import numpy as np
-import pandas as pd
-import time
-from skimage import io, measure
-from collections.abc import Callable
-
 # from __future__ import annotations
 import json
+import os
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+import numpy as np
+import pandas as pd
+from skimage import io, measure
 
 from .xrf_element_channel import ElementChannel
 from .xrf_other_channel import NucleiChannel, TissueChannel
@@ -41,14 +41,14 @@ class XRFSample:
         self.name = name
 
         self._is_nuclei = True
-        self._nuclei_key = 'wP_'
+        self._nuclei_key = "wP_"
         self.nuclei: NucleiChannel | None = None
         self._df_nuclei: pd.DataFrame | None = None
         self._df_membrane: pd.DataFrame | None = None
         self._df_background: pd.DataFrame | None = None
 
         self._is_tissue = True
-        self._tissue_key = 'wCl_'
+        self._tissue_key = "wCl_"
         self.tissue: TissueChannel | None = None
 
         self.elements: dict[str, ElementChannel] = {}
@@ -62,8 +62,7 @@ class XRFSample:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_folder(cls, folder: str,
-                    element_keys: list[str]) -> "XRFSample":
+    def from_folder(cls, folder: str, element_keys: list[str]) -> "XRFSample":
         """
         Instantiate an XRFSample by scanning a folder for image files.
 
@@ -100,7 +99,7 @@ class XRFSample:
             else:
                 for key in element_keys:
                     if key in fname:
-                        element_name = key.replace('w', '').replace('_', '')
+                        element_name = key.replace("w", "").replace("_", "")
                         sample.elements[element_name] = ElementChannel(element_name, img)
                         break
 
@@ -118,12 +117,15 @@ class XRFSample:
     # Processing
     # ------------------------------------------------------------------
 
-    def process(self, nuclei_expansion_px: int = 15,
-                nuclei_min_area: int = 100,
-                cluster_min_k: int = 3,
-                cluster_max_k: int = 25,
-                cluster_n_init: int = 50,
-                callback: Callable[[str], None] = None) -> "XRFSample":
+    def process(
+        self,
+        nuclei_expansion_px: int = 15,
+        nuclei_min_area: int = 100,
+        cluster_min_k: int = 3,
+        cluster_max_k: int = 25,
+        cluster_n_init: int = 50,
+        callback: Callable[[str], None] = None,
+    ) -> "XRFSample":
         """
         Process all channels in order: nuclei -> tissue -> elements.
 
@@ -154,24 +156,21 @@ class XRFSample:
         #         f"Sample '{self.name}' has no element channels to process."
         #     )
         if callback is None:
-            callback = lambda x: None
 
-        if self._is_nuclei==True:
+            def callback(_message):
+                pass
+
+        if self._is_nuclei:
             self.nuclei.process(
-                expansion_px=nuclei_expansion_px,
-                min_area=nuclei_min_area,
-                callback=callback
+                expansion_px=nuclei_expansion_px, min_area=nuclei_min_area, callback=callback
             )
-        if self._is_tissue==True:
+        if self._is_tissue:
             callback("Processing tissue")
             self.tissue.process()
 
         for channel in self.elements.values():
             channel.process(
-                min_k=cluster_min_k,
-                max_k=cluster_max_k,
-                n_init=cluster_n_init,
-                callback=callback
+                min_k=cluster_min_k, max_k=cluster_max_k, n_init=cluster_n_init, callback=callback
             )
 
         self._processed = True
@@ -201,24 +200,28 @@ class XRFSample:
             if callback is not None:
                 callback(f"Processing {element_name}")
             temp_df = channel.cluster_df.copy()
-            tissue_area, tissue_mean_intensity = self.tissue.compute_tissue_stats(
-                channel.raw
-            )
+            tissue_area, tissue_mean_intensity = self.tissue.compute_tissue_stats(channel.raw)
 
             # Assign clusters to nuclei
             temp_df = self._assign_region(
-                self.nuclei.nuclei_labels, channel.log_image,
-                element_name, temp_df, 'nuclei', df_nuclei
+                self.nuclei.nuclei_labels,
+                channel.log_image,
+                element_name,
+                temp_df,
+                "nuclei",
+                df_nuclei,
             )
             # Assign remaining clusters to membrane
             temp_df = self._assign_region(
-                self.nuclei.membrane_labels, channel.log_image,
-                element_name, temp_df, 'membrane', df_membrane
+                self.nuclei.membrane_labels,
+                channel.log_image,
+                element_name,
+                temp_df,
+                "membrane",
+                df_membrane,
             )
             # Whatever remains is non-cellular background
-            self._assign_background(
-                element_name, temp_df, tissue_mean_intensity, df_background
-            )
+            self._assign_background(element_name, temp_df, tissue_mean_intensity, df_background)
 
         self._df_nuclei = pd.DataFrame(df_nuclei)
         self._df_membrane = pd.DataFrame(df_membrane)
@@ -231,19 +234,18 @@ class XRFSample:
             # next(iter(self.elements.values())).raw
         )
 
-        flat_nuclei = self._flatten(self._df_nuclei, 'nuclei')
-        flat_membrane = self._flatten(self._df_membrane, 'membrane')
-        flat_background = self._flatten(self._df_background, 'non_cellular')
+        flat_nuclei = self._flatten(self._df_nuclei, "nuclei")
+        flat_membrane = self._flatten(self._df_membrane, "membrane")
+        flat_background = self._flatten(self._df_background, "non_cellular")
 
         self.results_df = pd.concat(
-            [flat_nuclei, flat_membrane, flat_background],
-            ignore_index=True
+            [flat_nuclei, flat_membrane, flat_background], ignore_index=True
         )
-        self.results_df['samples'] = self.name
-        self.results_df['tissue_area'] = tissue_area
+        self.results_df["samples"] = self.name
+        self.results_df["tissue_area"] = tissue_area
 
         for df in (self._df_nuclei, self._df_membrane, self._df_background):
-            df['samples'] = self.name
+            df["samples"] = self.name
 
         self._combined = True
         return self
@@ -253,9 +255,14 @@ class XRFSample:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _assign_region(region_labels: np.ndarray, element_img: np.ndarray,
-                       element_name: str, cluster_df: pd.DataFrame,
-                       region_name: str, results: list) -> pd.DataFrame:
+    def _assign_region(
+        region_labels: np.ndarray,
+        element_img: np.ndarray,
+        element_name: str,
+        cluster_df: pd.DataFrame,
+        region_name: str,
+        results: list,
+    ) -> pd.DataFrame:
         """
         For each labelled region, find clusters whose centroid falls within
         the region bounding box, record stats, then remove those clusters
@@ -267,41 +274,46 @@ class XRFSample:
             min_row, min_col, max_row, max_col = region.bbox
 
             in_region = cluster_df[
-                (cluster_df['centroid-0'] > min_row) &
-                (cluster_df['centroid-0'] < max_row) &
-                (cluster_df['centroid-1'] > min_col) &
-                (cluster_df['centroid-1'] < max_col)
+                (cluster_df["centroid-0"] > min_row)
+                & (cluster_df["centroid-0"] < max_row)
+                & (cluster_df["centroid-1"] > min_col)
+                & (cluster_df["centroid-1"] < max_col)
             ]
 
             n = in_region.shape[0]
-            results.append({
-                'label': region.label,
-                'element': element_name,
-                'region': region_name,
-                'num_clusters': n,
-                'cluster_sizes': in_region['area'].values if n else [],
-                'cluster_intensities': in_region['mean_intensity'].values if n else [],
-                'average_element_intensity': region.intensity_mean
-            })
+            results.append(
+                {
+                    "label": region.label,
+                    "element": element_name,
+                    "region": region_name,
+                    "num_clusters": n,
+                    "cluster_sizes": in_region["area"].values if n else [],
+                    "cluster_intensities": in_region["mean_intensity"].values if n else [],
+                    "average_element_intensity": region.intensity_mean,
+                }
+            )
 
             cluster_df = cluster_df.drop(in_region.index)
 
         return cluster_df
 
     @staticmethod
-    def _assign_background(element_name: str, remaining_df: pd.DataFrame,
-                           tissue_mean_intensity: float, results: list) -> None:
+    def _assign_background(
+        element_name: str, remaining_df: pd.DataFrame, tissue_mean_intensity: float, results: list
+    ) -> None:
         """Record all remaining unassigned clusters as non-cellular background."""
         n = remaining_df.shape[0]
-        results.append({
-            'label': 1000,  # dummy label for background
-            'element': element_name,
-            'region': 'non_cellular',
-            'num_clusters': n,
-            'cluster_sizes': remaining_df['area'].values if n else [],
-            'cluster_intensities': remaining_df['mean_intensity'].values if n else [],
-            'average_element_intensity': tissue_mean_intensity
-        })
+        results.append(
+            {
+                "label": 1000,  # dummy label for background
+                "element": element_name,
+                "region": "non_cellular",
+                "num_clusters": n,
+                "cluster_sizes": remaining_df["area"].values if n else [],
+                "cluster_intensities": remaining_df["mean_intensity"].values if n else [],
+                "average_element_intensity": tissue_mean_intensity,
+            }
+        )
 
     @staticmethod
     def _flatten(df: pd.DataFrame, location: str) -> pd.DataFrame:
@@ -311,28 +323,33 @@ class XRFSample:
         """
         rows = []
         for _, row in df.iterrows():
-            for size, intensity in zip(row['cluster_sizes'],
-                                       row['cluster_intensities']):
-                rows.append({
-                    'element': row['element'],
-                    'cluster_size': size,
-                    'cluster_intensity': intensity,
-                    'location': location
-                })
+            for size, intensity in zip(
+                row["cluster_sizes"], row["cluster_intensities"], strict=True
+            ):
+                rows.append(
+                    {
+                        "element": row["element"],
+                        "cluster_size": size,
+                        "cluster_intensity": intensity,
+                        "location": location,
+                    }
+                )
         return pd.DataFrame(rows)
-
 
     # ------------------------------------------------------------------
     # Data export
     # ------------------------------------------------------------------
-    def export_results(self, outdir: str | Path, *,
+    def export_results(
+        self,
+        outdir: str | Path,
+        *,
         save_raw: bool = True,
         save_cluster_labels: bool = True,
         save_nuclei_labels: bool = True,
         save_membrane_labels: bool = True,
         save_tissue_labels: bool = True,
         save_tissue_mask: bool = True,
-        add_subdir = True,
+        add_subdir=True,
         csv_sep: str = ",",
     ) -> Path:
         """
@@ -382,11 +399,12 @@ class XRFSample:
             "combined": self._combined,
             "elements": self.element_names,
             "files": {},
-            "elem_files": {}
+            "elem_files": {},
         }
 
-        def _save(mf: dict, reldir: str, data: np.ndarray | pd.DataFrame,
-                  name: str, elem: str = None) -> None:
+        def _save(
+            mf: dict, reldir: str, data: np.ndarray | pd.DataFrame, name: str, elem: str = None
+        ) -> None:
             pref = "" if elem is None else elem + "_"
             if isinstance(data, np.ndarray):
                 ftype = "tif"
@@ -417,20 +435,18 @@ class XRFSample:
             if save_raw:
                 _save(mf, channels_dir, self.nuclei.raw, "nuclei_raw")
             if save_nuclei_labels and self.nuclei.nuclei_labels is not None:
-                _save(mf, masks_dir, self.nuclei.nuclei_labels.astype(np.int32),
-                      "nuclei_labels")
+                _save(mf, masks_dir, self.nuclei.nuclei_labels.astype(np.int32), "nuclei_labels")
             if save_membrane_labels and self.nuclei.membrane_labels is not None:
-                _save(mf, masks_dir, self.nuclei.membrane_labels.astype(np.int32),
-                      "membrane_labels")
+                _save(
+                    mf, masks_dir, self.nuclei.membrane_labels.astype(np.int32), "membrane_labels"
+                )
         if self.tissue is not None:
             if save_raw:
                 _save(mf, channels_dir, self.tissue.raw, "tissue_raw")
             if save_tissue_mask and self.tissue.tissue_mask is not None:
-                _save(mf, masks_dir, self.tissue.tissue_mask.astype(np.uint8),
-                      "tissue_mask")
+                _save(mf, masks_dir, self.tissue.tissue_mask.astype(np.uint8), "tissue_mask")
             if save_tissue_labels and self.tissue.tissue_labels is not None:
-                _save(mf, masks_dir, self.tissue.tissue_labels.astype(np.int32),
-                      "tissue_labels")
+                _save(mf, masks_dir, self.tissue.tissue_labels.astype(np.int32), "tissue_labels")
 
         # Per-element exports
         for element_name, ch in self.elements.items():
@@ -438,24 +454,37 @@ class XRFSample:
             if save_raw:
                 _save(emf, channels_dir, ch.raw, "raw", element_name)
             if save_cluster_labels and ch.cluster_labels is not None:
-                _save(emf, clusters_dir, ch.cluster_labels.astype(np.int32),
-                      "cluster_labels", element_name)
+                _save(
+                    emf,
+                    clusters_dir,
+                    ch.cluster_labels.astype(np.int32),
+                    "cluster_labels",
+                    element_name,
+                )
             if ch.cluster_df is not None:
-                _save(emf, tables_dir, ch.cluster_df,
-                      "cluster_regions", element_name)
+                _save(emf, tables_dir, ch.cluster_df, "cluster_regions", element_name)
 
         # Combined result tables
         if self.results_df is not None:
             _save(mf, tables_dir, self.results_df, "results_flat")
         if self._df_nuclei is not None:
-            _save(mf, tables_dir, self._prepare_object_df_for_csv(self._df_nuclei),
-                  "results_nuclei")
+            _save(
+                mf, tables_dir, self._prepare_object_df_for_csv(self._df_nuclei), "results_nuclei"
+            )
         if self._df_membrane is not None:
-            _save(mf, tables_dir, self._prepare_object_df_for_csv(self._df_membrane),
-                  "results_membrane")
+            _save(
+                mf,
+                tables_dir,
+                self._prepare_object_df_for_csv(self._df_membrane),
+                "results_membrane",
+            )
         if self._df_background is not None:
-            _save(mf, tables_dir, self._prepare_object_df_for_csv(self._df_background),
-                  "results_background")
+            _save(
+                mf,
+                tables_dir,
+                self._prepare_object_df_for_csv(self._df_background),
+                "results_background",
+            )
 
         # Metadata manifest
         manifest["status"] = {
@@ -474,7 +503,6 @@ class XRFSample:
         with manifest_path.open("w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2, default=_jsonable)
         return str(outdir)
-
 
     @staticmethod
     def _prepare_object_df_for_csv(df: pd.DataFrame) -> pd.DataFrame:
@@ -496,6 +524,7 @@ class XRFSample:
         if isinstance(value, tuple):
             return json.dumps(list(value))
         return value
+
     # ------------------------------------------------------------------
     # Convenience accessors
     # ------------------------------------------------------------------
@@ -556,7 +585,7 @@ class XRFSample:
         self._tissue_key = key
 
     def __repr__(self) -> str:
-        status = "combined" if self._combined else ("processed" if self._processed else "unprocessed")
-        return (f"XRFSample(name='{self.name}', "
-                f"elements={self.element_names}, "
-                f"status={status})")
+        status = (
+            "combined" if self._combined else ("processed" if self._processed else "unprocessed")
+        )
+        return f"XRFSample(name='{self.name}', elements={self.element_names}, status={status})"

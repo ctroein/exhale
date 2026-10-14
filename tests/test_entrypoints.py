@@ -1,8 +1,9 @@
 """Public launchers must expose the same CLI without starting the GUI."""
-from pathlib import Path
+
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 from exhale import exhale_version
 
@@ -17,8 +18,9 @@ class EntrypointTests(unittest.TestCase):
         )
         results = []
         for command in commands:
-            result = subprocess.run(command + [argument], cwd=root,
-                                    capture_output=True, text=True, timeout=15)
+            result = subprocess.run(
+                command + [argument], cwd=root, capture_output=True, text=True, timeout=15
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             results.append(result.stdout)
         return results

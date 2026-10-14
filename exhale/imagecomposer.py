@@ -1,32 +1,36 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Fri Feb  6 13:46:40 2026
 
 @author: carl
 """
-from dataclasses import dataclass
 
-from .imagesettings import ImageSettings, Layouts, Scalebars
-import numpy as np
 import math
+from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-Image.MAX_IMAGE_PIXELS = None
+
 from .constants import DISPLAY_UNITS
+from .imagesettings import ImageSettings, Layouts, Scalebars
+
+Image.MAX_IMAGE_PIXELS = None
 
 
 def _nearest_lookup(source_size, target_size):
     """Return Pillow's exact nearest-neighbour source index for each output."""
     indices = np.arange(source_size, dtype=np.int32).reshape(1, source_size)
     resized = Image.fromarray(indices, mode="I").resize(
-        (target_size, 1), resample=Image.Resampling.NEAREST)
+        (target_size, 1), resample=Image.Resampling.NEAREST
+    )
     return np.asarray(resized, dtype=np.intp)[0].copy()
 
 
 @dataclass(frozen=True)
 class ComposedImageMapping:
     """Map pixels in the composed canvas back to the merged source map."""
+
     x: int
     y: int
     width: int
@@ -45,13 +49,41 @@ class ComposedImageMapping:
         return int(self.source_x[local_x]), int(self.source_y[local_y])
 
 
-class ImageComposer():
+class ImageComposer:
     "Functionality for making a nice image out of element maps"
+
     def __init__(self):
         self.coord_mapping = None
+        self._layer_cache = {}
+        self._strip_image_cache = {}
 
     @staticmethod
-    def merged_image(image: ImageSettings):
+    def _element_layer_key(element):
+        return (
+            element,
+            element.normalizer.value,
+            tuple(element.trfRange),
+            element.gamma,
+            element.data.shape,
+        )
+
+    def _layers(self, elements):
+        """Return transformed element maps, reusing color-independent work."""
+        keys = {slot: self._element_layer_key(element) for slot, element in elements}
+        layers = {}
+        for slot, element in elements:
+            key = keys[slot]
+            layers[slot] = self._layer_cache.get(key)
+            if layers[slot] is None:
+                layers[slot] = element.transformedData()
+        self._layer_cache = {keys[slot]: layer for slot, layer in layers.items()}
+        self._strip_image_cache = {
+            key: image for key, image in self._strip_image_cache.items() if key in self._layer_cache
+        }
+        return keys, layers
+
+    @staticmethod
+    def merged_image(image: ImageSettings, layers=None):
         "Merge the element images with different colors"
         # We don't cache the merged image because the colors etc could change
         # so easily anyway.
@@ -65,15 +97,14 @@ class ImageComposer():
         maxcolor[maxcolor <= 0] = 1
         # print("maxcolor", maxcolor)
         for i, es in elements.items():
-            td = es.transformedData()
+            td = es.transformedData() if layers is None else layers[i]
             h, w = td.shape
             merged[:h, :w] = merged[:h, :w] + td[..., None] * colors[i]
         if image.clipColors:
-            return np.minimum(merged, 1.)
+            return np.minimum(merged, 1.0)
         return merged / maxcolor
 
-    def display_composed_image(self, canvas, image: ImageSettings,
-                               *, reset_view=False):
+    def display_composed_image(self, canvas, image: ImageSettings, *, reset_view=False):
         "Render a composed image into an ImageCanvas."
         if not image.elements:
             self.coord_mapping = None
@@ -90,12 +121,13 @@ class ImageComposer():
 
     @staticmethod
     def get_format_filters():
-        return ["PNG (*.png)",
-                "PDF (*.pdf)",
-                "TIFF (*.tif *.tiff)",
-                "JPEG (*.jpg *.jpeg)",
-                "All files (*)"]
-
+        return [
+            "PNG (*.png)",
+            "PDF (*.pdf)",
+            "TIFF (*.tif *.tiff)",
+            "JPEG (*.jpg *.jpeg)",
+            "All files (*)",
+        ]
 
     def compose(self, image: ImageSettings, savename=None):
         """
@@ -112,8 +144,9 @@ class ImageComposer():
 
         elems = sorted(image.elements.items())
         eshapes = np.array([e.data.shape for _, e in elems], dtype=int)
+        layer_keys, layers = self._layers(elems)
 
-        merged = ImageComposer.merged_image(image)
+        merged = ImageComposer.merged_image(image, layers)
         mh, mw, _ = merged.shape
         bw = int(image.borderWidth)
 
@@ -137,9 +170,7 @@ class ImageComposer():
             if image.layout == Layouts.IR:
                 exs = [int(W - bw - w) for h, w in eshapes]
 
-            eys = (
-                np.cumsum(eshapes[:, 0] + bw) - eshapes[0, 0]
-            ).astype(int).tolist()
+            eys = (np.cumsum(eshapes[:, 0] + bw) - eshapes[0, 0]).astype(int).tolist()
 
         elif image.layout in (Layouts.IA, Layouts.IB):
             strip_w = int(eshapes[:, 1].sum() + bw * (len(elems) - 1))
@@ -156,9 +187,7 @@ class ImageComposer():
             if image.layout == Layouts.IB:
                 eys = [int(H - bw - h) for h, w in eshapes]
 
-            exs = (
-                np.cumsum(eshapes[:, 1] + bw) - eshapes[0, 1]
-            ).astype(int).tolist()
+            exs = (np.cumsum(eshapes[:, 1] + bw) - eshapes[0, 1]).astype(int).tolist()
 
         elif image.layout == Layouts.MERGED:
             merged_w, merged_h = int(mw), int(mh)
@@ -191,6 +220,14 @@ class ImageComposer():
             if pil.size != tuple(size):
                 pil = pil.resize(tuple(size), resample=Image.Resampling.NEAREST)
             return pil
+
+        strip_images = {}
+        for slot, _element in elems:
+            key = layer_keys[slot]
+            if key not in self._strip_image_cache:
+                layer = layers[slot]
+                self._strip_image_cache[key] = resize_rgba(layer, (layer.shape[1], layer.shape[0]))
+            strip_images[slot] = self._strip_image_cache[key]
 
         def get_font(size):
             size = max(1, int(round(size)))
@@ -236,16 +273,14 @@ class ImageComposer():
             x, y = xy
             for dx in range(-stroke_width, stroke_width + 1):
                 for dy in range(-stroke_width, stroke_width + 1):
-                    if dx*dx + dy*dy <= stroke_width * stroke_width:
-                        odraw.text((x + dx, y + dy), text, font=font,
-                                   fill=outline, anchor=anchor)
+                    if dx * dx + dy * dy <= stroke_width * stroke_width:
+                        odraw.text((x + dx, y + dy), text, font=font, fill=outline, anchor=anchor)
 
             # Draw main text (opaque) on same overlay
             odraw.text(xy, text, font=font, fill=fill, anchor=anchor)
 
             # Composite onto canvas
             canvas.alpha_composite(overlay)
-
 
         def format_length(value, units):
             """
@@ -268,7 +303,7 @@ class ImageComposer():
             if x <= 0:
                 return 0
             exp = math.floor(math.log10(x))
-            f = x / (10 ** exp)
+            f = x / (10**exp)
             if f < 1.5:
                 nf = 1
             elif f < 3.5:
@@ -277,7 +312,7 @@ class ImageComposer():
                 nf = 5
             else:
                 nf = 10
-            return nf * (10 ** exp)
+            return nf * (10**exp)
 
         def draw_scale_bar(draw):
             if image.scalebar == Scalebars.NONE:
@@ -371,17 +406,18 @@ class ImageComposer():
         # ------------------------------------------------------------
         # Element strip
         # ------------------------------------------------------------
-        for i, (x, y, (eix, e)) in enumerate(zip(exs, eys, elems)):
+        strip_elements = [] if image.layout == Layouts.MERGED else elems
+        for i, (x, y, (eix, e)) in enumerate(zip(exs, eys, strip_elements, strict=True)):
             x = int(x)
             y = int(y)
 
-            arr = e.transformedData()
+            arr = layers[eix]
             h, w = arr.shape
 
-            canvas.alpha_composite(resize_rgba(arr, (w, h)), dest=(x, y))
+            canvas.alpha_composite(strip_images[eix], dest=(x, y))
 
-            if image.elementBorders and bw >= 3:
-                ebw = max(1, bw // 3)
+            ebw = (bw + 1) // 3
+            if image.elementBorders and ebw > 0:
                 gap = 0
                 draw.rectangle(
                     [

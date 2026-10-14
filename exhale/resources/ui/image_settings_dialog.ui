@@ -191,7 +191,7 @@
         <string>in channel color</string>
        </property>
        <property name="checked">
-        <bool>true</bool>
+        <bool>false</bool>
        </property>
       </widget>
      </item>
@@ -240,6 +240,24 @@
       </size>
      </property>
     </spacer>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="projectDefaultsLayout">
+     <item>
+      <widget class="QPushButton" name="applyProjectDefaults">
+       <property name="text">
+        <string>Apply project defaults</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="useAsProjectDefaults">
+       <property name="text">
+        <string>Use as project defaults</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
    <item>
     <widget class="QDialogButtonBox" name="buttonBox">

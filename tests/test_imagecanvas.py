@@ -1,8 +1,11 @@
 """Image display invariants, including rendering and array orientation."""
+
 import os
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import unittest
+
 import numpy as np
 from qtpy import QtCore, QtGui, QtTest, QtWidgets
 
@@ -28,13 +31,13 @@ class ImageCanvasTests(unittest.TestCase):
 
     def rendered_pixel(self, row, column):
         self.app.processEvents()
-        scene = self.canvas.image_item.mapToScene(
-            QtCore.QPointF(column + 0.5, row + 0.5))
+        scene = self.canvas.image_item.mapToScene(QtCore.QPointF(column + 0.5, row + 0.5))
         point = self.canvas.mapFromScene(scene)
         pixmap = self.canvas.viewport().grab()
         ratio = pixmap.devicePixelRatio()
-        return pixmap.toImage().pixelColor(round(point.x() * ratio),
-                                          round(point.y() * ratio)).getRgb()
+        return (
+            pixmap.toImage().pixelColor(round(point.x() * ratio), round(point.y() * ratio)).getRgb()
+        )
 
     def test_grayscale_levels_are_fixed_and_image_is_not_flipped(self):
         data = np.array([[0.2, 0.4, 0.6], [0.8, 1, 0]], dtype=np.float32)
@@ -51,9 +54,13 @@ class ImageCanvasTests(unittest.TestCase):
 
     def test_rgba_switching_preserves_colors(self):
         self.canvas.set_image(np.ones((2, 3)))
-        data = np.array([[[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]],
-                         [[25, 50, 75, 255], [200, 100, 50, 255], [0, 0, 0, 255]]],
-                        dtype=np.uint8)
+        data = np.array(
+            [
+                [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]],
+                [[25, 50, 75, 255], [200, 100, 50, 255], [0, 0, 0, 255]],
+            ],
+            dtype=np.uint8,
+        )
         self.canvas.set_image(data)
         for row in range(2):
             for column in range(3):
@@ -88,8 +95,13 @@ class ImageCanvasTests(unittest.TestCase):
 
     def test_invalid_input_does_not_replace_image(self):
         self.canvas.set_image(np.zeros((2, 3)))
-        for data in (np.zeros((0, 3)), np.zeros(3), np.zeros((2, 3, 3)),
-                     np.zeros((2, 3, 4), dtype=float), np.full((2, 3), 'text')):
+        for data in (
+            np.zeros((0, 3)),
+            np.zeros(3),
+            np.zeros((2, 3, 3)),
+            np.zeros((2, 3, 4), dtype=float),
+            np.full((2, 3), "text"),
+        ):
             with self.subTest(shape=data.shape), self.assertRaises(ValueError):
                 self.canvas.set_image(data)
         self.assertEqual(self.canvas.image_item.image.shape, (2, 3))
@@ -118,24 +130,22 @@ class ImageCanvasTests(unittest.TestCase):
         QtTest.QTest.keyClick(self.canvas, QtCore.Qt.Key.Key_Minus)
         after_out = np.asarray(self.canvas.view_box.viewRange())
         np.testing.assert_allclose(
-            np.diff(after_out, axis=1), np.diff(after_up, axis=1), rtol=1e-12)
+            np.diff(after_out, axis=1), np.diff(after_up, axis=1), rtol=1e-12
+        )
 
         QtTest.QTest.keyClick(self.canvas, QtCore.Qt.Key.Key_Home)
-        self.assertTrue(self.canvas.view_box.viewRect().contains(
-            QtCore.QRectF(0, 0, 200, 100)))
+        self.assertTrue(self.canvas.view_box.viewRect().contains(QtCore.QRectF(0, 0, 200, 100)))
 
     def test_zoom_out_stops_at_fitted_view(self):
         self.canvas.set_image(np.zeros((100, 200)))
         fitted = np.asarray(self.canvas.view_box.viewRange())
 
         self.canvas._zoom(1.25)
-        np.testing.assert_allclose(
-            self.canvas.view_box.viewRange(), fitted, rtol=1e-12, atol=1e-12)
+        np.testing.assert_allclose(self.canvas.view_box.viewRange(), fitted, rtol=1e-12, atol=1e-12)
 
         self.canvas._zoom(0.8)
         self.canvas._zoom(2)
-        np.testing.assert_allclose(
-            self.canvas.view_box.viewRange(), fitted, rtol=1e-12, atol=1e-12)
+        np.testing.assert_allclose(self.canvas.view_box.viewRange(), fitted, rtol=1e-12, atol=1e-12)
 
     def test_panning_stops_at_image_edges_and_centers_padding(self):
         self.canvas.set_image(np.zeros((100, 200)))
@@ -145,7 +155,7 @@ class ImageCanvasTests(unittest.TestCase):
             self.canvas._zoom(zoom)
             self.canvas.view_box.translateBy(x=10000, y=10000)
             ranges = self.canvas.view_box.viewRange()
-            for limits, image_size in zip(ranges, (200, 100)):
+            for limits, image_size in zip(ranges, (200, 100), strict=True):
                 span = limits[1] - limits[0]
                 if span >= image_size:
                     self.assertAlmostEqual(sum(limits) / 2, image_size / 2)
@@ -158,10 +168,8 @@ class ImageCanvasTests(unittest.TestCase):
         self.assertTrue(self.canvas.fit_button.isVisible())
         self.assertGreaterEqual(self.canvas.fit_button.x(), 0)
         self.canvas.view_box.setRange(xRange=(10, 20), yRange=(5, 10), padding=0)
-        QtTest.QTest.mouseClick(
-            self.canvas.fit_button, QtCore.Qt.MouseButton.LeftButton)
-        self.assertTrue(self.canvas.view_box.viewRect().contains(
-            QtCore.QRectF(0, 0, 40, 20)))
+        QtTest.QTest.mouseClick(self.canvas.fit_button, QtCore.Qt.MouseButton.LeftButton)
+        self.assertTrue(self.canvas.view_box.viewRect().contains(QtCore.QRectF(0, 0, 40, 20)))
 
     def test_left_drag_pans(self):
         self.canvas.set_image(np.zeros((100, 200)))
@@ -170,18 +178,17 @@ class ImageCanvasTests(unittest.TestCase):
         viewport = self.canvas.viewport()
         start = viewport.rect().center()
         before = np.asarray(self.canvas.view_box.viewRange())
-        QtTest.QTest.mousePress(
-            viewport, QtCore.Qt.MouseButton.LeftButton, pos=start)
+        QtTest.QTest.mousePress(viewport, QtCore.Qt.MouseButton.LeftButton, pos=start)
         end = start + QtCore.QPoint(30, 15)
         move = QtGui.QMouseEvent(
-            QtCore.QEvent.Type.MouseMove, QtCore.QPointF(end),
+            QtCore.QEvent.Type.MouseMove,
+            QtCore.QPointF(end),
             QtCore.Qt.MouseButton.NoButton,
             QtCore.Qt.MouseButton.LeftButton,
-            QtCore.Qt.KeyboardModifier.NoModifier)
+            QtCore.Qt.KeyboardModifier.NoModifier,
+        )
         QtWidgets.QApplication.sendEvent(viewport, move)
-        QtTest.QTest.mouseRelease(
-            viewport, QtCore.Qt.MouseButton.LeftButton,
-            pos=end)
+        QtTest.QTest.mouseRelease(viewport, QtCore.Qt.MouseButton.LeftButton, pos=end)
         self.app.processEvents()
         after = np.asarray(self.canvas.view_box.viewRange())
         self.assertFalse(np.allclose(after, before))
@@ -194,10 +201,15 @@ class ImageCanvasTests(unittest.TestCase):
         pos = QtCore.QPointF(viewport.rect().center())
         before = np.asarray(self.canvas.view_box.viewRange())
         event = QtGui.QWheelEvent(
-            pos, self.canvas.mapToGlobal(pos.toPoint()), QtCore.QPoint(),
-            QtCore.QPoint(0, 120), QtCore.Qt.MouseButton.NoButton,
+            pos,
+            self.canvas.mapToGlobal(pos.toPoint()),
+            QtCore.QPoint(),
+            QtCore.QPoint(0, 120),
+            QtCore.Qt.MouseButton.NoButton,
             QtCore.Qt.KeyboardModifier.NoModifier,
-            QtCore.Qt.ScrollPhase.ScrollUpdate, False)
+            QtCore.Qt.ScrollPhase.ScrollUpdate,
+            False,
+        )
         QtWidgets.QApplication.sendEvent(viewport, event)
         self.app.processEvents()
         after = np.asarray(self.canvas.view_box.viewRange())
@@ -206,15 +218,13 @@ class ImageCanvasTests(unittest.TestCase):
 
     def test_pixel_mapping_is_exact_after_pan_and_zoom(self):
         self.canvas.set_image(np.zeros((17, 23)))
-        self.canvas.view_box.setRange(
-            xRange=(3.25, 11.75), yRange=(4.5, 10.5), padding=0)
+        self.canvas.view_box.setRange(xRange=(3.25, 11.75), yRange=(4.5, 10.5), padding=0)
         self.canvas.view_box.scaleBy((0.63, 0.63), center=(7.5, 7.5))
         self.canvas.view_box.translateBy(x=1.125, y=-0.75)
         self.app.processEvents()
 
         for x, y in ((0, 0), (5, 8), (22, 16)):
-            scene = self.canvas.image_item.mapToScene(
-                QtCore.QPointF(x + 0.5, y + 0.5))
+            scene = self.canvas.image_item.mapToScene(QtCore.QPointF(x + 0.5, y + 0.5))
             self.assertEqual(self.canvas.pixel_at_scene(scene), (x, y))
             viewport = self.canvas.mapFromScene(scene)
             self.assertEqual(self.canvas.pixel_at_viewport(viewport), (x, y))
