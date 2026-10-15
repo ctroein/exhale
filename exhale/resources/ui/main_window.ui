@@ -457,6 +457,13 @@
                  </property>
                 </widget>
                </item>
+               <item>
+                <widget class="IconToolButton" name="analysisFit">
+                 <property name="toolTip">
+                  <string>Fit image to view</string>
+                 </property>
+                </widget>
+               </item>
               </layout>
              </item>
             </layout>
@@ -649,28 +656,28 @@
   <customwidget>
    <class>ElementListWidget</class>
    <extends>QListWidget</extends>
-   <header>exhale.listwidgets</header>
+   <header>exhale.imaging.listwidgets</header>
   </customwidget>
   <customwidget>
    <class>ImageListWidget</class>
    <extends>QListWidget</extends>
-   <header>exhale.listwidgets</header>
+   <header>exhale.imaging.listwidgets</header>
   </customwidget>
   <customwidget>
    <class>LayerListWidget</class>
    <extends>QListWidget</extends>
-   <header>exhale.layerwidgets</header>
+   <header>exhale.analysis.layerwidgets</header>
   </customwidget>
   <customwidget>
    <class>HistogramWidget</class>
    <extends>QWidget</extends>
-   <header>exhale.histogramwidget</header>
+   <header>exhale.imaging.histogramwidget</header>
    <container>1</container>
   </customwidget>
   <customwidget>
    <class>ImageCanvas</class>
    <extends>QWidget</extends>
-   <header>exhale.imagecanvas</header>
+   <header>exhale.imaging.imagecanvas</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

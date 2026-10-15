@@ -9,7 +9,7 @@ from napari.layers import Image, Labels
 from napari.utils.colormaps import Colormap
 from qtpy import QtCore, QtWidgets
 
-from exhale.naparihelper import NapariHelper
+from exhale.analysis.naparihelper import NapariHelper
 
 
 class NapariPresentationTest(unittest.TestCase):
@@ -175,6 +175,36 @@ class NapariPresentationTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "must match"):
             self.helper.set_sample(sample, ())
+
+    def test_element_map_update_retains_layers_and_presentation(self):
+        self.helper.viewer = ViewerModel()
+        raw = np.ones((2, 3), dtype=np.float32)
+        sample = SimpleNamespace(
+            tissue=SimpleNamespace(raw=raw),
+            nuclei=SimpleNamespace(
+                raw=raw,
+                membrane_labels=np.zeros_like(raw, dtype=np.uint8),
+                nuclei_labels=np.ones_like(raw, dtype=np.uint8),
+            ),
+            elements={"Fe": SimpleNamespace(raw=raw, cluster_labels=None)},
+        )
+        self.helper.set_sample(sample, (raw,))
+        layers = tuple(self.helper.viewer.layers)
+        element_layer = next(layer for layer in layers if layer.name == "Fe map")
+        element_layer.visible = True
+        element_layer.opacity = 0.35
+
+        replacement = np.full(raw.shape, 0.25, dtype=np.float32)
+        self.helper.update_element_maps({"Fe": replacement})
+
+        self.assertEqual(tuple(self.helper.viewer.layers), layers)
+        self.assertIs(
+            next(layer for layer in self.helper.viewer.layers if layer.name == "Fe map"),
+            element_layer,
+        )
+        np.testing.assert_array_equal(element_layer.data, replacement)
+        self.assertTrue(element_layer.visible)
+        self.assertEqual(element_layer.opacity, 0.35)
 
 
 class NapariRenderingTest(unittest.TestCase):

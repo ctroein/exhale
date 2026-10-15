@@ -9,7 +9,7 @@ import threading
 
 from qtpy import QtCore
 
-from .data.elementsettings import ElementSettings
+from ..data.elementsettings import ElementSettings
 
 
 @contextlib.contextmanager
@@ -158,13 +158,13 @@ class AnalysisWorker(QtCore.QObject):
                 contextlib.redirect_stdout(estream),
                 contextlib.redirect_stderr(estream),
             ):
-                from .xrf_refcopy import xrf_utils
+                from ..xrf_refcopy import xrf_utils
 
                 xrf_utils.set_model_basedir(
                     importlib.resources.files("exhale").joinpath("resources/models")
                 )
-                from .xrf_refcopy.xrf_other_channel import NucleiChannel, TissueChannel
-                from .xrf_refcopy.xrf_sample_class import XRFSample
+                from ..xrf_refcopy.xrf_other_channel import NucleiChannel, TissueChannel
+                from ..xrf_refcopy.xrf_sample_class import XRFSample
 
                 sample = XRFSample(self.sample_name)
                 sample.nuclei = NucleiChannel(self.nuclei_es.data)

@@ -5,9 +5,9 @@ import numpy as np
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import Qt
 
-from . import icons
-from .data.imagesettings import ImageSettings
-from .data.source_refs import ElementRef
+from .. import icons
+from ..data.imagesettings import ImageSettings
+from ..data.source_refs import ElementRef
 
 _GROUP_DIVIDER_ROLE = Qt.UserRole + 13
 

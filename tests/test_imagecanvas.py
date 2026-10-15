@@ -9,7 +9,7 @@ import unittest
 import numpy as np
 from qtpy import QtCore, QtGui, QtTest, QtWidgets
 
-from exhale.imagecanvas import ImageCanvas
+from exhale.imaging.imagecanvas import ImageCanvas
 
 
 class ImageCanvasTests(unittest.TestCase):

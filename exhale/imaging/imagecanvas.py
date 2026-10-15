@@ -6,8 +6,8 @@ import numpy as np
 import pyqtgraph as pg
 from qtpy import QtCore, QtWidgets
 
-from . import icons
-from .widgets import IconToolButton
+from .. import icons
+from ..widgets import IconToolButton
 
 
 class ImageViewBox(pg.ViewBox):

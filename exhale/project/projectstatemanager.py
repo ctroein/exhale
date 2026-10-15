@@ -8,7 +8,8 @@ from pathlib import Path
 
 from qtpy import QtCore, QtWidgets
 
-from . import application_name, projectio
+from .. import application_name
+from . import projectio
 
 PROJECT_AUTOSAVE_KEY = "behavior/autosave_project"
 PROJECT_SAVE_ON_EXIT_KEY = "behavior/save_project_on_exit"

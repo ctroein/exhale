@@ -6,7 +6,11 @@ This document describes the conventions and invariants for work on Exhale.
 
 Application code is in `exhale/`, with `exhale/__main__.py` as the main entry
 point. Widget-independent project, channel, source, and settings models are
-grouped in `exhale/data/`. XRF analysis code is grouped in
+grouped in `exhale/data/`. Image composition, display, and image-specific
+controls are grouped in `exhale/imaging/`. Analysis execution, persistence,
+and result visualization are grouped in `exhale/analysis/`. Saved-project
+persistence, lifecycle policy, and project controls are grouped in
+`exhale/project/`. The imported numerical implementation remains in
 `exhale/xrf_refcopy/`.
 Tests are in `tests/`.
 

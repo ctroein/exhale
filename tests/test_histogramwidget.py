@@ -9,7 +9,7 @@ import unittest
 import numpy as np
 from qtpy import QtCore, QtWidgets
 
-from exhale.histogramwidget import HistogramWidget
+from exhale.imaging.histogramwidget import HistogramWidget
 
 
 class HistogramWidgetTests(unittest.TestCase):

@@ -8,8 +8,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .data.constants import DISPLAY_UNITS
-from .data.imagesettings import ImageSettings, Layouts, Scalebars
+from ..data.constants import DISPLAY_UNITS
+from ..data.imagesettings import ImageSettings, Layouts, Scalebars
 
 Image.MAX_IMAGE_PIXELS = None
 

@@ -12,7 +12,7 @@ from napari.utils.colormaps.standardize_color import transform_color
 from qtpy import QtGui, QtWidgets
 from skimage import morphology
 
-from .data.constants import CONCENTRATION_UNITS
+from ..data.constants import CONCENTRATION_UNITS
 
 
 class NapariHelper:
@@ -33,6 +33,7 @@ class NapariHelper:
         self.sample = None
         self.nuc_layer = None
         self.mem_layer = None
+        self._element_layers = {}
         self.viewer.mouse_move_callbacks.append(self._hover)
         self.viewer.mouse_drag_callbacks.append(self._click)
         self.info_widget = None
@@ -425,6 +426,7 @@ class NapariHelper:
             self._image_colors.clear()
             self.nuc_layer = None
             self.mem_layer = None
+            self._element_layers = {}
             return
 
         element_items = tuple(sample.elements.items())
@@ -439,6 +441,7 @@ class NapariHelper:
         viewer.layers.clear()
         self._label_presentations.clear()
         self._image_colors.clear()
+        self._element_layers = {}
 
         background = viewer.add_image(
             np.zeros(sample.tissue.raw.shape, dtype=np.uint8),
@@ -468,12 +471,13 @@ class NapariHelper:
 
         cluster_layers = []
         for (name, ch), display_map in zip(element_items, element_maps, strict=True):
-            viewer.add_image(
+            self._element_layers[name] = viewer.add_image(
                 display_map,
                 name=f"{name} map",
                 visible=False,
                 colormap="red",
                 blending=self.BLENDING_ADD,
+                metadata={"exhale_role": "element_map", "exhale_element": name},
             )
             if ch.cluster_labels is not None:
                 cluster_layers.append((name, ch.cluster_labels))
@@ -500,3 +504,12 @@ class NapariHelper:
         )
         viewer.reset_view()
         # attach_napari_hover(sample, viewer, widget, nuc_layer, mem_layer)
+
+    def update_element_maps(self, maps):
+        """Replace data for existing element-map layers without rebuilding the viewer."""
+        unknown = set(maps) - set(self._element_layers)
+        if unknown:
+            names = ", ".join(sorted(unknown))
+            raise KeyError(f"No element-map layer for: {names}")
+        for name, data in maps.items():
+            self._element_layers[name].data = data

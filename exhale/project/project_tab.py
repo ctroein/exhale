@@ -6,8 +6,8 @@ from pathlib import Path
 from qtpy import QtCore, QtWidgets
 from qtpy.QtCore import Qt
 
-from . import icons
-from .listwidgets import ElementListWidget
+from .. import icons
+from ..imaging.listwidgets import ElementListWidget
 
 
 class _SampleTreeDelegate(QtWidgets.QStyledItemDelegate):

@@ -7,8 +7,9 @@ from pathlib import Path
 
 from qtpy import QtWidgets
 
-from . import application_name, projectio
-from .overridecursor import OverrideCursor
+from .. import application_name
+from ..overridecursor import OverrideCursor
+from . import projectio
 from .projectstatemanager import PROJECT_AUTOSAVE_FILENAME
 
 PROJECT_FILENAME = "project.xhp"

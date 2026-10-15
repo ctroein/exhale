@@ -3,7 +3,7 @@
 from qtpy import QtCore, QtWidgets
 
 from . import appearance
-from .projectstatemanager import PROJECT_AUTOSAVE_KEY, PROJECT_SAVE_ON_EXIT_KEY
+from .project.projectstatemanager import PROJECT_AUTOSAVE_KEY, PROJECT_SAVE_ON_EXIT_KEY
 from .settings_dialog_ui import Ui_SettingsDialog
 
 

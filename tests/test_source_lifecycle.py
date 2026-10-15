@@ -19,7 +19,6 @@ import numpy as np
 from PIL import Image
 from qtpy import QtCore, QtTest, QtWidgets
 
-from exhale import projectio
 from exhale.data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from exhale.data.imagesettings import ImageSettings, Layouts
 from exhale.data.projectdata import (
@@ -28,9 +27,10 @@ from exhale.data.projectdata import (
     SegmentationResult,
 )
 from exhale.data.source_refs import open_source
-from exhale.listwidgets import ElementListWidget
-from exhale.main_window import ACTIVE_TAB_SETTINGS_KEY, MainWindow
-from exhale.projectstatemanager import PROJECT_SAVE_ON_EXIT_KEY
+from exhale.imaging.listwidgets import ElementListWidget
+from exhale.main_window import ACTIVE_TAB_SETTINGS_KEY, SPLITTER_SETTINGS_PREFIX, MainWindow
+from exhale.project import projectio
+from exhale.project.projectstatemanager import PROJECT_SAVE_ON_EXIT_KEY
 
 
 class SourceLifecycleTests(unittest.TestCase):
@@ -94,6 +94,43 @@ class SourceLifecycleTests(unittest.TestCase):
 
         self.assertIs(self.win.tabWidget.currentWidget(), self.win.dataTab)
         self.assertFalse(self.win.project_state_manager.is_dirty)
+
+    def test_all_main_window_splitters_are_saved_as_application_state(self):
+        settings = self.win.settings
+        expected_names = {
+            "project_data",
+            "splitter",
+            "analysis",
+            "analysis_left",
+            "analysis_right",
+        }
+        self.assertEqual(set(self.win._splitter_initializers), expected_names)
+        previous = {}
+        for name in expected_names:
+            key = f"{SPLITTER_SETTINGS_PREFIX}/{name}"
+            previous[key] = (settings.contains(key), settings.value(key))
+
+        def restore_settings():
+            for initializer in self.win._splitter_initializers.values():
+                initializer.initialized = False
+            for key, (existed, value) in previous.items():
+                if existed:
+                    settings.setValue(key, value)
+                else:
+                    settings.remove(key)
+
+        self.addCleanup(restore_settings)
+        for index, initializer in enumerate(self.win._splitter_initializers.values(), start=1):
+            initializer.initialized = True
+            initializer.splitter.setSizes(
+                [index * (pane + 1) * 100 for pane in range(initializer.splitter.count())]
+            )
+
+        self.win._save_splitter_states()
+
+        for name, initializer in self.win._splitter_initializers.items():
+            key = f"{SPLITTER_SETTINGS_PREFIX}/{name}"
+            self.assertEqual(settings.value(key), initializer.splitter.saveState())
 
     def test_tiff_decoder_dependency_error_is_explained_and_import_is_rolled_back(self):
         error = ValueError("<COMPRESSION.LZW: 5> requires the 'imagecodecs' package")
@@ -607,7 +644,7 @@ class SourceLifecycleTests(unittest.TestCase):
         fe_ref = sample.channels["Fe"].ref
         zn_ref = sample.channels["Zn"].ref
         parameters = SegmentationParameters(7, 19, 3, 8, 6)
-        xrf_sample = object()
+        xrf_sample = SimpleNamespace(elements={"Zn": object()})
         self.win.project_data.segmentation_results[first_id] = SegmentationResult(
             first_id,
             fe_ref,
@@ -622,10 +659,16 @@ class SourceLifecycleTests(unittest.TestCase):
                 self.sample = None
                 self.element_maps = None
                 self.viewer = SimpleNamespace(layers=[])
+                self.set_sample_calls = 0
+                self.updated_element_maps = []
 
             def set_sample(self, value, element_maps=None):
                 self.sample = value
                 self.element_maps = element_maps
+                self.set_sample_calls += 1
+
+            def update_element_maps(self, maps):
+                self.updated_element_maps.append(maps)
 
         self.win.naparihelper = FakeNapariHelper()
         self.win.analysisSampleComboBox.setCurrentIndex(
@@ -646,6 +689,20 @@ class SourceLifecycleTests(unittest.TestCase):
         }
         self.assertEqual(checked, {zn_ref})
         self.assertEqual(self.win._segmentation_parameters(), parameters)
+
+        settings = self.win.project_data.element_settings[zn_ref]
+        set_sample_calls = self.win.naparihelper.set_sample_calls
+        with patch.object(settings, "transformedData", wraps=settings.transformedData) as transform:
+            self.win.refresh_analysis_result_view()
+            transform.assert_not_called()
+            self.assertEqual(self.win.naparihelper.set_sample_calls, set_sample_calls)
+
+            settings.gamma += 0.1
+            self.win.refresh_analysis_result_view()
+            transform.assert_called_once_with()
+            self.assertEqual(self.win.naparihelper.set_sample_calls, set_sample_calls)
+            self.assertEqual(len(self.win.naparihelper.updated_element_maps), 1)
+            self.assertEqual(set(self.win.naparihelper.updated_element_maps[0]), {"Zn"})
 
         self.win.analysisSampleComboBox.setCurrentIndex(
             self.win.analysisSampleComboBox.findData(second_id)
@@ -888,7 +945,7 @@ class SourceLifecycleTests(unittest.TestCase):
         project_file = project_dir / "project.xhp"
         project_file.write_text("previous state\n", encoding="utf-8")
 
-        with patch("exhale.projectio.os.replace", side_effect=OSError("failed")):
+        with patch("exhale.project.projectio.os.replace", side_effect=OSError("failed")):
             with self.assertRaises(OSError):
                 projectio.save_project(self.win, project_file)
 

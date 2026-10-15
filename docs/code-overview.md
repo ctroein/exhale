@@ -24,6 +24,11 @@ integrates with the PyInstaller splash screen.
 
 ## Project model, input, and persistence
 
+### `exhale/project/__init__.py`
+
+Defines the package boundary for saved-project persistence, lifecycle policy,
+and project controls.
+
 ### `exhale/data/__init__.py`
 
 Defines the data-model package boundary. Modules in this package must remain
@@ -54,29 +59,34 @@ maps, and translates TIFF pages or components into stable item identifiers.
 Infers conservative sample and channel-name suggestions from TIFF filenames.
 `TiffImportProposal` keeps those suggestions explicit and editable.
 
-### `exhale/projectio.py`
+### `exhale/project/projectio.py`
 
 Serializes and restores project JSON. It owns path relocation, model and image
 settings encoding, project-header validation, tolerant object loading, and
 atomic writes.
 
-### `exhale/projectmanager.py`
+### `exhale/project/projectmanager.py`
 
 Owns project-directory selection and high-level new/open/save/save-as policy.
 It coordinates `projectio`, the main window, and dirty-state handling.
 
-### `exhale/projectstatemanager.py`
+### `exhale/project/projectstatemanager.py`
 
 Tracks the canonical saved baseline, dirty state, delayed autosaves, recovery,
 and prompts before replacing or closing a modified project.
 
-### `exhale/segmentationio.py`
+### `exhale/analysis/segmentationio.py`
 
 Stores and restores analyzed `XRFSample` objects in atomic HDF5 sidecars. Raw
 and derived arrays remain datasets; pandas result tables use a JSON dataset
 representation.
 
 ## Settings and composition
+
+### `exhale/imaging/__init__.py`
+
+Defines the package boundary for image composition, display, and
+image-specific Qt controls.
 
 ### `exhale/data/elementsettings.py`
 
@@ -90,19 +100,19 @@ Defines image layouts, colour schemes, scale-bar positions, and
 `ImageSettings`. It records selected channels, explicit image-local overrides,
 resolution, labels, borders, and export settings.
 
-### `exhale/imagecomposer.py`
+### `exhale/imaging/imagecomposer.py`
 
 Builds exact RGBA output from `ImageSettings`. `ImageComposer` handles merged
 and strip layouts, colours, labels, scale bars, resizing, and optional file
 output; `ComposedImageMapping` maps canvas pixels back to source coordinates.
 
-### `exhale/imagecanvas.py`
+### `exhale/imaging/imagecanvas.py`
 
 Provides the pyqtgraph image canvas. `ImageViewBox` keeps square pixels and
 constrains panning, while `ImageCanvas` displays image arrays and exposes
 fit/reset and coordinate behavior.
 
-### `exhale/histogramwidget.py`
+### `exhale/imaging/histogramwidget.py`
 
 Displays histogram bins and two ordered draggable normalization limits using
 pyqtgraph.
@@ -113,21 +123,22 @@ pyqtgraph.
 
 Defines `MainWindow`, the application shell and integration point. It creates
 feature helpers, connects generated controls, synchronizes selected channels
-and images, launches analysis, and routes project and error operations to
-their owners.
+and images, incrementally refreshes displayed segmentation element maps,
+persists application-wide window and splitter state, launches analysis, and
+routes project and error operations to their owners.
 
-### `exhale/project_tab.py`
+### `exhale/project/project_tab.py`
 
 Coordinates the Project data tab. `ProjectTab` populates the sample/file tree,
 channel and map lists, resolution controls, add/remove actions, channel
 inheritance, and stable tree sizing without owning the underlying model.
 
-### `exhale/analysis_settings_dialog.py`
+### `exhale/analysis/analysis_settings_dialog.py`
 
 Provides the generated controls as a focused modal analysis-settings dialog;
 the main window transfers values to and from those controls.
 
-### `exhale/image_settings_dialog.py`
+### `exhale/imaging/image_settings_dialog.py`
 
 Provides the generated controls as a focused modal image-settings dialog; the
 main window transfers defaults or one image's settings to and from it.
@@ -139,7 +150,12 @@ and project autosave behavior.
 
 ## Analysis
 
-### `exhale/analysisworker.py`
+### `exhale/analysis/__init__.py`
+
+Defines the package boundary for analysis execution, persistence, and result
+visualization.
+
+### `exhale/analysis/analysisworker.py`
 
 Defines the background `AnalysisWorker`. It captures Python and native stderr,
 emits progress, constructs an `XRFSample`, runs processing and combination,
@@ -171,18 +187,19 @@ partitioning, and compatibility wrappers used by the channel classes.
 
 ## Visualization and reusable widgets
 
-### `exhale/naparihelper.py`
+### `exhale/analysis/naparihelper.py`
 
 Encapsulates the embedded Napari viewer, its Qt widget, map and analysis
-layers, and layer-selection synchronization.
+layers, layer-selection synchronization, and in-place element-map updates that
+preserve layer presentation state.
 
-### `exhale/layerwidgets.py`
+### `exhale/analysis/layerwidgets.py`
 
 Implements the layer list shown beside Napari. Rows expose visibility, colour,
 opacity, blending, and reorder/remove operations while reflecting the actual
 viewer layers.
 
-### `exhale/listwidgets.py`
+### `exhale/imaging/listwidgets.py`
 
 Contains the element and image list widgets, colour button, and compact image
 channel/header control rows used by the main window.
@@ -226,10 +243,11 @@ dialog's runtime-information table.
 
 ## Generated UI modules and resources
 
-`exhale/analysis_settings_dialog_ui.py`, `image_settings_dialog_ui.py`,
-`main_window_ui.py`, and `settings_dialog_ui.py` are generated from the same
-base names under `exhale/resources/ui/`. Edit the `.ui` files and regenerate;
-never edit or document generated modules directly.
+`exhale/analysis/analysis_settings_dialog_ui.py`,
+`exhale/imaging/image_settings_dialog_ui.py`, `exhale/main_window_ui.py`, and
+`exhale/settings_dialog_ui.py` are generated from the same base names under
+`exhale/resources/ui/`. Edit the `.ui` files and regenerate; never edit or
+document generated modules directly.
 
 `exhale/resources/icons/` contains packaged SVG and raster artwork.
 `exhale/resources/models/` contains the bundled StarDist model data.

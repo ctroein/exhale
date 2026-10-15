@@ -275,7 +275,7 @@
   <customwidget>
    <class>ColorButton</class>
    <extends>QPushButton</extends>
-   <header>exhale.listwidgets</header>
+   <header>exhale.imaging.listwidgets</header>
   </customwidget>
  </customwidgets>
  <resources/>

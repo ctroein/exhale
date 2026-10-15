@@ -87,15 +87,16 @@ def _run_application(pyi_splash=None):
 
     # Rebuild UI code on the fly; useful while developing
     if has_ui_files:
-        ui_files = [
-            "main_window",
-            "image_settings_dialog",
-            "analysis_settings_dialog",
-            "settings_dialog",
-        ]
-        for uif in ui_files:
+        package_dir = os.path.dirname(__file__)
+        ui_files = {
+            "main_window": package_dir,
+            "image_settings_dialog": os.path.join(package_dir, "imaging"),
+            "analysis_settings_dialog": os.path.join(package_dir, "analysis"),
+            "settings_dialog": package_dir,
+        }
+        for uif, output_dir in ui_files.items():
             uip = resdir.joinpath("ui", uif + ".ui")
-            py = os.path.join(os.path.dirname(__file__), uif + "_ui.py")
+            py = os.path.join(output_dir, uif + "_ui.py")
             if os.path.exists(uip) and (
                 not os.path.exists(py) or os.path.getmtime(uip) > os.path.getmtime(py)
             ):

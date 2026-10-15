@@ -374,6 +374,9 @@ class Ui_MainWindow(object):
         self.analysisExport = QtWidgets.QPushButton(self.analysisControlsWidget)
         self.analysisExport.setObjectName("analysisExport")
         self.horizontalLayout_12.addWidget(self.analysisExport)
+        self.analysisFit = IconToolButton(self.analysisControlsWidget)
+        self.analysisFit.setObjectName("analysisFit")
+        self.horizontalLayout_12.addWidget(self.analysisFit)
         self.verticalLayout_7.addLayout(self.horizontalLayout_12)
         self.verticalLayout_7.setStretch(4, 2)
         self.analysisLayerList = LayerListWidget(self.analysisLeftSplitter)
@@ -513,6 +516,7 @@ class Ui_MainWindow(object):
         self.analysisAbort.setText(_translate("MainWindow", "Stop"))
         self.analysisOptions.setText(_translate("MainWindow", "Options"))
         self.analysisExport.setText(_translate("MainWindow", "Export"))
+        self.analysisFit.setToolTip(_translate("MainWindow", "Fit image to view"))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.analysisTab), _translate("MainWindow", "Segmentation"))
         self.label_14.setText(_translate("MainWindow", "Here you will be able to overlay images from other modalities"))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab), _translate("MainWindow", "Correlative"))
@@ -542,8 +546,8 @@ class Ui_MainWindow(object):
         self.actionClearFiles.setShortcut(_translate("MainWindow", "Ctrl+W"))
         self.actionQuit.setText(_translate("MainWindow", "&Quit"))
         self.actionQuit.setShortcut(_translate("MainWindow", "Ctrl+Q"))
-from exhale.histogramwidget import HistogramWidget
-from exhale.imagecanvas import ImageCanvas
-from exhale.layerwidgets import LayerListWidget
-from exhale.listwidgets import ElementListWidget, ImageListWidget
+from exhale.analysis.layerwidgets import LayerListWidget
+from exhale.imaging.histogramwidget import HistogramWidget
+from exhale.imaging.imagecanvas import ImageCanvas
+from exhale.imaging.listwidgets import ElementListWidget, ImageListWidget
 from exhale.widgets import IconToolButton

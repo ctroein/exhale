@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from .xrf_refcopy.xrf_sample_class import XRFSample
+    from ..xrf_refcopy.xrf_sample_class import XRFSample
 
 SEGMENTATION_DIRECTORY = "segmentation"
 SEGMENTATION_FORMAT = "exhale-segmentation"
@@ -124,9 +124,9 @@ def save_xrf_sample(sample: XRFSample, filename: str | Path) -> None:
 
 def load_xrf_sample(filename: str | Path) -> XRFSample:
     """Restore an analyzed sample from an HDF5 sidecar."""
-    from .xrf_refcopy.xrf_element_channel import ElementChannel
-    from .xrf_refcopy.xrf_other_channel import NucleiChannel, TissueChannel
-    from .xrf_refcopy.xrf_sample_class import XRFSample
+    from ..xrf_refcopy.xrf_element_channel import ElementChannel
+    from ..xrf_refcopy.xrf_other_channel import NucleiChannel, TissueChannel
+    from ..xrf_refcopy.xrf_sample_class import XRFSample
 
     with h5py.File(filename, "r") as handle:
         if handle.attrs.get("format") != SEGMENTATION_FORMAT:

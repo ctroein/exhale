@@ -15,9 +15,9 @@ from qtpy import QtCore, QtWidgets
 
 from exhale.data.elementsettings import Normalizers
 from exhale.data.imagesettings import ImageSettings, Layouts, Scalebars
-from exhale.histogramwidget import HistogramWidget
-from exhale.imagecanvas import ImageCanvas
-from exhale.listwidgets import ElementListWidget
+from exhale.imaging.histogramwidget import HistogramWidget
+from exhale.imaging.imagecanvas import ImageCanvas
+from exhale.imaging.listwidgets import ElementListWidget
 from exhale.main_window import MainWindow
 
 

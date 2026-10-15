@@ -160,4 +160,4 @@ class Ui_ImageSettingsDialog(object):
         self.label_4.setText(_translate("ImageSettingsDialog", "DPI"))
         self.applyProjectDefaults.setText(_translate("ImageSettingsDialog", "Apply project defaults"))
         self.useAsProjectDefaults.setText(_translate("ImageSettingsDialog", "Use as project defaults"))
-from exhale.listwidgets import ColorButton
+from exhale.imaging.listwidgets import ColorButton

@@ -7,11 +7,11 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
-from .data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
-from .data.projectdata import ChannelOverride, SegmentationParameters, SegmentationResult
-from .data.source_refs import ElementRef, LoadedSource, open_source
-from .segmentationio import load_xrf_sample, result_relative_path, save_xrf_sample
+from ..analysis.segmentationio import load_xrf_sample, result_relative_path, save_xrf_sample
+from ..data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
+from ..data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
+from ..data.projectdata import ChannelOverride, SegmentationParameters, SegmentationResult
+from ..data.source_refs import ElementRef, LoadedSource, open_source
 
 PROJECT_FORMAT = "exhale-project"
 PROJECT_VERSION = 6

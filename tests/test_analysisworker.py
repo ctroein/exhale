@@ -3,7 +3,7 @@
 import os
 import unittest
 
-from exhale.analysisworker import capture_native_stderr
+from exhale.analysis.analysisworker import capture_native_stderr
 
 
 class AnalysisWorkerTests(unittest.TestCase):

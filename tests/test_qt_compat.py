@@ -14,7 +14,7 @@ from qtpy import QtGui, QtWidgets, uic
 
 from exhale import resdir
 from exhale.__main__ import _recompile_ui
-from exhale.listwidgets import ColorButton
+from exhale.imaging.listwidgets import ColorButton
 
 
 class UiCompilerTests(unittest.TestCase):

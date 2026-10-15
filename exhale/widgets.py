@@ -67,8 +67,9 @@ class _SplitterInitializer(QtCore.QObject):
 
     def initialize(self):
         if self.saved_state is not None and self.splitter.restoreState(self.saved_state):
-            self.initialized = True
-            return
+            if all(size > 0 for size in self.splitter.sizes()):
+                self.initialized = True
+                return
 
         count = self.splitter.count()
         if len(self.proportions) != count or any(p <= 0 for p in self.proportions):

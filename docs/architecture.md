@@ -66,6 +66,9 @@ channel keys within a sample.
 
 ## Images and visualization
 
+Image composition, display, and image-specific controls live in
+`exhale.imaging`.
+
 `ImageComposer` converts selected element maps and their `ImageSettings` into
 an exact RGBA canvas. `ComposedImageMapping` maps displayed pixels back to the
 merged source coordinates. `ImageCanvas` displays arrays without changing
@@ -73,9 +76,15 @@ their numeric meaning and reports interaction coordinates in array space.
 
 Napari is isolated behind `NapariHelper`. `LayerListWidget` and
 `LayerRowWidget` expose the presentation state of embedded layers without
-becoming an alternative owner of the layer data.
+becoming an alternative owner of the layer data. Re-entering the Segmentation
+tab retains an unchanged result view; changed element transformations replace
+only the corresponding image-layer data.
 
 ## Analysis and derived results
+
+Analysis execution, persistence, and result visualization live in
+`exhale.analysis`. The numerical implementation in `xrf_refcopy/` is imported
+external code and remains a separate boundary.
 
 `AnalysisWorker` runs XRF analysis away from the GUI thread, translates Python
 and native-library output into progress messages, and supports cooperative
@@ -85,22 +94,30 @@ sample tables.
 
 Completed analysis is represented by `SegmentationResult` in the project
 model. The large arrays and result tables are stored separately by
-`segmentationio` in an HDF5 sidecar below the project; the main project file
-stores the association and parameters.
+`exhale.analysis.segmentationio` in an HDF5 sidecar below the project; the main
+project file stores the association and parameters.
 
 ## Persistence and state changes
 
-`projectio` is the only module which translates the live project graph to and
-from the JSON project representation. Paths are stored with relocatable forms
-where possible. Loading is structurally tolerant according to the policy in
-[`development.md`](development.md), but core project identity and sample/asset
-structure remain mandatory.
+Saved-project persistence, lifecycle policy, and project controls live in
+`exhale.project`. `exhale.project.projectio` is the only module which
+translates the live project graph to and from the JSON project representation.
+Paths are stored with relocatable forms where possible. Loading is structurally
+tolerant according to the policy in [`development.md`](development.md), but
+core project identity and sample/asset structure remain mandatory.
 
 `ProjectStateManager` compares a canonical serialized snapshot with the last
 saved or loaded state. It schedules autosaves, handles recovery data, and
 guards project replacement when unsaved work exists. `ProjectManager` handles
 directory selection and delegates serialization and dirty-state decisions to
 the appropriate modules.
+
+Application-wide window state is separate from project data. `QSettings`
+stores the window geometry, active tab, and all five main-window splitter
+layouts. Splitters restore only after their containing tab has usable geometry
+and are saved only after they have been initialized. A saved layout containing
+a completely collapsed pane is discarded in favor of the default proportions
+so application state cannot make a panel effectively disappear on restart.
 
 ## Ownership rules
 

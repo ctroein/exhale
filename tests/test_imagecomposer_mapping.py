@@ -10,7 +10,7 @@ from PIL import Image
 from exhale.data.elementsettings import ElementSettings
 from exhale.data.imagesettings import ImageSettings, Layouts, Scalebars
 from exhale.data.source_refs import ElementRef
-from exhale.imagecomposer import ImageComposer, _nearest_lookup
+from exhale.imaging.imagecomposer import ImageComposer, _nearest_lookup
 
 
 class NearestLookupTests(unittest.TestCase):

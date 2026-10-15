@@ -2,8 +2,8 @@
 
 from qtpy import QtCore, QtGui, QtWidgets
 
-from . import icons
-from .widgets import IconToolButton
+from .. import icons
+from ..widgets import IconToolButton
 
 
 def _with_brightness(color, level):

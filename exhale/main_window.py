@@ -17,8 +17,9 @@ from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import Qt
 
 from . import appearance, application_description, application_name, application_title, icons
-from .analysis_settings_dialog import AnalysisSettingsDialog
-from .analysisworker import AnalysisWorker
+from .analysis.analysis_settings_dialog import AnalysisSettingsDialog
+from .analysis.analysisworker import AnalysisWorker
+from .analysis.segmentationio import result_relative_path, save_xrf_sample
 from .data.constants import CONCENTRATION_UNITS
 from .data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from .data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
@@ -32,22 +33,22 @@ from .data.projectdata import (
 )
 from .data.source_refs import ElementRef, open_source
 from .exceptiondialog import ExceptionDetailsDialog, ExceptionDialog
-from .image_settings_dialog import ImageSettingsDialog
-from .imagecomposer import ImageComposer
-from .listwidgets import ElementListWidget, ImageElementBox, ImageHeaderBox, ImageListWidget
+from .imaging.image_settings_dialog import ImageSettingsDialog
+from .imaging.imagecomposer import ImageComposer
+from .imaging.listwidgets import ElementListWidget, ImageElementBox, ImageHeaderBox, ImageListWidget
 from .main_window_ui import Ui_MainWindow
 from .overridecursor import OverrideCursor
-from .project_tab import ProjectTab
-from .projectmanager import ProjectManager
-from .projectstatemanager import ProjectStateManager
+from .project.project_tab import ProjectTab
+from .project.projectmanager import ProjectManager
+from .project.projectstatemanager import ProjectStateManager
 from .runtimeinfo import runtime_environment_html
-from .segmentationio import result_relative_path, save_xrf_sample
 from .settings_dialog import SettingsDialog
 from .widgets import IconToolButton, initialize_splitter_on_show
 
 _LOAD_NAPARI_EARLY = True
 ACTIVE_TAB_SETTINGS_KEY = "window/active_tab"
 WINDOW_GEOMETRY_SETTINGS_KEY = "window/geometry"
+SPLITTER_SETTINGS_PREFIX = "window/splitters"
 
 
 def scale_font(widget: QtWidgets.QWidget, scale: float):
@@ -135,16 +136,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.project_tab = ProjectTab(self)
 
         self.create_dataTab()
-        self._splitter_initializer = initialize_splitter_on_show(
-            self.splitter, self.dataTab, (1, 1, 2), self.settings.value("window/splitters/splitter")
-        )
-        self._project_splitter_initializer = initialize_splitter_on_show(
-            self.project_tab.splitter,
-            self.projectDataTab,
-            (2, 2, 1),
-            self.settings.value("window/splitters/project_data"),
-        )
         self.create_analysisTab()
+        self._configure_splitter_persistence()
         self.tabWidget.setCurrentIndex(0)
         self.project_state_manager = ProjectStateManager(self)
         self.project_state_manager.connect_sources()
@@ -172,17 +165,40 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         if self._analysisWorker is not None:
             self._analysisWorker.abort()
             self._analysisThread.wait()
-        if self._splitter_initializer.initialized:
-            self.settings.setValue("window/splitters/splitter", self.splitter.saveState())
-        if self._project_splitter_initializer.initialized:
-            self.settings.setValue(
-                "window/splitters/project_data", self.project_tab.splitter.saveState()
-            )
+        self._save_splitter_states()
         current_tab = self.tabWidget.currentWidget()
         if current_tab is not None:
             self.settings.setValue(ACTIVE_TAB_SETTINGS_KEY, current_tab.objectName())
         self.settings.setValue(WINDOW_GEOMETRY_SETTINGS_KEY, self.saveGeometry())
+        self.settings.sync()
         ev.accept()
+
+    def _configure_splitter_persistence(self):
+        """Restore every main-window splitter after its tab has usable geometry."""
+        specifications = {
+            "project_data": (self.project_tab.splitter, self.projectDataTab, (2, 2, 1)),
+            "splitter": (self.splitter, self.dataTab, (1, 1, 2)),
+            "analysis": (self.analysisSplitter, self.analysisTab, (180, 400, 200)),
+            "analysis_left": (self.analysisLeftSplitter, self.analysisTab, (2, 1)),
+            "analysis_right": (self.analysisRightSplitter, self.analysisTab, (2, 1)),
+        }
+        self._splitter_initializers = {
+            name: initialize_splitter_on_show(
+                splitter,
+                visible_widget,
+                proportions,
+                self.settings.value(f"{SPLITTER_SETTINGS_PREFIX}/{name}"),
+            )
+            for name, (splitter, visible_widget, proportions) in specifications.items()
+        }
+
+    def _save_splitter_states(self):
+        """Save splitters which have been initialized with visible geometry."""
+        for name, initializer in self._splitter_initializers.items():
+            if initializer.initialized:
+                self.settings.setValue(
+                    f"{SPLITTER_SETTINGS_PREFIX}/{name}", initializer.splitter.saveState()
+                )
 
     def _restore_active_tab(self):
         """Restore global workspace state without affecting the project state."""
@@ -217,6 +233,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.deleteImageButton.setToolTip("Delete image")
         self.showSingleElementButton.set_icon_name(icons.IconName.ELEMENT_ONLY)
         self.composeSave.setIcon(icons.icon(icons.IconName.IMAGE))
+        self.analysisFit.set_icon_name(icons.IconName.MAXIMIZE)
         for button in self.findChildren(IconToolButton):
             button.reload_icon()
 
@@ -361,29 +378,41 @@ Licensed under the MIT License.</p>
         self._analysisWorker = None
         self._analysisThread = None
         self._analysis_result_sample_id = None
+        self._analysis_element_signatures = {}
+        self._analysis_view_fitted_on_show = False
 
         def tab_check():
             if self.tabWidget.currentWidget() != self.analysisTab:
                 return
             if self.naparihelper is None:
                 self.initialize_analysisTab()
-            self.analysis_sample_changed()
+            self.refresh_analysis_result_view()
+            if not self._analysis_view_fitted_on_show:
+                QtCore.QTimer.singleShot(0, self._fit_analysis_view_on_first_show)
 
         self.tabWidget.currentChanged.connect(tab_check)
         if _LOAD_NAPARI_EARLY:
             self.initialize_analysisTab()
 
+    def _fit_analysis_view_on_first_show(self):
+        """Fit existing results after the newly shown tab has been laid out."""
+        if (
+            not self._analysis_view_fitted_on_show
+            and self.tabWidget.currentWidget() == self.analysisTab
+            and self.naparihelper is not None
+            and self.naparihelper.sample is not None
+        ):
+            self.naparihelper.viewer.reset_view()
+            self._analysis_view_fitted_on_show = True
+
     def initialize_analysisTab(self):
         "Initialize the data analysis tab; start Napari viewer etc"
-        from .naparihelper import NapariHelper
+        from .analysis.naparihelper import NapariHelper
 
         self.naparihelper = NapariHelper("dark" if appearance.is_dark() else "light")
         self.analysisLayerList.set_helper(self.naparihelper)
         self.naparihelper.set_info_widget(self.analysisInfo)
 
-        self.analysisSplitter.setSizes([180, 400, 200])
-        self.analysisLeftSplitter.setSizes([400, 200])
-        self.analysisRightSplitter.setSizes([400, 200])
         hb = QtWidgets.QHBoxLayout()
         hb.setContentsMargins(0, 0, 0, 0)
         hb.addWidget(self.naparihelper.qtwidget, 1)
@@ -403,6 +432,7 @@ Licensed under the MIT License.</p>
 
         self.analysisAbort.pressed.connect(abort_run)
         self.analysisExport.clicked.connect(self.export_analysis_results)
+        self.analysisFit.clicked.connect(self.naparihelper.viewer.reset_view)
         self.set_analysis_busy(False)
 
     def current_analysis_sample(self):
@@ -420,6 +450,32 @@ Licensed under the MIT License.</p>
             self._clear_segmentation_result_view()
         else:
             self._show_segmentation_result(result)
+
+    def refresh_analysis_result_view(self):
+        """Refresh only changed element maps when the displayed result is unchanged."""
+        sample = self.current_analysis_sample()
+        sample_id = None if sample is None else sample.sample_id
+        result = self.project_data.segmentation_results.get(sample_id)
+        if (
+            result is None
+            or self.naparihelper is None
+            or self._analysis_result_sample_id != sample_id
+            or self.naparihelper.sample is not result.xrf_sample
+        ):
+            self.analysis_sample_changed()
+            return
+
+        settings = self._segmentation_element_settings(result)
+        changed_maps = {}
+        for name, ref, element_settings in zip(
+            result.xrf_sample.elements, result.element_refs, settings, strict=True
+        ):
+            signature = self._element_transform_signature(element_settings)
+            if self._analysis_element_signatures.get(ref) != signature:
+                changed_maps[name] = element_settings.transformedData()
+                self._analysis_element_signatures[ref] = signature
+        if changed_maps:
+            self.naparihelper.update_element_maps(changed_maps)
 
     def _segmentation_parameters(self):
         return SegmentationParameters(
@@ -448,6 +504,7 @@ Licensed under the MIT License.</p>
             return
         self.naparihelper.set_sample(None)
         self._analysis_result_sample_id = None
+        self._analysis_element_signatures = {}
         self.analysisInfo.clear()
         self.update_layer_controls()
         self.analysisExport.setEnabled(False)
@@ -472,26 +529,45 @@ Licensed under the MIT License.</p>
         self._set_segmentation_parameters(result.parameters)
         if self.naparihelper is None:
             return
-        self.naparihelper.set_sample(result.xrf_sample, self._segmentation_element_maps(result))
+        settings = self._segmentation_element_settings(result)
+        self.naparihelper.set_sample(
+            result.xrf_sample,
+            tuple(element_settings.transformedData() for element_settings in settings),
+        )
         self._analysis_result_sample_id = result.sample_id
+        self._analysis_element_signatures = {
+            ref: self._element_transform_signature(element_settings)
+            for ref, element_settings in zip(result.element_refs, settings, strict=True)
+        }
         self.update_layer_controls()
         self.analysisExport.setEnabled(True)
 
     def _segmentation_element_maps(self, result):
         """Return current transformed sample maps in segmentation element order."""
+        return tuple(
+            settings.transformedData() for settings in self._segmentation_element_settings(result)
+        )
+
+    def _segmentation_element_settings(self, result):
+        """Return current settings in segmentation element order."""
         sample = self.project_data.samples[result.sample_id]
         effective_by_ref = {
             channel.ref: channel
             for channel in sample.effective_channels(self.project_data.project_channels).values()
         }
-        maps = []
+        settings_by_ref = []
         for ref in result.element_refs:
             channel = effective_by_ref.get(ref)
             settings = None if channel is None else channel.settings
             if settings is None:
                 settings = self._ensure_element_settings(ref)
-            maps.append(settings.transformedData())
-        return tuple(maps)
+            settings_by_ref.append(settings)
+        return tuple(settings_by_ref)
+
+    @staticmethod
+    def _element_transform_signature(settings):
+        """Return the values which determine ``ElementSettings.transformedData``."""
+        return settings.normalizer, settings.gamma, tuple(settings.trfRange)
 
     def update_analysis_channels(self):
         "Update the nuclei/tissue selectors from the active sample."

@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from exhale.segmentationio import load_xrf_sample, save_xrf_sample
+from exhale.analysis.segmentationio import load_xrf_sample, save_xrf_sample
 from exhale.xrf_refcopy.xrf_element_channel import ElementChannel
 from exhale.xrf_refcopy.xrf_other_channel import NucleiChannel, TissueChannel
 from exhale.xrf_refcopy.xrf_sample_class import XRFSample

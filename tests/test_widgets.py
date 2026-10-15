@@ -46,6 +46,20 @@ class SplitterInitializerTests(unittest.TestCase):
 
         self.assertEqual(restored.sizes(), source.sizes())
 
+    def test_saved_state_with_collapsed_pane_uses_default_proportions(self):
+        source = self.make_splitter()
+        source.setSizes((0, 250, 450))
+        self.assertEqual(source.sizes()[0], 0)
+        saved_state = source.saveState()
+
+        restored = self.make_splitter()
+        initializer = initialize_splitter_on_show(restored, restored, (1, 1, 2), saved_state)
+        initializer.initialize()
+
+        available = restored.width() - 2 * restored.handleWidth()
+        quarter = round(available / 4)
+        self.assertEqual(restored.sizes(), [quarter, quarter, available - 2 * quarter])
+
 
 if __name__ == "__main__":
     unittest.main()

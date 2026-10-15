@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from exhale.project_tab import ProjectTab
-from exhale.projectio import asset_path_from_json, asset_path_to_json
+from exhale.project.project_tab import ProjectTab
+from exhale.project.projectio import asset_path_from_json, asset_path_to_json
 
 
 class ProjectPathTests(unittest.TestCase):
