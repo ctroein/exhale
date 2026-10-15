@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 import tifffile
 
-from exhale.source_refs import ElementRef, open_source
+from exhale.data.source_refs import ElementRef, open_source
 
 
 class SourceReaderTests(unittest.TestCase):
@@ -137,7 +137,7 @@ class SourceReaderTests(unittest.TestCase):
         with h5py.File(path, "w"):
             pass
         reader = h5py.File(path, "r")
-        with patch("exhale.source_refs.h5py.File", return_value=reader):
+        with patch("exhale.data.source_refs.h5py.File", return_value=reader):
             with self.assertRaisesRegex(ValueError, "plotselect"):
                 open_source(path)
         self.assertFalse(reader.id.valid)

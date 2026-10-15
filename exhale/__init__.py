@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-Created on Wed May 29 12:23:17 2024
-
-@author: carl
-"""
+"""Application identity, version, and packaged resource location."""
 
 from importlib.metadata import PackageNotFoundError, version
 from importlib.resources import files

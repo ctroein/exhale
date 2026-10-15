@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
-"""
-Created on Wed Aug 13 16:00:24 2025
-
-@author: carl
-"""
+"""Element, image, colour, and compact channel controls for the main window."""
 
 import numpy as np
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import Qt
 
 from . import icons
-from .imagesettings import ImageSettings
-from .source_refs import ElementRef
+from .data.imagesettings import ImageSettings
+from .data.source_refs import ElementRef
 
 _GROUP_DIVIDER_ROLE = Qt.UserRole + 13
 

@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-Created on Thu Aug  7 16:40:56 2025
-
-@author: carl
-"""
+"""Display and normalization settings for project and image channels."""
 
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -100,6 +96,12 @@ class ElementSettingsDefaults:
 
 
 class ElementSettings:
+    """Bind one channel map to its editable display settings.
+
+    The data value is normalized to a ``ChannelData`` accessor. Copies retain
+    the same backing data while owning independent presentation settings.
+    """
+
     def __init__(self, ref: ElementRef, *, data, name=None, defaults=None):
         self.ref = ref
         self.name = name if name is not None else ref.item_id.rsplit("/", 1)[-1]

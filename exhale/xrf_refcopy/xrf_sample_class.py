@@ -1,3 +1,5 @@
+"""Sample-level coordination and result tables for processed XRF channels."""
+
 # from __future__ import annotations
 import json
 import os

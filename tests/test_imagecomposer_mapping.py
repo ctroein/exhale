@@ -7,10 +7,10 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
-from exhale.elementsettings import ElementSettings
+from exhale.data.elementsettings import ElementSettings
+from exhale.data.imagesettings import ImageSettings, Layouts, Scalebars
+from exhale.data.source_refs import ElementRef
 from exhale.imagecomposer import ImageComposer, _nearest_lookup
-from exhale.imagesettings import ImageSettings, Layouts, Scalebars
-from exhale.source_refs import ElementRef
 
 
 class NearestLookupTests(unittest.TestCase):

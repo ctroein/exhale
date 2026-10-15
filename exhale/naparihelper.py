@@ -1,35 +1,227 @@
 #!/usr/bin/env python3
-"""
-Created on Mon Apr 13 01:02:40 2026
+"""Embedded Napari viewer integration and analysis-layer presentation."""
 
-@author: carl
-"""
+from weakref import WeakKeyDictionary
 
 import napari
+import numpy as np
 from napari.components import ViewerModel
+from napari.layers import Image, Labels
+from napari.utils.colormaps import Colormap
+from napari.utils.colormaps.standardize_color import transform_color
 from qtpy import QtGui, QtWidgets
 from skimage import morphology
 
-from .constants import CONCENTRATION_UNITS
+from .data.constants import CONCENTRATION_UNITS
 
 
 class NapariHelper:
-    "All Napari-related things that aren't strongly tied to our Qt widgets"
+    """Own the embedded Napari model, widget, and Exhale-created layers."""
 
     def __init__(self, theme="light"):
         viewer_model = ViewerModel()
         viewer_model.theme = theme
         self.viewer = viewer_model
+        self._label_presentations = WeakKeyDictionary()
+        self._image_colors = WeakKeyDictionary()
+        self._label_color_rng = np.random.default_rng()
         self.qtwidget = napari.qt.QtViewer(viewer_model)
         # Napari leaves two pixels above and below its canvas. The embedded
         # viewer should align with the adjacent panes in Exhale.
         self.qtwidget.widget(0).layout().setContentsMargins(0, 0, 0, 0)
+        self.set_theme(theme)
         self.sample = None
         self.nuc_layer = None
         self.mem_layer = None
         self.viewer.mouse_move_callbacks.append(self._hover)
         self.viewer.mouse_drag_callbacks.append(self._click)
         self.info_widget = None
+
+    LABEL_CATEGORICAL = "categorical"
+    LABEL_MASK = "mask"
+    LABEL_MONOCHROME = "monochrome"
+    LABEL_MODES = (LABEL_CATEGORICAL, LABEL_MASK, LABEL_MONOCHROME)
+    MONOCHROME_LEVELS = (0.4, 0.6, 0.8, 1.0)
+    BACKGROUND_ROLE = "background"
+    TISSUE_RAW_ROLE = "tissue_raw"
+    NUCLEI_RAW_ROLE = "nuclei_raw"
+    GAIN_ROLES = (TISSUE_RAW_ROLE, NUCLEI_RAW_ROLE)
+    GAIN_BASE_UPPER = "exhale_gain_base_upper"
+    BLENDING_NORMAL = "translucent_no_depth"
+    BLENDING_ADD = "additive"
+
+    @staticmethod
+    def _rgba(color):
+        "Return one normalized RGBA color."
+        return transform_color(color)[0]
+
+    @classmethod
+    def _label_color_dict(cls, layer, mode, color):
+        rgba = cls._rgba(color)
+        colors = {0: (0.0, 0.0, 0.0, 0.0), None: tuple(rgba)}
+        labels = np.unique(layer.data)
+        labels = labels[labels != layer.colormap.background_value]
+        for label in labels:
+            label = int(label)
+            if mode == cls.LABEL_MONOCHROME:
+                level = cls.MONOCHROME_LEVELS[(label - 1) % len(cls.MONOCHROME_LEVELS)]
+                label_color = np.append(rgba[:3] * level, rgba[3])
+            else:
+                label_color = rgba
+            colors[label] = tuple(label_color)
+        return colors
+
+    def _new_label_color(self):
+        color = QtGui.QColor.fromHsvF(float(self._label_color_rng.random()), 1.0, 1.0, 1.0)
+        return np.asarray(color.getRgbF())
+
+    def _label_presentation(self, layer):
+        presentation = self._label_presentations.get(layer)
+        if presentation is None:
+            presentation = {
+                "categorical_colormaps": [layer.colormap],
+                "palette_index": 0,
+                "mode": self.LABEL_CATEGORICAL,
+                "color": self._new_label_color(),
+            }
+            self._label_presentations[layer] = presentation
+        return presentation
+
+    def label_display_mode(self, layer):
+        "Return the display mode and base color for a labels layer."
+        if not isinstance(layer, Labels):
+            raise TypeError("Label display modes apply only to Napari Labels layers")
+        presentation = self._label_presentation(layer)
+        return presentation["mode"], presentation["color"]
+
+    def categorical_colors(self, layer, count=4):
+        "Return representative colors from a labels layer's categorical palette."
+        if not isinstance(layer, Labels):
+            raise TypeError("Categorical colors apply only to Napari Labels layers")
+        presentation = self._label_presentations.get(layer)
+        colormap = (
+            layer.colormap
+            if presentation is None
+            else presentation["categorical_colormaps"][presentation["palette_index"]]
+        )
+        return colormap.map(np.arange(1, count + 1))
+
+    def reseed_label_colormap(self, layer):
+        "Choose another permutation of Napari's categorical label colors."
+        if not isinstance(layer, Labels):
+            raise TypeError("Categorical colors apply only to Napari Labels layers")
+        mode, color = self.label_display_mode(layer)
+        if mode != self.LABEL_CATEGORICAL:
+            raise ValueError("The categorical display mode must be active before reseeding")
+        presentation = self._label_presentation(layer)
+        if color is not None:
+            presentation["color"] = color
+        palette_index = (presentation["palette_index"] + 1) % 5
+        if palette_index >= len(presentation["categorical_colormaps"]):
+            layer.new_colormap(seed=palette_index)
+            presentation["categorical_colormaps"].append(layer.colormap)
+        else:
+            layer.colormap = presentation["categorical_colormaps"][palette_index]
+        presentation["palette_index"] = palette_index
+        return layer.colormap
+
+    def set_label_display(self, layer, mode, color=None):
+        "Set categorical, single-color mask, or monochrome label display."
+        if not isinstance(layer, Labels):
+            raise TypeError("Label display modes apply only to Napari Labels layers")
+        if mode not in self.LABEL_MODES:
+            raise ValueError(f"Unknown label display mode: {mode!r}")
+
+        presentation = self._label_presentation(layer)
+
+        if color is not None:
+            presentation["color"] = self._rgba(color)
+        if mode == self.LABEL_CATEGORICAL:
+            layer.colormap = presentation["categorical_colormaps"][presentation["palette_index"]]
+        else:
+            layer.colormap = self._label_color_dict(layer, mode, presentation["color"])
+        presentation["mode"] = mode
+        return layer.colormap
+
+    def set_layer_opacity(self, layer, percent):
+        "Set a layer opacity expressed as an integer percentage."
+        if not 0 <= percent <= 100:
+            raise ValueError("Layer opacity must be between 0 and 100 percent")
+        layer.opacity = percent / 100
+
+    def image_color(self, layer):
+        "Return the selected monochrome color for an image layer."
+        if not isinstance(layer, Image):
+            raise TypeError("Image colors apply only to Napari Image layers")
+        color = self._image_colors.get(layer)
+        if color is not None:
+            return color
+        return np.asarray(layer.colormap.map([1.0])[0])
+
+    def set_image_color(self, layer, color):
+        "Display an image layer as a black-to-color monochrome scale."
+        if not isinstance(layer, Image):
+            raise TypeError("Image colors apply only to Napari Image layers")
+        rgba = self._rgba(color)
+        layer.colormap = Colormap(
+            colors=((0.0, 0.0, 0.0, rgba[3]), tuple(rgba)),
+            name="Exhale monochrome",
+        )
+        self._image_colors[layer] = rgba
+        return layer.colormap
+
+    @staticmethod
+    def set_layer_blending(layer, blending):
+        layer.blending = blending
+
+    @classmethod
+    def layer_has_gain(cls, layer):
+        return layer.metadata.get("exhale_role") in cls.GAIN_ROLES
+
+    @classmethod
+    def layer_gain(cls, layer):
+        if not cls.layer_has_gain(layer):
+            raise TypeError("Gain applies only to the nuclei and tissue image layers")
+        return layer.metadata[cls.GAIN_BASE_UPPER] / layer.contrast_limits[1]
+
+    @classmethod
+    def set_layer_gain(cls, layer, gain):
+        if not cls.layer_has_gain(layer):
+            raise TypeError("Gain applies only to the nuclei and tissue image layers")
+        if not 1 <= gain <= 10:
+            raise ValueError("Layer gain must be between 1 and 10")
+        layer.contrast_limits = (0, layer.metadata[cls.GAIN_BASE_UPPER] / gain)
+
+    @classmethod
+    def is_background_layer(cls, layer):
+        return layer.metadata.get("exhale_role") == cls.BACKGROUND_ROLE
+
+    def user_layers(self):
+        "Return the layers exposed in Exhale's layer controls."
+        return tuple(layer for layer in self.viewer.layers if not self.is_background_layer(layer))
+
+    def set_theme(self, theme):
+        "Apply the viewer theme while retaining a predictable compositing background."
+        if theme not in ("light", "dark"):
+            raise ValueError(f"Unknown viewer theme: {theme!r}")
+        from napari.utils.theme import get_theme
+
+        self.viewer.theme = theme
+        self.qtwidget.canvas.background_color_override = None
+        self.qtwidget.canvas.bgcolor = get_theme(theme).canvas.as_hex()
+
+    def move_layer(self, layer, target_index):
+        "Move a layer to a final index in Napari's layer order."
+        layers = self.viewer.layers
+        if not 0 <= target_index < len(layers):
+            raise IndexError("Layer index out of range")
+        if self.is_background_layer(layer):
+            return False
+        if layers and self.is_background_layer(layers[0]):
+            target_index = max(1, target_index)
+        source_index = layers.index(layer)
+        destination = target_index + 1 if target_index > source_index else target_index
+        return layers.move(source_index, destination)
 
     def set_info_widget(self, widget):
         self.info_widget = widget
@@ -224,29 +416,87 @@ class NapariHelper:
 
         self.info_widget.setPlainText("\n".join(lines))
 
-    def set_sample(self, sample):
-        "Set/update the XRFSample, replacing layers"
+    def set_sample(self, sample, element_maps=None):
+        "Set/update the XRFSample, replacing layers and their displayed element maps."
         self.sample = sample
         if sample is None:
             self.viewer.layers.clear()
+            self._label_presentations.clear()
+            self._image_colors.clear()
             self.nuc_layer = None
             self.mem_layer = None
             return
+
+        element_items = tuple(sample.elements.items())
+        if element_maps is None:
+            element_maps = tuple(channel.raw for _name, channel in element_items)
+        else:
+            element_maps = tuple(element_maps)
+            if len(element_maps) != len(element_items):
+                raise ValueError("Displayed element maps must match the segmentation elements")
+
         viewer = self.viewer
         viewer.layers.clear()
+        self._label_presentations.clear()
+        self._image_colors.clear()
 
-        viewer.add_image(sample.tissue.raw, name="Tissue raw", visible=False)
-        viewer.add_image(sample.nuclei.raw, name="Nuclei raw", colormap="green")
+        background = viewer.add_image(
+            np.zeros(sample.tissue.raw.shape, dtype=np.uint8),
+            name="Background",
+            blending=self.BLENDING_ADD,
+            colormap=Colormap(colors=("black", "black"), name="Exhale black backing"),
+            metadata={"exhale_role": self.BACKGROUND_ROLE},
+        )
+        background.editable = False
+        tissue_layer = viewer.add_image(
+            sample.tissue.raw,
+            name="Tissue raw",
+            visible=False,
+            colormap="blue",
+            blending=self.BLENDING_ADD,
+            metadata={"exhale_role": self.TISSUE_RAW_ROLE},
+        )
+        tissue_layer.metadata[self.GAIN_BASE_UPPER] = tissue_layer.contrast_limits[1]
+        nuclei_layer = viewer.add_image(
+            sample.nuclei.raw,
+            name="Nuclei raw",
+            colormap="green",
+            blending=self.BLENDING_ADD,
+            metadata={"exhale_role": self.NUCLEI_RAW_ROLE},
+        )
+        nuclei_layer.metadata[self.GAIN_BASE_UPPER] = nuclei_layer.contrast_limits[1]
 
-        for name, ch in sample.elements.items():
-            viewer.add_image(ch.raw, name=f"{name} raw", visible=False)
+        cluster_layers = []
+        for (name, ch), display_map in zip(element_items, element_maps, strict=True):
+            viewer.add_image(
+                display_map,
+                name=f"{name} map",
+                visible=False,
+                colormap="red",
+                blending=self.BLENDING_ADD,
+            )
             if ch.cluster_labels is not None:
-                viewer.add_labels(ch.cluster_labels, name=f"{name} clusters", visible=False)
+                cluster_layers.append((name, ch.cluster_labels))
+
+        for name, labels in cluster_layers:
+            viewer.add_labels(
+                labels,
+                name=f"{name} clusters",
+                visible=False,
+                blending=self.BLENDING_NORMAL,
+            )
 
         self.mem_layer = viewer.add_labels(
-            sample.nuclei.membrane_labels, name="Membrane labels", visible=False
+            sample.nuclei.membrane_labels,
+            name="Membrane labels",
+            visible=False,
+            blending=self.BLENDING_NORMAL,
         )
         self.nuc_layer = viewer.add_labels(
-            morphology.erosion(sample.nuclei.nuclei_labels), name="Nuclei labels", opacity=0.6
+            morphology.erosion(sample.nuclei.nuclei_labels),
+            name="Nuclei labels",
+            opacity=0.6,
+            blending=self.BLENDING_NORMAL,
         )
+        viewer.reset_view()
         # attach_napari_hover(sample, viewer, widget, nuc_layer, mem_layer)

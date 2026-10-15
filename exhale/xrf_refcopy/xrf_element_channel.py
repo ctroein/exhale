@@ -1,3 +1,5 @@
+"""Processing and region measurements for one elemental XRF channel."""
+
 from collections.abc import Callable
 
 import numpy as np

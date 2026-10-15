@@ -188,6 +188,12 @@ class LoadedSource:
 
 
 def open_source(filename: str) -> LoadedSource:
+    """Open and validate an HDF5 or TIFF map source.
+
+    The returned object owns the file handle. A handle opened during a failed
+    validation is closed before the exception is propagated.
+    """
+
     filename = os.path.abspath(os.fspath(filename))
     alias = os.path.splitext(os.path.basename(filename))[0]
     if h5py.is_hdf5(filename):
@@ -226,4 +232,6 @@ def open_source(filename: str) -> LoadedSource:
 
 
 def ref_display_basename(ref: ElementRef) -> str:
+    """Return the final item-path component for compact display."""
+
     return ref.item_id.rsplit("/", 1)[-1] or ref.item_id

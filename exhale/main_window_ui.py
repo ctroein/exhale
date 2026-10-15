@@ -376,22 +376,13 @@ class Ui_MainWindow(object):
         self.horizontalLayout_12.addWidget(self.analysisExport)
         self.verticalLayout_7.addLayout(self.horizontalLayout_12)
         self.verticalLayout_7.setStretch(4, 2)
-        self.scrollArea = QtWidgets.QScrollArea(self.analysisLeftSplitter)
+        self.analysisLayerList = LayerListWidget(self.analysisLeftSplitter)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Expanding)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.scrollArea.sizePolicy().hasHeightForWidth())
-        self.scrollArea.setSizePolicy(sizePolicy)
-        self.scrollArea.setWidgetResizable(True)
-        self.scrollArea.setObjectName("scrollArea")
-        self.analysisLayerWidget = QtWidgets.QWidget()
-        self.analysisLayerWidget.setGeometry(QtCore.QRect(0, 0, 643, 325))
-        self.analysisLayerWidget.setObjectName("analysisLayerWidget")
-        self.analysisLayerBox = QtWidgets.QGridLayout(self.analysisLayerWidget)
-        self.analysisLayerBox.setHorizontalSpacing(5)
-        self.analysisLayerBox.setVerticalSpacing(4)
-        self.analysisLayerBox.setObjectName("analysisLayerBox")
-        self.scrollArea.setWidget(self.analysisLayerWidget)
+        sizePolicy.setHeightForWidth(self.analysisLayerList.sizePolicy().hasHeightForWidth())
+        self.analysisLayerList.setSizePolicy(sizePolicy)
+        self.analysisLayerList.setObjectName("analysisLayerList")
         self.napariWidget = QtWidgets.QWidget(self.analysisSplitter)
         self.napariWidget.setObjectName("napariWidget")
         self.analysisRightSplitter = QtWidgets.QSplitter(self.analysisSplitter)
@@ -553,5 +544,6 @@ class Ui_MainWindow(object):
         self.actionQuit.setShortcut(_translate("MainWindow", "Ctrl+Q"))
 from exhale.histogramwidget import HistogramWidget
 from exhale.imagecanvas import ImageCanvas
+from exhale.layerwidgets import LayerListWidget
 from exhale.listwidgets import ElementListWidget, ImageListWidget
 from exhale.widgets import IconToolButton

@@ -20,17 +20,17 @@ from PIL import Image
 from qtpy import QtCore, QtTest, QtWidgets
 
 from exhale import projectio
-from exhale.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
-from exhale.imagesettings import ImageSettings, Layouts
-from exhale.listwidgets import ElementListWidget
-from exhale.main_window import ACTIVE_TAB_SETTINGS_KEY, MainWindow
-from exhale.projectdata import (
+from exhale.data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
+from exhale.data.imagesettings import ImageSettings, Layouts
+from exhale.data.projectdata import (
     SampleChannelState,
     SegmentationParameters,
     SegmentationResult,
 )
+from exhale.data.source_refs import open_source
+from exhale.listwidgets import ElementListWidget
+from exhale.main_window import ACTIVE_TAB_SETTINGS_KEY, MainWindow
 from exhale.projectstatemanager import PROJECT_SAVE_ON_EXIT_KEY
-from exhale.source_refs import open_source
 
 
 class SourceLifecycleTests(unittest.TestCase):
@@ -99,7 +99,7 @@ class SourceLifecycleTests(unittest.TestCase):
         error = ValueError("<COMPRESSION.LZW: 5> requires the 'imagecodecs' package")
 
         with (
-            patch("exhale.source_refs.LoadedSource.load_array", side_effect=error),
+            patch("exhale.data.source_refs.LoadedSource.load_array", side_effect=error),
             patch.object(QtWidgets.QMessageBox, "warning") as warning,
             patch.object(
                 self.win.project_data,
@@ -620,10 +620,12 @@ class SourceLifecycleTests(unittest.TestCase):
         class FakeNapariHelper:
             def __init__(self):
                 self.sample = None
+                self.element_maps = None
                 self.viewer = SimpleNamespace(layers=[])
 
-            def set_sample(self, value):
+            def set_sample(self, value, element_maps=None):
                 self.sample = value
+                self.element_maps = element_maps
 
         self.win.naparihelper = FakeNapariHelper()
         self.win.analysisSampleComboBox.setCurrentIndex(
@@ -632,6 +634,9 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.analysis_sample_changed()
 
         self.assertIs(self.win.naparihelper.sample, xrf_sample)
+        expected_map = self.win.project_data.element_settings[zn_ref].transformedData()
+        self.assertEqual(len(self.win.naparihelper.element_maps), 1)
+        np.testing.assert_array_equal(self.win.naparihelper.element_maps[0], expected_map)
         self.assertEqual(self.win.analysisChNuclei.currentData(), fe_ref)
         self.assertEqual(self.win.analysisChTissue.currentData(), zn_ref)
         checked = {
@@ -1190,7 +1195,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertTrue(self.win.isWindowModified())
 
     def test_duplicate_open_closes_unused_handle(self):
-        from exhale.source_refs import open_source
+        from exhale.data.source_refs import open_source
 
         for filename in (self.h5, self.tiff):
             self.win.open_files([filename])

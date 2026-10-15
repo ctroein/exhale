@@ -4,9 +4,9 @@ import unittest
 
 import numpy as np
 
-from exhale.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
-from exhale.projectdata import ProjectData
-from exhale.source_refs import ElementRef
+from exhale.data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
+from exhale.data.projectdata import ProjectData
+from exhale.data.source_refs import ElementRef
 
 
 class ElementSettingsDefaultsTests(unittest.TestCase):

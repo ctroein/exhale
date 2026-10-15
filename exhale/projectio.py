@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""
-Created on Thu Apr 16 14:43:38 2026
-
-@author: carl
-"""
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""JSON persistence and path relocation for complete Exhale projects."""
 
 import json
 import os
@@ -13,11 +7,11 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
-from .imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
-from .projectdata import ChannelOverride, SegmentationParameters, SegmentationResult
+from .data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
+from .data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
+from .data.projectdata import ChannelOverride, SegmentationParameters, SegmentationResult
+from .data.source_refs import ElementRef, LoadedSource, open_source
 from .segmentationio import load_xrf_sample, result_relative_path, save_xrf_sample
-from .source_refs import ElementRef, LoadedSource, open_source
 
 PROJECT_FORMAT = "exhale-project"
 PROJECT_VERSION = 6
@@ -580,6 +574,8 @@ def load_project_state(
 
 
 def load_project(win, filename: str | Path, *, open_files: bool = True) -> None:
+    """Read a project JSON file and restore it into ``win``."""
+
     filename = Path(filename)
     with filename.open("r", encoding="utf-8") as f:
         state = json.load(f)

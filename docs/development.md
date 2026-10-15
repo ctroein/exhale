@@ -5,9 +5,9 @@ This document describes the conventions and invariants for work on Exhale.
 ## Repository layout
 
 Application code is in `exhale/`, with `exhale/__main__.py` as the main entry
-point. Project and channel state are defined in `projectdata.py` and
-`channeldata.py`; source readers and TIFF import logic are in `source_refs.py`
-and `tiffimport.py`. XRF analysis code is grouped in `exhale/xrf_refcopy/`.
+point. Widget-independent project, channel, source, and settings models are
+grouped in `exhale/data/`. XRF analysis code is grouped in
+`exhale/xrf_refcopy/`.
 Tests are in `tests/`.
 
 Bundled icons, Qt Designer files, and model data belong in
@@ -16,7 +16,7 @@ automation is in `.github/workflows/`.
 
 ## Python style and tooling
 
-Exhale requires Python 3.10 or newer. Hand-written Python uses four-space
+Exhale requires Python 3.11 or newer. Hand-written Python uses four-space
 indentation, `snake_case` for functions, variables, and modules, and
 `PascalCase` for classes. Keep imports at the top of a module. Use a
 100-character line length, double-quoted strings, and trailing commas in
@@ -58,6 +58,32 @@ collection-literal-concatenation (`RUF005`) rules.
 The repository-local `.ruff.toml` is authoritative. Keep its target version,
 generated-file exclusions, and selected rules consistent with this document.
 
+## Documentation
+
+[`architecture.md`](architecture.md) describes durable component boundaries
+and ownership. [`code-overview.md`](code-overview.md) lists every hand-written
+source module and its responsibility. Update both documents in the same change
+when modules are added, removed, renamed, or given substantially different
+responsibilities.
+
+Every hand-written Python module needs a module docstring which states its
+role; creation dates and filenames are not documentation. Major models,
+controllers, workers, reusable widgets, and public functions need concise
+docstrings describing their contract. Document private helpers when their
+state changes, constraints, error behavior, or relationship to another
+component is not apparent from the signature and immediate context. Trivial
+accessors, direct signal forwarders, and ordinary Qt overrides do not need
+ceremonial docstrings.
+
+Use concise PEP 257 summaries. Type annotations are the authoritative type
+documentation, so do not repeat them in prose. Add parameter, return-value,
+exception, ownership, mutation, or callback details only when they convey
+information not evident from the signature. Comments explain reasons,
+invariants, and external constraints rather than restating the following code.
+
+Generated `*_ui.py` modules are excluded from source-documentation
+requirements. Document the corresponding Designer file or controller instead.
+
 ## Scope of changes
 
 Prefer small, local changes over architectural rewrites. Preserve existing
@@ -88,6 +114,12 @@ Project data and Element maps tabs. This provides the extra space needed for a
 splitter without changing the normal margins around its panes. Embedded canvas
 or viewer widgets that must align with adjacent pane contents should use zero
 internal layout margins; keep the tab's normal outer margins intact.
+After adding, removing, or replacing a container widget, inspect all four edges
+of the affected panes at normal display scale. Check that each pane retains the
+application's normal outer margin, that nested layouts do not add a second
+margin or frame, and that replacing a framed container has not accidentally
+removed the spacing which belonged around it. Compare alignment with adjacent
+panes rather than relying only on layout property values.
 
 Files in `exhale/resources/ui/` are the Qt Designer sources for the generated
 `exhale/*_ui.py` modules. Never edit, format, or repair generated UI modules

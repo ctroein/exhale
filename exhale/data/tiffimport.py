@@ -18,6 +18,8 @@ _COMBINED = re.compile(r"^([A-Za-z]{1,2})([KLM](?:a|b|alpha|beta|\d+)?)$", re.IG
 
 @dataclass(frozen=True)
 class TiffImportProposal:
+    """Editable sample and channel names inferred from one TIFF filename."""
+
     sample_name: str
     channel_key: str
     channel_name: str

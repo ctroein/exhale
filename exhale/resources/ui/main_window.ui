@@ -461,34 +461,13 @@
              </item>
             </layout>
            </widget>
-           <widget class="QScrollArea" name="scrollArea">
+           <widget class="LayerListWidget" name="analysisLayerList">
             <property name="sizePolicy">
              <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
               <horstretch>0</horstretch>
               <verstretch>0</verstretch>
              </sizepolicy>
             </property>
-            <property name="widgetResizable">
-             <bool>true</bool>
-            </property>
-            <widget class="QWidget" name="analysisLayerWidget">
-             <property name="geometry">
-              <rect>
-               <x>0</x>
-               <y>0</y>
-               <width>643</width>
-               <height>325</height>
-              </rect>
-             </property>
-             <layout class="QGridLayout" name="analysisLayerBox">
-              <property name="horizontalSpacing">
-               <number>5</number>
-              </property>
-              <property name="verticalSpacing">
-               <number>4</number>
-              </property>
-             </layout>
-            </widget>
            </widget>
           </widget>
           <widget class="QWidget" name="napariWidget" native="true"/>
@@ -676,6 +655,11 @@
    <class>ImageListWidget</class>
    <extends>QListWidget</extends>
    <header>exhale.listwidgets</header>
+  </customwidget>
+  <customwidget>
+   <class>LayerListWidget</class>
+   <extends>QListWidget</extends>
+   <header>exhale.layerwidgets</header>
   </customwidget>
   <customwidget>
    <class>HistogramWidget</class>

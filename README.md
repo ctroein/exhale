@@ -19,3 +19,8 @@ biomedical companies and clinical researchers.
 * Loading HDF5 files with XRF data from the NanoMAX beamline at MAX IV.
 * Composing element maps into publication-ready figures.
 * Segmentation of cells and clustering of areas in element maps.
+
+## Developer documentation
+
+Architecture, the file-by-file code overview, and development conventions are
+indexed in [`docs/README.md`](docs/README.md).

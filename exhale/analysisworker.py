@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-Created on Fri Mar 27 00:34:39 2026
-
-@author: carl
-"""
+"""Background XRF analysis with Qt progress, completion, and failure signals."""
 
 import contextlib
 import importlib
@@ -13,7 +9,7 @@ import threading
 
 from qtpy import QtCore
 
-from .elementsettings import ElementSettings
+from .data.elementsettings import ElementSettings
 
 
 @contextlib.contextmanager
@@ -52,6 +48,13 @@ def capture_native_stderr(emit):
 
 
 class AnalysisWorker(QtCore.QObject):
+    """Run one sample analysis outside the GUI thread.
+
+    Progress includes Python output and messages written directly to the native
+    stderr descriptor. Abortion is cooperative and is checked at progress
+    boundaries.
+    """
+
     progress = QtCore.Signal(str)
     finished = QtCore.Signal(object)  # XRFSample
     failed = QtCore.Signal(str)
@@ -74,6 +77,8 @@ class AnalysisWorker(QtCore.QObject):
 
     @QtCore.Slot()
     def run(self):
+        """Run the analysis and emit exactly one completion or failure signal."""
+
         try:
             sample = self.xrf_analysis()
         except InterruptedError:
@@ -87,9 +92,13 @@ class AnalysisWorker(QtCore.QObject):
 
     @QtCore.Slot()
     def abort(self):
+        """Request cooperative cancellation at the next progress boundary."""
+
         self._abort = True
 
     def xrf_analysis(self):
+        """Build and process an ``XRFSample`` while forwarding library output."""
+
         # self._abort = False
         def progress_or_abort(msg):
             if self._abort:

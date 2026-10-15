@@ -1,3 +1,5 @@
+"""Nuclei segmentation and tissue-mask channels used by XRF analysis."""
+
 from collections.abc import Callable
 
 import numpy as np

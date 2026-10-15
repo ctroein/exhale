@@ -31,6 +31,8 @@ class _SampleTreeDelegate(QtWidgets.QStyledItemDelegate):
 
 
 class ProjectTab(QtCore.QObject):
+    """Coordinate Project data tab controls with the authoritative project model."""
+
     NODE_KIND_ROLE = Qt.UserRole
     NODE_ID_ROLE = Qt.UserRole + 1
     PROJECT_ENABLED_ROLE = Qt.UserRole + 10

@@ -24,6 +24,8 @@ _PACKAGE_DISTRIBUTIONS = (
 
 
 def _distribution_version(distribution: str) -> str:
+    """Return installed distribution metadata or an explicit unavailable marker."""
+
     try:
         return metadata.version(distribution)
     except metadata.PackageNotFoundError:

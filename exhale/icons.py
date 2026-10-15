@@ -14,6 +14,8 @@ from .appearance import is_dark
 
 
 class IconName(str, Enum):
+    """Canonical names of icons packaged with Exhale."""
+
     LOGO = "xrf_cells.png"
     OPEN = "open.svg"
     FOLDER = "folder-open.svg"
@@ -37,6 +39,8 @@ class IconName(str, Enum):
     MAP_NO = "x-mark.svg"
     MAP_PROJECT_YES = "atom-checkmark.svg"
     MAP_PROJECT_NO = "atom-x-mark.svg"
+    LAYERS = "layers.svg"
+    LAYERS_ADD = "layers-plus.svg"
 
 
 _ICON_ROOT = Path(resdir) / "icons"
@@ -44,6 +48,8 @@ _cache: dict[IconName, QtGui.QIcon] = {}
 
 
 class SvgIconEngine(QtGui.QIconEngine):
+    """Render one SVG with substitutions derived from the active Qt palette."""
+
     def __init__(self, svg):
         super().__init__()
         self._svg = svg

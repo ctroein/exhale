@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-Created on Tue Jan 30 22:33:00 2024
-
-@author: carl
-"""
+"""Main Exhale window and integration of project, image, and analysis workflows."""
 
 import os
 
@@ -23,17 +19,10 @@ from qtpy.QtCore import Qt
 from . import appearance, application_description, application_name, application_title, icons
 from .analysis_settings_dialog import AnalysisSettingsDialog
 from .analysisworker import AnalysisWorker
-from .constants import CONCENTRATION_UNITS
-from .elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
-from .exceptiondialog import ExceptionDetailsDialog, ExceptionDialog
-from .image_settings_dialog import ImageSettingsDialog
-from .imagecomposer import ImageComposer
-from .imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
-from .listwidgets import ElementListWidget, ImageElementBox, ImageHeaderBox, ImageListWidget
-from .main_window_ui import Ui_MainWindow
-from .overridecursor import OverrideCursor
-from .project_tab import ProjectTab
-from .projectdata import (
+from .data.constants import CONCENTRATION_UNITS
+from .data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
+from .data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
+from .data.projectdata import (
     DuplicateChannelError,
     ProjectData,
     SampleChannelState,
@@ -41,12 +30,19 @@ from .projectdata import (
     SegmentationResult,
     shortest_unique_path_suffixes,
 )
+from .data.source_refs import ElementRef, open_source
+from .exceptiondialog import ExceptionDetailsDialog, ExceptionDialog
+from .image_settings_dialog import ImageSettingsDialog
+from .imagecomposer import ImageComposer
+from .listwidgets import ElementListWidget, ImageElementBox, ImageHeaderBox, ImageListWidget
+from .main_window_ui import Ui_MainWindow
+from .overridecursor import OverrideCursor
+from .project_tab import ProjectTab
 from .projectmanager import ProjectManager
 from .projectstatemanager import ProjectStateManager
 from .runtimeinfo import runtime_environment_html
 from .segmentationio import result_relative_path, save_xrf_sample
 from .settings_dialog import SettingsDialog
-from .source_refs import ElementRef, open_source
 from .widgets import IconToolButton, initialize_splitter_on_show
 
 _LOAD_NAPARI_EARLY = True
@@ -62,7 +58,7 @@ def scale_font(widget: QtWidgets.QWidget, scale: float):
 
 
 class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
-    "Main window of this thing"
+    """Own the application shell and coordinate feature-specific controllers."""
 
     channelsChanged = QtCore.Signal()
 
@@ -233,6 +229,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.elementList.reload_icons()
         self.imageList.reload_icons()
         self.project_tab.reload_icons()
+        self.analysisLayerList.reload_appearance()
+        if getattr(self, "naparihelper", None) is not None:
+            self.naparihelper.set_theme("dark" if appearance.is_dark() else "light")
 
     def show_settings(self):
         SettingsDialog(self.settings, self).exec()
@@ -363,21 +362,23 @@ Licensed under the MIT License.</p>
         self._analysisThread = None
         self._analysis_result_sample_id = None
 
+        def tab_check():
+            if self.tabWidget.currentWidget() != self.analysisTab:
+                return
+            if self.naparihelper is None:
+                self.initialize_analysisTab()
+            self.analysis_sample_changed()
+
+        self.tabWidget.currentChanged.connect(tab_check)
         if _LOAD_NAPARI_EARLY:
             self.initialize_analysisTab()
-        else:
-
-            def tab_check():
-                if self.tabWidget.currentWidget() == self.analysisTab and self.naparihelper is None:
-                    self.initialize_analysisTab()
-
-            self.tabWidget.currentChanged.connect(tab_check)
 
     def initialize_analysisTab(self):
         "Initialize the data analysis tab; start Napari viewer etc"
         from .naparihelper import NapariHelper
 
-        self.naparihelper = NapariHelper()
+        self.naparihelper = NapariHelper("dark" if appearance.is_dark() else "light")
+        self.analysisLayerList.set_helper(self.naparihelper)
         self.naparihelper.set_info_widget(self.analysisInfo)
 
         self.analysisSplitter.setSizes([180, 400, 200])
@@ -471,10 +472,26 @@ Licensed under the MIT License.</p>
         self._set_segmentation_parameters(result.parameters)
         if self.naparihelper is None:
             return
-        self.naparihelper.set_sample(result.xrf_sample)
+        self.naparihelper.set_sample(result.xrf_sample, self._segmentation_element_maps(result))
         self._analysis_result_sample_id = result.sample_id
         self.update_layer_controls()
         self.analysisExport.setEnabled(True)
+
+    def _segmentation_element_maps(self, result):
+        """Return current transformed sample maps in segmentation element order."""
+        sample = self.project_data.samples[result.sample_id]
+        effective_by_ref = {
+            channel.ref: channel
+            for channel in sample.effective_channels(self.project_data.project_channels).values()
+        }
+        maps = []
+        for ref in result.element_refs:
+            channel = effective_by_ref.get(ref)
+            settings = None if channel is None else channel.settings
+            if settings is None:
+                settings = self._ensure_element_settings(ref)
+            maps.append(settings.transformedData())
+        return tuple(maps)
 
     def update_analysis_channels(self):
         "Update the nuclei/tissue selectors from the active sample."
@@ -541,49 +558,7 @@ Licensed under the MIT License.</p>
 
     def update_layer_controls(self):
         "Update the layer list in the analysis tab"
-        while self.analysisLayerBox.count():
-            item = self.analysisLayerBox.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
-
-        scale = 0.8
-        for i, h in enumerate(("Layer", "Alpha", "Blend")):
-            lab = QtWidgets.QLabel(h)
-            self.analysisLayerBox.addWidget(lab, 0, i)
-            scale_font(lab, scale)
-        blends = {"translucent": "Def", "additive": "Add", "minimum": "Min"}
-        last_row = 0
-        for i, layer in enumerate(self.naparihelper.viewer.layers):
-            row = i + 1
-            last_row = row
-            cb = QtWidgets.QCheckBox(layer.name)
-            cb.setChecked(layer.visible)
-            cb.toggled.connect(lambda checked, lyr=layer: setattr(lyr, "visible", checked))
-            scale_font(cb, scale)
-            self.analysisLayerBox.addWidget(cb, row, 0)
-
-            alpha = QtWidgets.QSpinBox()
-            alpha.setRange(0, 100)
-            alpha.setValue(int(layer.opacity * 100))
-            alpha.valueChanged.connect(lambda val, lyr=layer: setattr(lyr, "opacity", 0.01 * val))
-            scale_font(alpha, scale)
-            self.analysisLayerBox.addWidget(alpha, row, 1)
-
-            blend = QtWidgets.QComboBox()
-            for bid, bstr in blends.items():
-                blend.addItem(bstr, userData=bid)
-            blend.currentIndexChanged.connect(
-                lambda _, lyr=layer, bl=blend: setattr(lyr, "blending", bl.currentData())
-            )
-            scale_font(blend, scale)
-            self.analysisLayerBox.addWidget(blend, row, 2)
-
-        # Add a strechable empty row and set the scrollarea width
-        self.analysisLayerBox.addWidget(QtWidgets.QWidget(), last_row + 1, 0)
-        self.analysisLayerBox.setRowStretch(last_row + 1, 1)
-        w = self.analysisLayerWidget.width()
-        self.scrollArea.setMinimumWidth(w)
+        self.analysisLayerList.rebuild()
 
     def set_analysis_busy(self, busy):
         self.analysisRun.setEnabled(not busy)
@@ -604,6 +579,8 @@ Licensed under the MIT License.</p>
         self.analysisAbort.setEnabled(busy)
 
     def run_analysis(self):
+        """Validate the selected sample and start its background segmentation."""
+
         if self._analysisWorker is not None:
             raise RuntimeError("Analysis worker already running")
         if self.project_dir is None:
@@ -723,6 +700,8 @@ Licensed under the MIT License.</p>
         thread.start()
 
     def export_analysis_results(self):
+        """Export the currently displayed analysis tables to a chosen directory."""
+
         sample = self.naparihelper.sample
         if sample is None:
             return

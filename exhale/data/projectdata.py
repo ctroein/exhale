@@ -255,7 +255,7 @@ class Sample:
 
 
 class ProjectData:
-    """Own project sample state while the old UI is being migrated."""
+    """Own assets, samples, shared channel choices, defaults, and derived results."""
 
     def __init__(self, element_defaults=None):
         self.element_defaults = (
@@ -276,6 +276,8 @@ class ProjectData:
         return {asset_id: asset.source for asset_id, asset in self.assets.items()}
 
     def create_sample(self, name: str, sample_id: str | None = None):
+        """Create and register an empty sample with a stable identity."""
+
         sample_id = sample_id or str(uuid4())
         if sample_id in self.samples:
             raise ValueError(f"Sample {sample_id!r} already exists")
@@ -317,6 +319,8 @@ class ProjectData:
         self.project_channels[key].name = name
 
     def sample_channel_state(self, sample_id: str, key: str) -> SampleChannelState:
+        """Return whether a sample skips, inherits, or overrides a channel."""
+
         sample = self.samples[sample_id]
         if key in sample.channel_overrides:
             return (

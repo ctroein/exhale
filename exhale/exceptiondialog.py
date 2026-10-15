@@ -56,6 +56,8 @@ class ExceptionDetailsDialog(QtWidgets.QDialog):
 
 
 class ExceptionDialog:
+    """Install an exception hook and retain the latest error for later display."""
+
     @staticmethod
     def install(window):
         """Install a graphical handler for otherwise unhandled exceptions."""

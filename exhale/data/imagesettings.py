@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-Created on Fri Aug 15 19:07:15 2025
-
-@author: carl
-"""
+"""Composition settings, layouts, colours, and channel overrides for images."""
 
 from copy import deepcopy
 from enum import Enum

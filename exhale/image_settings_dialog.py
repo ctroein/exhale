@@ -6,6 +6,8 @@ from .image_settings_dialog_ui import Ui_ImageSettingsDialog
 
 
 class ImageSettingsDialog(QtWidgets.QDialog, Ui_ImageSettingsDialog):
+    """Edit composition settings for an image or the project defaults."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)

@@ -8,9 +8,9 @@ import h5py
 import numpy as np
 import tifffile
 
-from exhale.projectdata import ProjectData
-from exhale.source_refs import open_source
-from exhale.tiffimport import infer_tiff_import
+from exhale.data.projectdata import ProjectData
+from exhale.data.source_refs import open_source
+from exhale.data.tiffimport import infer_tiff_import
 
 
 class SampleTests(unittest.TestCase):

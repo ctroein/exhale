@@ -8,6 +8,8 @@ from .settings_dialog_ui import Ui_SettingsDialog
 
 
 class SettingsDialog(QtWidgets.QDialog, Ui_SettingsDialog):
+    """Edit persistent application-wide preferences stored in ``QSettings``."""
+
     def __init__(self, settings: QtCore.QSettings, parent=None):
         super().__init__(parent)
         self.setupUi(self)

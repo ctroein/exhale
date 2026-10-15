@@ -17,7 +17,7 @@ license = "MIT"
 license-files = [ "LICENSE" ]
 classifiers = [ "Topic :: Scientific/Engineering :: Medical Science Apps." ]
 readme="README.md"
-requires-python = ">= 3.10"
+requires-python = ">= 3.11"
 dependencies = [
     'numpy',
     'scipy',

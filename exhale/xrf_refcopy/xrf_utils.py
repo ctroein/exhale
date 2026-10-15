@@ -1,10 +1,7 @@
-"""
-xrf_utils.py
-------------
-Stateless utility functions shared across XRF channel classes.
+"""Numerical segmentation and intensity-partition helpers for XRF analysis.
 
-All functions are pure (no side effects, no class dependencies) and can be
-imported individually wherever needed — including notebooks and future modules.
+Importing this module configures TensorFlow logging and CUDA visibility. Model
+loading is lazy and uses the base directory supplied by ``AnalysisWorker``.
 """
 
 import os
@@ -59,6 +56,8 @@ def log_transform(img: np.ndarray) -> np.ndarray:
 
 
 def set_model_basedir(path):
+    """Set the StarDist model directory before the shared model is loaded."""
+
     global model, _model_basedir
     if model is not None and path != _model_basedir:
         raise RuntimeError(f"Model already loaded from {_model_basedir}")
@@ -66,12 +65,16 @@ def set_model_basedir(path):
 
 
 def load_model():
+    """Load the bundled StarDist model once for all subsequent segmentations."""
+
     global model
     if model is None:
         model = StarDist2D(None, "2D_versatile_fluo_copy", basedir=_model_basedir)
 
 
 def segment_nuclei(img_nuclei):
+    """Return StarDist instance labels for a nuclei-channel image."""
+
     load_model()
     # Run deep learning segmentation model on nuclei channel
     labels, _ = model.predict_instances(

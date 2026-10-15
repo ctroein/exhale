@@ -2,7 +2,7 @@
 
 import unittest
 
-from exhale.projectdata import (
+from exhale.data.projectdata import (
     Channel,
     ChannelOverride,
     ProjectData,
@@ -12,7 +12,7 @@ from exhale.projectdata import (
     SegmentationResult,
     shortest_unique_path_suffixes,
 )
-from exhale.source_refs import ElementRef
+from exhale.data.source_refs import ElementRef
 
 
 class ProjectDataTests(unittest.TestCase):

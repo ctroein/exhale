@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-Created on Tue May 26 13:52:10 2026
-
-@author: carl
-"""
+"""Physical units and other fixed values shared by presentation modules."""
 
 DISPLAY_UNITS = {
     "pm": 1e-3,

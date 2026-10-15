@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-Created on Fri Feb  6 13:46:40 2026
-
-@author: carl
-"""
+"""Compose configured channel maps into exact RGBA publication images."""
 
 import math
 from dataclasses import dataclass
@@ -12,8 +8,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .constants import DISPLAY_UNITS
-from .imagesettings import ImageSettings, Layouts, Scalebars
+from .data.constants import DISPLAY_UNITS
+from .data.imagesettings import ImageSettings, Layouts, Scalebars
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -50,7 +46,7 @@ class ComposedImageMapping:
 
 
 class ImageComposer:
-    "Functionality for making a nice image out of element maps"
+    """Merge, arrange, annotate, and optionally save configured element maps."""
 
     def __init__(self):
         self.coord_mapping = None
