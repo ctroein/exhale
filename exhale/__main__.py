@@ -106,22 +106,41 @@ def _run_application(pyi_splash=None):
                 else:
                     print(f"Run with -r to recompile updated {uif} UI file")
 
-    from qtpy import QtCore
-    from qtpy.QtWidgets import QApplication
+    from qtpy import QtCore, QtGui, QtWidgets
 
-    app = QApplication.instance()
+    app = QtWidgets.QApplication.instance()
     if not app:
         #        QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True) # why?
-        app = QApplication(sys.argv)
+        app = QtWidgets.QApplication(sys.argv)
     from . import appearance, icons
+
+    qt_splash = None
+    if pyi_splash is None:
+        pixmap = QtGui.QPixmap(str(resdir.joinpath("xrf_splash.jpg")))
+        qt_splash = QtWidgets.QSplashScreen(pixmap)
+        qt_splash.showMessage(
+            f"Initializing {application_title}",
+            QtCore.Qt.AlignRight | QtCore.Qt.AlignBottom,
+            QtGui.QColor("#e0c000"),
+        )
+        qt_splash.show()
+        exposure_deadline = QtCore.QDeadlineTimer(1000)
+        while not exposure_deadline.hasExpired():
+            app.processEvents(QtCore.QEventLoop.AllEvents)
+            window_handle = qt_splash.windowHandle()
+            if window_handle is not None and window_handle.isExposed():
+                break
+            QtCore.QThread.msleep(1)
 
     appearance.initialize(QtCore.QSettings("CIPA", application_name))
     if sys.platform != "darwin":
         app.setWindowIcon(icons.icon(icons.IconName.LOGO))
+
     from .main_window import MainWindow
 
     window = MainWindow()
     window.show()
+    window.post_setup(**windowparams)
 
     if pyi_splash is not None:
         try:
@@ -129,8 +148,9 @@ def _run_application(pyi_splash=None):
         except Exception as e:
             print("closing splash failed:", repr(e))
             traceback.print_exc()
+    elif qt_splash is not None:
+        qt_splash.finish(window)
 
-    window.post_setup(**windowparams)
     app.lastWindowClosed.connect(app.quit)
     # app.aboutToQuit.connect(window.cleanup)
     return app.exec_()
@@ -152,7 +172,10 @@ def main():
             # print("startup: is_alive =", pyi_splash.is_alive())
             if pyi_splash.is_alive():
                 pyi_splash.update_text(f"Initializing {application_title}")
+            else:
+                pyi_splash = None
         except Exception as e:
+            pyi_splash = None
             print("pyi_splash failed:", repr(e))
             traceback.print_exc()
 

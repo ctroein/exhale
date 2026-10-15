@@ -35,14 +35,14 @@ datas = [
 ]
 
 if sys.platform == "darwin":
-#    datas.append((join(res, "icons", "lungs.icns"), "exhale/resources/icons"))
-    icon_file = join("icons", "lungs.icns")
+#    datas.append((join(res, "icons", "xrf.icns"), "exhale/resources/icons"))
+    icon_file = join("icons", "xrf.icns")
 else:
-    datas.append((join(res, "icons", "lungs.png"), "exhale/resources/icons"))
+    datas.append((join(res, "icons", "xrf.png"), "exhale/resources/icons"))
     if sys.platform == "win32":
-        icon_file = join("icons", "lungs.ico")
+        icon_file = join("icons", "xrf.ico")
     else:
-        icon_file = join("icons", "lungs.png")
+        icon_file = join("icons", "xrf.png")
 
 datas = datas + copy_metadata('imageio')
 

@@ -47,6 +47,7 @@ dependencies = [
   "resources/icons/*.svg",
   "resources/icons/*.png",
   "resources/icons/*.txt",
+  "resources/*.jpg",
   "resources/models/2D_versatile_fluo_copy/*",
 ]
 
