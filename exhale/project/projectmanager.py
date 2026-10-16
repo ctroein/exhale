@@ -8,6 +8,8 @@ from pathlib import Path
 from qtpy import QtWidgets
 
 from .. import application_name
+from ..data.elementsettings import ElementSettingsDefaults
+from ..data.imagesettings import ImageSettings
 from ..overridecursor import OverrideCursor
 from . import projectio
 from .projectstatemanager import PROJECT_AUTOSAVE_FILENAME
@@ -37,12 +39,17 @@ class ProjectManager:
         with w.project_state_manager.suspend_notifications():
             w.clear_project()
             w.project_dir = None
-            w.reset_project_defaults()
-            w.initialize_empty_project()
+            self.reset_project_defaults()
+            w.image_controller.initialize_empty_project()
             w.refresh_project_ui()
         w.project_state_manager.mark_saved()
         w.update_window_title()
         return True
+
+    def reset_project_defaults(self) -> None:
+        """Restore the built-in defaults for a newly created project."""
+        self.window.project_data.element_defaults = ElementSettingsDefaults()
+        self.window.project_data.image_defaults = ImageSettings("")
 
     def open_project(self) -> bool:
         directory = QtWidgets.QFileDialog.getExistingDirectory(
@@ -109,7 +116,9 @@ class ProjectManager:
         try:
             with manager.suspend_notifications(), OverrideCursor():
                 self.window.clear_project()
-                issues = projectio.load_project_state(self.window, state, project_dir=directory)
+                issues = projectio.load_project_state(
+                    self.window.project_data, state, project_dir=directory
+                )
         except Exception as exc:
             self._show_error("Loading failed", exc)
             self.window.refresh_project_ui()
@@ -177,7 +186,7 @@ class ProjectManager:
         try:
             directory.mkdir(parents=True, exist_ok=True)
             with OverrideCursor():
-                projectio.save_project(self.window, directory / PROJECT_FILENAME)
+                projectio.save_project(self.window.project_data, directory / PROJECT_FILENAME)
         except Exception as exc:
             self._show_error("Saving failed", exc)
             return False

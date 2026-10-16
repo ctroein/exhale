@@ -37,10 +37,10 @@ independent of Qt widgets.
 ### `exhale/data/projectdata.py`
 
 Defines the authoritative project model. `ProjectData` owns assets, samples,
-project channel choices, shared defaults, and segmentation results. `Sample`,
-`Channel`, `ChannelOverride`, and `ResolvedChannel` express local versus
-inherited channel state; the remaining data classes describe assets and
-analysis metadata.
+composed-image settings, project channel choices, shared defaults, and
+segmentation results. `Sample`, `Channel`, `ChannelOverride`, and
+`ResolvedChannel` express local versus inherited channel state; the remaining
+data classes describe assets and analysis metadata.
 
 ### `exhale/data/channeldata.py`
 
@@ -61,14 +61,21 @@ Infers conservative sample and channel-name suggestions from TIFF filenames.
 
 ### `exhale/project/projectio.py`
 
-Serializes and restores project JSON. It owns path relocation, model and image
-settings encoding, project-header validation, tolerant object loading, and
-atomic writes.
+Serializes and restores `ProjectData` without accessing windows or widgets. It
+owns path relocation, model and image settings encoding, project-header
+validation, tolerant object loading, and atomic writes.
 
 ### `exhale/project/projectmanager.py`
 
 Owns project-directory selection and high-level new/open/save/save-as policy.
-It coordinates `projectio`, the main window, and dirty-state handling.
+It coordinates model persistence, post-load UI refresh, and dirty-state
+handling.
+
+### `exhale/project/sourcemanager.py`
+
+Owns source-file selection, import, closure, removal, and relocation. It
+coordinates source-related model changes with the element, image, project-tab,
+and dirty-state refreshes required after each operation.
 
 ### `exhale/project/projectstatemanager.py`
 
@@ -122,10 +129,9 @@ pyqtgraph.
 ### `exhale/main_window.py`
 
 Defines `MainWindow`, the application shell and integration point. It creates
-feature helpers, connects generated controls, synchronizes selected channels
-and images, incrementally refreshes displayed segmentation element maps,
-persists application-wide window and splitter state, launches analysis, and
-routes project and error operations to their owners.
+feature controllers and managers, connects application-wide events, presents
+global dialogs, persists window and splitter state, and coordinates global
+project refresh and shutdown.
 
 ### `exhale/project/project_tab.py`
 
@@ -133,15 +139,29 @@ Coordinates the Project data tab. `ProjectTab` populates the sample/file tree,
 channel and map lists, resolution controls, add/remove actions, channel
 inheritance, and stable tree sizing without owning the underlying model.
 
+### `exhale/imaging/element_controller.py`
+
+Owns Element maps selection and editing: the selected sample and element,
+effective channel-state presentation, normalization and histogram controls,
+element naming, and single-map display. It creates missing `ElementSettings`
+objects while leaving them authoritatively owned by `ProjectData`.
+
+### `exhale/imaging/image_controller.py`
+
+Owns composed-image selection and editing, channel slots and local overrides,
+presentation defaults, the image-settings dialog, `ImageComposer` and canvas
+mapping, image export, and image-related UI state. The saved image collection
+remains owned by `ProjectData`.
+
 ### `exhale/analysis/analysis_settings_dialog.py`
 
 Provides the generated controls as a focused modal analysis-settings dialog;
-the main window transfers values to and from those controls.
+`AnalysisController` reads and restores those controls.
 
 ### `exhale/imaging/image_settings_dialog.py`
 
 Provides the generated controls as a focused modal image-settings dialog; the
-main window transfers defaults or one image's settings to and from it.
+`ImageController` transfers defaults or one image's settings to and from it.
 
 ### `exhale/settings_dialog.py`
 
@@ -154,6 +174,13 @@ and project autosave behavior.
 
 Defines the package boundary for analysis execution, persistence, and result
 visualization.
+
+### `exhale/analysis/controller.py`
+
+Owns the Segmentation tab: its independent sample and channel selection,
+parameter dialog, worker and thread lifetime, saved-result display,
+incremental Napari updates, and result export. `MainWindow` supplies the
+generated widgets and application-level services but owns no analysis state.
 
 ### `exhale/analysis/analysisworker.py`
 

@@ -13,6 +13,7 @@ import h5py
 import numpy as np
 from qtpy import QtCore, QtWidgets
 
+from exhale.analysis.controller import AnalysisController
 from exhale.data.elementsettings import Normalizers
 from exhale.data.imagesettings import ImageSettings, Layouts, Scalebars
 from exhale.imaging.histogramwidget import HistogramWidget
@@ -34,15 +35,13 @@ class PlotIntegrationTests(unittest.TestCase):
         with h5py.File(self.filename, "w") as handle:
             handle.attrs["default"] = "entry"
             handle.create_dataset("entry/plotselect/Fe", data=self.data)
-        with patch.object(
-            MainWindow, "create_analysisTab", lambda window: setattr(window, "naparihelper", None)
-        ):
+        with patch.object(AnalysisController, "setup", lambda controller: None):
             self.window = MainWindow()
         self.addCleanup(self.dispose)
-        self.window.open_files([self.filename])
+        self.window.source_manager.open_files([self.filename])
 
     def dispose(self):
-        self.window.close_all_files()
+        self.window.source_manager.close_all_files()
         self.window.deleteLater()
         self.app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
 
@@ -97,7 +96,7 @@ class PlotIntegrationTests(unittest.TestCase):
         image.panelLabels = False
         image.elementLabels = False
         image.elements[0] = element.copy()
-        self.window.imageSettings[1] = image
+        self.window.project_data.images[1] = image
         self.window.imageList.addImage(1, image)
         self.window.imageList.setCurrentRow(0)
         self.app.processEvents()
@@ -105,7 +104,7 @@ class PlotIntegrationTests(unittest.TestCase):
         shown = self.window.elementPlot.image_item.image
         self.assertEqual(shown.ndim, 3)
         self.assertEqual(shown.shape[2], 4)
-        mapping = self.window.imageComposer.coord_mapping
+        mapping = self.window.image_controller.composer.coord_mapping
         with patch.object(QtWidgets.QToolTip, "showText") as show_text:
             self.window.elementPlot.pixelHovered.emit((mapping.x, mapping.y))
         show_text.assert_called_once()
@@ -124,11 +123,11 @@ class PlotIntegrationTests(unittest.TestCase):
         image.panelLabels = False
         image.elementLabels = False
         image.setElement(0, self.window.project_data.element_settings[ref], channel.key)
-        self.window.imageSettings[1] = image
+        self.window.project_data.images[1] = image
         self.window.imageList.addImage(1, image)
         self.window.imageElementBoxes[0].combo.addItem("Fe", ref)
-        self.window.showComposedImage(1)
-        self.window.updateComposedImage(reset_view=True)
+        self.window.image_controller.show_image(1)
+        self.window.image_controller.update_composed_image(reset_view=True)
         self.app.processEvents()
         self.assertTrue(self.window.imageElementBoxes[0].edit.isEnabled())
         self.assertFalse(self.window.imageElementBoxes[1].edit.isEnabled())
@@ -136,9 +135,9 @@ class PlotIntegrationTests(unittest.TestCase):
         canvas = self.window.elementPlot
         canvas._zoom(0.5)
         with patch.object(
-            self.window.imageComposer,
+            self.window.image_controller.composer,
             "display_composed_image",
-            wraps=self.window.imageComposer.display_composed_image,
+            wraps=self.window.image_controller.composer.display_composed_image,
         ) as render:
             self.window.composeLayoutCB.setCurrentIndex(Layouts.IL.value)
             self.app.processEvents()
@@ -147,9 +146,9 @@ class PlotIntegrationTests(unittest.TestCase):
 
         canvas._zoom(0.5)
         with patch.object(
-            self.window.imageComposer,
+            self.window.image_controller.composer,
             "display_composed_image",
-            wraps=self.window.imageComposer.display_composed_image,
+            wraps=self.window.image_controller.composer.display_composed_image,
         ) as render:
             self.window.imageElementBoxes[0].combo.setCurrentIndex(0)
             self.app.processEvents()
@@ -170,16 +169,16 @@ class PlotIntegrationTests(unittest.TestCase):
             "Composed", sample_id=sample.sample_id, sample_source_ids=sample.asset_ids
         )
         image.setElement(0, global_settings, channel.key)
-        self.window.imageSettings[1] = image
+        self.window.project_data.images[1] = image
         self.window.imageList.addImage(1, image)
         self.window.imageElementBoxes[0].combo.addItem("Fe", ref)
-        self.window.showComposedImage(1)
-        self.window.updateComposedImage()
+        self.window.image_controller.show_image(1)
+        self.window.image_controller.update_composed_image()
         composed = self.window.elementPlot.image_item.image.copy()
 
         self.window.imageElementBoxes[0].edit.click()
         self.assertEqual(self.window.imageElementBoxes[0].edit.text(), "Adjust")
-        self.assertIs(self.window.currentImage, image)
+        self.assertIs(self.window.image_controller.current_image, image)
         np.testing.assert_array_equal(self.window.elementPlot.image_item.image, composed)
         self.assertFalse(self.window.elementSettingsPanel.isHidden())
         self.assertFalse(self.window.showSingleElementButton.isHidden())
@@ -189,9 +188,9 @@ class PlotIntegrationTests(unittest.TestCase):
         self.assertEqual(self.window.imageSettingsScopeCombo.currentText(), "Element map settings")
         sample_gamma = global_settings.gamma + 0.25
         with patch.object(
-            self.window.imageComposer,
+            self.window.image_controller.composer,
             "display_composed_image",
-            wraps=self.window.imageComposer.display_composed_image,
+            wraps=self.window.image_controller.composer.display_composed_image,
         ) as render:
             self.window.gammaValue.setValue(sample_gamma)
         render.assert_called_once()
@@ -199,7 +198,7 @@ class PlotIntegrationTests(unittest.TestCase):
 
         self.window.showSingleElementButton.click()
         self.assertEqual(self.window.elementPlot.image_item.image.ndim, 2)
-        self.assertIs(self.window.currentImage, image)
+        self.assertIs(self.window.image_controller.current_image, image)
         self.window.showSingleElementButton.click()
         self.assertEqual(self.window.elementPlot.image_item.image.ndim, 3)
 
@@ -220,7 +219,7 @@ class PlotIntegrationTests(unittest.TestCase):
         self.window.showSingleElementButton.click()
         self.assertEqual(self.window.elementPlot.image_item.image.ndim, 2)
         self.window.imageHeaderBox.edit.click()
-        self.assertIsNone(self.window.currentElement)
+        self.assertIsNone(self.window.element_controller.current_element)
         self.assertTrue(self.window.elementSettingsPanel.isHidden())
         self.assertEqual(self.window.elementPlot.image_item.image.ndim, 3)
         self.assertTrue(self.window.showSingleElementButton.isChecked())

@@ -10,7 +10,12 @@ from typing import Any
 from ..analysis.segmentationio import load_xrf_sample, result_relative_path, save_xrf_sample
 from ..data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from ..data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
-from ..data.projectdata import ChannelOverride, SegmentationParameters, SegmentationResult
+from ..data.projectdata import (
+    ChannelOverride,
+    ProjectData,
+    SegmentationParameters,
+    SegmentationResult,
+)
 from ..data.source_refs import ElementRef, LoadedSource, open_source
 
 PROJECT_FORMAT = "exhale-project"
@@ -179,10 +184,10 @@ def _imagesettings_to_json(img_id: int, im: ImageSettings) -> dict[str, Any]:
     }
 
 
-def _imagesettings_from_json(obj: dict[str, Any], win) -> ImageSettings:
+def _imagesettings_from_json(obj: dict[str, Any], project_data: ProjectData) -> ImageSettings:
     sample_source_ids = obj.get("sample_source_ids", ())
     sample_id = obj["sample_id"]
-    if sample_id not in win.project_data.samples:
+    if sample_id not in project_data.samples:
         raise ValueError(f"Image {obj['name']!r} refers to an unknown sample")
     im = ImageSettings(obj["name"], sample_id=sample_id, sample_source_ids=sample_source_ids)
     _apply_image_options(im, obj)
@@ -191,24 +196,24 @@ def _imagesettings_from_json(obj: dict[str, Any], win) -> ImageSettings:
         slot = int(slot_s)
         ref = ElementRef.from_json(es_obj["ref"])
 
-        fs = win.project_data.sources.get(ref.source_id)
+        fs = project_data.sources.get(ref.source_id)
         if fs is None:
             return
 
-        asset = win.project_data.assets.get(ref.source_id)
+        asset = project_data.assets.get(ref.source_id)
         if asset is None or asset.sample_id != im.sample_id:
             raise ValueError(f"Image {im.name!r} contains a map outside its sample")
 
         key = es_obj["channel_key"]
         if key is None:
-            _sample, channel = win.project_data.channel_for_ref(ref)
+            _sample, channel = project_data.channel_for_ref(ref)
             key = channel.key
         override = es_obj["override"]
         if override is not None:
-            es = _elementsettings_from_json(ref, fs, win.project_data.element_defaults, override)
+            es = _elementsettings_from_json(ref, fs, project_data.element_defaults, override)
             overridden = True
         else:
-            es = win.project_data.element_settings.get(ref)
+            es = project_data.element_settings.get(ref)
             if es is None:
                 raise ValueError(f"Image {im.name!r} refers to settings that were not saved")
             overridden = False
@@ -227,15 +232,14 @@ def _imagesettings_from_json(obj: dict[str, Any], win) -> ImageSettings:
     return im
 
 
-def export_project_state(win, project_dir=None) -> dict[str, Any]:
-    """
-    Build a JSON-serializable project-state dict from MainWindow.
-    """
+def export_project_state(
+    project_data: ProjectData, project_dir: str | Path | None = None
+) -> dict[str, Any]:
+    """Build a JSON-serializable state dictionary from ``ProjectData``."""
     assets = []
-    project_dir = win.project_dir if project_dir is None else project_dir
-    win.project_data.update_external_data_root(project_dir)
-    for asset_id, asset in sorted(win.project_data.assets.items()):
-        sample = win.project_data.samples[asset.sample_id]
+    project_data.update_external_data_root(project_dir)
+    for asset_id, asset in sorted(project_data.assets.items()):
+        sample = project_data.samples[asset.sample_id]
         channels = [
             {
                 "key": channel.key,
@@ -248,7 +252,7 @@ def export_project_state(win, project_dir=None) -> dict[str, Any]:
         assets.append(
             {
                 "asset_id": asset_id,
-                "path": asset_path_to_json(asset, project_dir, win.project_data.external_data_root),
+                "path": asset_path_to_json(asset, project_dir, project_data.external_data_root),
                 "original_path": asset.original_path,
                 "alias": asset.source.alias,
                 "kind": asset.source.kind,
@@ -258,7 +262,7 @@ def export_project_state(win, project_dir=None) -> dict[str, Any]:
         )
 
     samples = []
-    for sample in sorted(win.project_data.samples.values(), key=lambda value: value.sample_id):
+    for sample in sorted(project_data.samples.values(), key=lambda value: value.sample_id):
         overrides = {}
         for key, override in sorted(sample.channel_overrides.items()):
             overrides[key] = (
@@ -280,7 +284,7 @@ def export_project_state(win, project_dir=None) -> dict[str, Any]:
 
     element_settings = [
         _elementsettings_to_json(es)
-        for _ref, es in sorted(win.project_data.element_settings.items(), key=lambda pair: pair[0])
+        for _ref, es in sorted(project_data.element_settings.items(), key=lambda pair: pair[0])
     ]
     project_channels = [
         {
@@ -288,13 +292,11 @@ def export_project_state(win, project_dir=None) -> dict[str, Any]:
             "name": channel.name,
             "settings_ref": _settings_ref_to_json(channel.settings),
         }
-        for channel in sorted(
-            win.project_data.project_channels.values(), key=lambda value: value.key
-        )
+        for channel in sorted(project_data.project_channels.values(), key=lambda value: value.key)
     ]
 
     images = []
-    for img_id, im in sorted(win.imageSettings.items()):
+    for img_id, im in sorted(project_data.images.items()):
         images.append(_imagesettings_to_json(img_id, im))
 
     segmentation_results = [
@@ -313,18 +315,18 @@ def export_project_state(win, project_dir=None) -> dict[str, Any]:
             "sidecar": str(result_relative_path(result.sample_id)),
         }
         for result in sorted(
-            win.project_data.segmentation_results.values(), key=lambda value: value.sample_id
+            project_data.segmentation_results.values(), key=lambda value: value.sample_id
         )
     ]
 
     return {
         "format": PROJECT_FORMAT,
         "version": PROJECT_VERSION,
-        "element_defaults": win.project_data.element_defaults.to_json(),
+        "element_defaults": project_data.element_defaults.to_json(),
         "image_defaults": _image_options_to_json(
-            win.project_data.image_defaults, include_resolution=True
+            project_data.image_defaults, include_resolution=True
         ),
-        "external_data_root": win.project_data.external_data_root,
+        "external_data_root": project_data.external_data_root,
         "samples": samples,
         "assets": assets,
         "project_channels": project_channels,
@@ -352,14 +354,12 @@ def validate_project_state(state: dict[str, Any]) -> None:
             raise ValueError(f"Project has no usable {field!r} list")
 
 
-def save_project(win, filename: str | Path) -> None:
-    """
-    Save current project state to JSON.
-    """
+def save_project(project_data: ProjectData, filename: str | Path) -> None:
+    """Save a complete project model and its derived-result sidecars."""
     filename = Path(filename)
-    for result in win.project_data.segmentation_results.values():
+    for result in project_data.segmentation_results.values():
         save_xrf_sample(result.xrf_sample, filename.parent / result_relative_path(result.sample_id))
-    save_project_state(export_project_state(win, filename.parent), filename)
+    save_project_state(export_project_state(project_data, filename.parent), filename)
 
 
 def save_project_state(state: dict[str, Any], filename: str | Path) -> None:
@@ -389,39 +389,38 @@ def save_project_state(state: dict[str, Any], filename: str | Path) -> None:
 
 
 def load_project_state(
-    win, state: dict[str, Any], *, open_files: bool = True, project_dir=None
+    project_data: ProjectData,
+    state: dict[str, Any],
+    *,
+    open_files: bool = True,
+    project_dir: str | Path | None = None,
 ) -> list[str]:
-    """
-    Restore a saved project into MainWindow.
-
-    Assumes `win` is a MainWindow-like object with the same attributes
-    and helper methods as your current code.
-    """
+    """Restore saved state into an empty ``ProjectData`` model."""
     validate_project_state(state)
 
     issues = []
     try:
-        win.project_data.element_defaults = ElementSettingsDefaults.from_json(
+        project_data.element_defaults = ElementSettingsDefaults.from_json(
             state.get("element_defaults", ElementSettingsDefaults().to_json())
         )
     except (KeyError, TypeError, ValueError) as exc:
-        win.project_data.element_defaults = ElementSettingsDefaults()
+        project_data.element_defaults = ElementSettingsDefaults()
         issues.append(f"Element defaults were reset: {exc}")
     try:
-        _apply_image_options(win.project_data.image_defaults, state.get("image_defaults", {}))
+        _apply_image_options(project_data.image_defaults, state.get("image_defaults", {}))
     except (KeyError, TypeError, ValueError) as exc:
-        win.project_data.image_defaults = ImageSettings("")
+        project_data.image_defaults = ImageSettings("")
         issues.append(f"Image defaults were reset: {exc}")
 
     # Samples and assets
     external_data_root = state.get("external_data_root")
-    win.project_data.external_data_root = external_data_root
+    project_data.external_data_root = external_data_root
     filenames = [
         asset_path_from_json(asset["path"], project_dir, external_data_root)
         for asset in state["assets"]
     ]
     for sample_obj in state["samples"]:
-        sample = win.project_data.create_sample(sample_obj["name"], sample_obj["id"])
+        sample = project_data.create_sample(sample_obj["name"], sample_obj["id"])
         shape = sample_obj.get("shape")
         sample.shape = tuple(shape) if shape is not None else None
     if open_files:
@@ -431,7 +430,7 @@ def load_project_state(
                 source = open_source(filename)
                 source.source_id = asset_obj["asset_id"]
                 source.alias = asset_obj["alias"]
-                win.project_data.register_source(
+                project_data.register_source(
                     source,
                     sample_id=asset_obj["sample_id"],
                     channel_names={
@@ -439,7 +438,7 @@ def load_project_state(
                         for channel in asset_obj["channels"]
                     },
                 )
-                win.project_data.assets[asset_obj["asset_id"]].original_path = asset_obj[
+                project_data.assets[asset_obj["asset_id"]].original_path = asset_obj[
                     "original_path"
                 ]
             except Exception:
@@ -451,45 +450,43 @@ def load_project_state(
                     asset_obj["alias"],
                     asset_obj["kind"],
                 )
-                win.project_data.register_unavailable_source(
+                project_data.register_unavailable_source(
                     source,
                     sample_id=asset_obj["sample_id"],
                     channels=asset_obj["channels"],
-                    shape=win.project_data.samples[asset_obj["sample_id"]].shape,
+                    shape=project_data.samples[asset_obj["sample_id"]].shape,
                     original_path=asset_obj["original_path"],
                 )
 
     for filename, asset_obj in zip(filenames, state["assets"], strict=True):
         asset_id = asset_obj["asset_id"]
-        if asset_id in win.project_data.sources:
-            win.project_data.sources[asset_id].alias = asset_obj["alias"]
-            win.project_data.assets[asset_id].path = filename
+        if asset_id in project_data.sources:
+            project_data.sources[asset_id].alias = asset_obj["alias"]
+            project_data.assets[asset_id].path = filename
 
     # Element settings
     for settings_obj in state.get("element_settings", []):
         try:
             ref = ElementRef.from_json(settings_obj["ref"])
-            fs = win.project_data.sources.get(ref.source_id)
+            fs = project_data.sources.get(ref.source_id)
             if fs is None:
                 continue
-            win.project_data.set_element_settings(
+            project_data.set_element_settings(
                 ref,
-                _elementsettings_from_json(
-                    ref, fs, win.project_data.element_defaults, settings_obj
-                ),
+                _elementsettings_from_json(ref, fs, project_data.element_defaults, settings_obj),
             )
         except Exception as exc:
             issues.append(f"One element's settings were skipped: {exc}")
 
-    settings_by_ref = win.project_data.element_settings
-    for sample in win.project_data.samples.values():
+    settings_by_ref = project_data.element_settings
+    for sample in project_data.samples.values():
         for channel in sample.channels.values():
             channel.settings = settings_by_ref.get(channel.ref)
 
     # Project channels and sample-local decisions
     for channel_obj in state.get("project_channels", []):
         try:
-            win.project_data.add_project_channel(
+            project_data.add_project_channel(
                 channel_obj["key"],
                 channel_obj.get("name"),
                 _settings_from_ref(channel_obj.get("settings_ref"), settings_by_ref),
@@ -497,7 +494,7 @@ def load_project_state(
         except Exception as exc:
             issues.append(f"One project element selection was skipped: {exc}")
     for sample_obj in state["samples"]:
-        sample = win.project_data.samples[sample_obj["id"]]
+        sample = project_data.samples[sample_obj["id"]]
         for key, override_obj in sample_obj.get("channel_overrides", {}).items():
             try:
                 sample.channel_overrides[key] = (
@@ -512,22 +509,14 @@ def load_project_state(
                 )
             except Exception as exc:
                 issues.append(f"A sample element override was skipped: {exc}")
-    win.channelsChanged.emit()
-
-    # ------------------------------------------------------------------
-    # Images
-    # ------------------------------------------------------------------
-    win.imageSettings.clear()
-    win.imageList.clear()
-
     for iobj in state.get("images", []):
         try:
             img_id = iobj["id"]
-            im = _imagesettings_from_json(iobj, win)
-            im.resolution = list(win.project_data.image_defaults.resolution)
-            sample = win.project_data.samples[im.sample_id]
-            im.reconcileChannels(sample.effective_channels(win.project_data.project_channels))
-            win.imageSettings[img_id] = im
+            im = _imagesettings_from_json(iobj, project_data)
+            im.resolution = list(project_data.image_defaults.resolution)
+            sample = project_data.samples[im.sample_id]
+            im.reconcileChannels(sample.effective_channels(project_data.project_channels))
+            project_data.images[img_id] = im
         except Exception as exc:
             name = iobj.get("name", "unnamed") if isinstance(iobj, dict) else "invalid"
             issues.append(f"Image {name!r} was skipped: {exc}")
@@ -538,7 +527,7 @@ def load_project_state(
         for result_obj in state.get("segmentation_results", []):
             try:
                 sample_id = result_obj["sample_id"]
-                sample = win.project_data.samples[sample_id]
+                sample = project_data.samples[sample_id]
                 nuclei_ref = ElementRef.from_json(result_obj["nuclei_ref"])
                 tissue_ref = ElementRef.from_json(result_obj["tissue_ref"])
                 element_refs = tuple(
@@ -549,7 +538,7 @@ def load_project_state(
                     raise ValueError("input element maps no longer belong to the sample")
                 parameters = SegmentationParameters(**result_obj["parameters"])
                 sidecar = Path(project_dir) / result_obj["sidecar"]
-                win.project_data.segmentation_results[sample_id] = SegmentationResult(
+                project_data.segmentation_results[sample_id] = SegmentationResult(
                     sample_id,
                     nuclei_ref,
                     tissue_ref,
@@ -560,23 +549,17 @@ def load_project_state(
             except Exception as exc:
                 issues.append(f"One segmentation result was skipped: {exc}")
 
-    # ------------------------------------------------------------------
-    # Refresh visible UI
-    # ------------------------------------------------------------------
-    # Loaded-file alias UI
-    if win.loadedFileComboBox.count() > 0:
-        win.loadedFileChanged()
-
-    # Pick a sensible current image if any exist
-    if win.imageList.count() > 0:
-        win.imageList.setCurrentRow(0)
     return issues
 
 
-def load_project(win, filename: str | Path, *, open_files: bool = True) -> None:
-    """Read a project JSON file and restore it into ``win``."""
+def load_project(
+    project_data: ProjectData, filename: str | Path, *, open_files: bool = True
+) -> list[str]:
+    """Read project JSON and restore it into an empty model."""
 
     filename = Path(filename)
     with filename.open("r", encoding="utf-8") as f:
         state = json.load(f)
-    load_project_state(win, state, open_files=open_files, project_dir=filename.parent)
+    return load_project_state(
+        project_data, state, open_files=open_files, project_dir=filename.parent
+    )

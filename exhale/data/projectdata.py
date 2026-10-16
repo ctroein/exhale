@@ -255,7 +255,7 @@ class Sample:
 
 
 class ProjectData:
-    """Own assets, samples, shared channel choices, defaults, and derived results."""
+    """Own assets, samples, images, shared choices, defaults, and derived results."""
 
     def __init__(self, element_defaults=None):
         self.element_defaults = (
@@ -265,6 +265,7 @@ class ProjectData:
         self.assets: dict[str, DataAsset] = {}
         self.samples: dict[str, Sample] = {}
         self.project_channels: dict[str, Channel] = {}
+        self.images: dict[int, ImageSettings] = {}
         self.segmentation_results: dict[str, SegmentationResult] = {}
         self.external_data_root: str | None = None
 
@@ -693,6 +694,7 @@ class ProjectData:
         self.assets.clear()
         self.samples.clear()
         self.project_channels.clear()
+        self.images.clear()
         self.segmentation_results.clear()
         self.element_settings.clear()
         self.external_data_root = None

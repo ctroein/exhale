@@ -84,7 +84,7 @@ class ProjectTab(QtCore.QObject):
         self.elementMapList.stateToggleRequested.connect(self._cycle_map_state)
         self.channelList.itemDoubleClicked.connect(self._toggle_project_channel)
         self.refreshChannelsButton.clicked.connect(self.refresh_channels)
-        self.addProjectFilesButton.clicked.connect(window.select_and_open_files)
+        self.addProjectFilesButton.clicked.connect(window.source_manager.select_and_open_files)
         self.addSampleFilesButton.clicked.connect(self._add_files_to_sample)
         self.removeButton.clicked.connect(self._remove_selected)
         self.resolutionValue.valueChanged.connect(self._resolution_changed)
@@ -367,7 +367,9 @@ class ProjectTab(QtCore.QObject):
         try:
             if kind == "sample" and column == 0:
                 self.project.rename_sample(item.data(0, self.NODE_ID_ROLE), item.text(0).strip())
-                self.window.refresh_sample_selector(item.data(0, self.NODE_ID_ROLE))
+                self.window.element_controller.refresh_sample_selector(
+                    item.data(0, self.NODE_ID_ROLE)
+                )
             elif kind == "file" and column == 0:
                 asset_id = item.data(0, self.NODE_ID_ROLE)
                 filename = item.text(0).strip()
@@ -392,7 +394,7 @@ class ProjectTab(QtCore.QObject):
         if filename == asset.path:
             self.refresh(sample_id)
             return
-        if not self.window.replace_project_asset_path(asset_id, filename):
+        if not self.window.source_manager.replace_project_asset_path(asset_id, filename):
             self.refresh(sample_id)
 
     def _set_project_channels(self, items, enabled):
@@ -400,7 +402,7 @@ class ProjectTab(QtCore.QObject):
             key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
             ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
             if enabled:
-                settings = self.window._ensure_element_settings(ref)
+                settings = self.window.element_controller.ensure_settings(ref)
                 _sample, channel = self.project.channel_for_ref(ref)
                 channel.settings = settings
                 self.project.add_project_channel(key, channel.name, settings)
@@ -408,10 +410,10 @@ class ProjectTab(QtCore.QObject):
                 self.project.remove_project_channel(key)
             item.setData(self.PROJECT_ENABLED_ROLE, enabled)
             item.setIcon(icons.icon(icons.IconName.MAP_YES if enabled else icons.IconName.MAP_NO))
-        self.window._effective_channels_changed()
-        self.window.refresh_current_channel_states()
+        self.window.element_controller.effective_channels_changed()
+        self.window.element_controller.refresh_current_channel_states()
         self.refresh_sample_maps()
-        self._refresh_map_counts()
+        self.refresh_map_counts()
         self._mark_changed()
 
     def _toggle_project_channel(self, item):
@@ -425,19 +427,19 @@ class ProjectTab(QtCore.QObject):
         ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
         sample = self.project.samples[sample_id]
         if key not in sample.channel_overrides:
-            settings = self.window._ensure_element_settings(ref)
+            settings = self.window.element_controller.ensure_settings(ref)
             self.project.override_sample_channel(sample_id, key, settings=settings)
         elif sample.channel_overrides[key] is not None:
             self.project.skip_sample_channel(sample_id, key)
         else:
             self.project.revert_sample_channel(sample_id, key)
-        self.window._effective_channels_changed()
-        self.window.refresh_current_channel_states()
+        self.window.element_controller.effective_channels_changed()
+        self.window.element_controller.refresh_current_channel_states()
         self.refresh_sample_maps()
-        self._refresh_map_counts()
+        self.refresh_map_counts()
         self._mark_changed()
 
-    def _refresh_map_counts(self):
+    def refresh_map_counts(self):
         for row in range(self.sampleTree.topLevelItemCount()):
             item = self.sampleTree.topLevelItem(row)
             sample = self.project.samples[item.data(0, self.NODE_ID_ROLE)]
@@ -450,7 +452,7 @@ class ProjectTab(QtCore.QObject):
         self.project.image_defaults.setResolution(
             self.resolutionValue.value(), self.resolutionUnits.currentText()
         )
-        for image in self.window.imageSettings.values():
+        for image in self.window.project_data.images.values():
             image.resolution = list(self.project.image_defaults.resolution)
         self._mark_changed()
 
@@ -465,9 +467,9 @@ class ProjectTab(QtCore.QObject):
         sample_id = self.selected_sample_id()
         if sample_id is None:
             return
-        filenames = self.window.select_file_names("Add files to sample")
+        filenames = self.window.source_manager.select_file_names("Add files to sample")
         if filenames:
-            self.window.open_files(filenames, sample_id=sample_id)
+            self.window.source_manager.open_files(filenames, sample_id=sample_id)
 
     def _remove_selected(self):
         sample_id = self.selected_sample_id()
@@ -487,13 +489,13 @@ class ProjectTab(QtCore.QObject):
         ):
             return
         if asset_id is not None:
-            self.window.remove_project_asset(asset_id)
+            self.window.source_manager.remove_project_asset(asset_id)
         else:
-            self.window.remove_project_sample(sample_id)
+            self.window.source_manager.remove_project_sample(sample_id)
 
     def _changed(self, selected=None):
-        self.window._effective_channels_changed()
-        self.window.refresh_sample_selector(selected)
+        self.window.element_controller.effective_channels_changed()
+        self.window.element_controller.refresh_sample_selector(selected)
         self.refresh(selected)
         self._mark_changed()
 

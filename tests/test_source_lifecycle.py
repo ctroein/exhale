@@ -19,6 +19,7 @@ import numpy as np
 from PIL import Image
 from qtpy import QtCore, QtTest, QtWidgets
 
+from exhale.analysis.controller import AnalysisController
 from exhale.data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from exhale.data.imagesettings import ImageSettings, Layouts
 from exhale.data.projectdata import (
@@ -50,14 +51,12 @@ class SourceLifecycleTests(unittest.TestCase):
             group.create_dataset("Zn", data=self.data * 2)
         self.tiff = str(Path(self.temp.name) / "image.tiff")
         Image.fromarray(self.data).save(self.tiff)
-        with patch.object(
-            MainWindow, "create_analysisTab", lambda win: setattr(win, "naparihelper", None)
-        ):
+        with patch.object(AnalysisController, "setup", lambda controller: None):
             self.win = MainWindow()
         self.addCleanup(self.dispose_window)
 
     def dispose_window(self):
-        self.win.close_all_files()
+        self.win.source_manager.close_all_files()
         self.win.deleteLater()
         self.app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
 
@@ -144,7 +143,7 @@ class SourceLifecycleTests(unittest.TestCase):
                 wraps=self.win.project_data.register_source,
             ) as register_source,
         ):
-            self.win.open_files([self.tiff])
+            self.win.source_manager.open_files([self.tiff])
 
         register_source.assert_called_once()
         self.assertNotIn(self.tiff, self.win.project_data.assets)
@@ -156,7 +155,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertNotIn("Traceback", message)
 
     def test_unreadable_tiff_does_not_block_enabling_hdf5_element(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         tiff_source = open_source(self.tiff)
         tiff_sample = self.win.project_data.register_source(tiff_source)
         tiff_channel = next(iter(tiff_sample.channels.values()))
@@ -178,15 +177,16 @@ class SourceLifecycleTests(unittest.TestCase):
             self.win.project_tab._toggle_project_channel(hdf5_item)
 
         self.assertNotIn("Fe", self.win.project_data.project_channels)
-        self.assertIn(tiff_channel.ref, self.win._element_settings_failures)
+        self.assertTrue(self.win.element_controller.has_settings_failure(tiff_channel.ref))
         warning.assert_called_once()
 
     def test_image_element_is_suspended_and_restored_with_channel_selection(self):
-        self.win.open_files([self.h5])
-        sample = self.win.current_sample()
+        self.win.source_manager.open_files([self.h5])
+        sample = self.win.element_controller.current_sample()
         channels = sample.channels
         settings = {
-            key: self.win._ensure_element_settings(channel.ref) for key, channel in channels.items()
+            key: self.win.element_controller.ensure_settings(channel.ref)
+            for key, channel in channels.items()
         }
         for key, channel in channels.items():
             self.win.project_data.add_project_channel(key, channel.name, settings[key])
@@ -197,42 +197,45 @@ class SourceLifecycleTests(unittest.TestCase):
         image.setElement(0, settings["Fe"], "Fe")
         image.createElementOverride(0).name = "Image iron"
         image.setElement(1, settings["Zn"], "Zn")
-        self.win.imageSettings = {1: image}
-        self.win._effective_channels_changed()
+        self.win.project_data.images = {1: image}
+        self.win.element_controller.effective_channels_changed()
 
         self.win.project_data.remove_project_channel("Fe")
-        self.win._effective_channels_changed()
+        self.win.element_controller.effective_channels_changed()
 
         self.assertNotIn(0, image.elements)
         suspended, key, overridden = image.suspended_elements[0]
         self.assertEqual((suspended.name, key, overridden), ("Image iron", "Fe", True))
         for box in self.win.imageElementBoxes:
-            self.assertEqual(self.win._combo_index_for_data(box.combo, settings["Fe"].ref), -1)
+            self.assertEqual(
+                self.win.image_controller.combo_index_for_data(box.combo, settings["Fe"].ref),
+                -1,
+            )
         serialized = projectio._imagesettings_to_json(1, image)
         self.assertNotIn("suspended_elements", serialized)
-        restored = projectio._imagesettings_from_json(serialized, self.win)
+        restored = projectio._imagesettings_from_json(serialized, self.win.project_data)
         self.assertNotIn(0, restored.elements)
         self.assertIs(restored.elements[1], settings["Zn"])
         self.assertFalse(restored.suspended_elements)
 
         self.win.project_data.add_project_channel("Fe", "Fe", settings["Fe"])
-        self.win._effective_channels_changed()
+        self.win.element_controller.effective_channels_changed()
 
         self.assertEqual(image.elements[0].name, "Image iron")
         self.assertIn(0, image.element_overrides)
         self.assertNotIn(0, image.suspended_elements)
 
         self.win.project_data.remove_project_channel("Fe")
-        self.win._effective_channels_changed()
+        self.win.element_controller.effective_channels_changed()
         image.setElement(0, settings["Zn"], "Zn")
         self.win.project_data.add_project_channel("Fe", "Fe", settings["Fe"])
-        self.win._effective_channels_changed()
+        self.win.element_controller.effective_channels_changed()
 
         self.assertIs(image.elements[0], settings["Zn"])
         self.assertNotIn(0, image.suspended_elements)
 
     def test_committing_unchanged_sample_path_closes_editor_without_reopening(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         tree = self.win.sampleTree
         file_item = tree.topLevelItem(0).child(0)
         source = self.win.project_data.assets[self.h5].source
@@ -251,7 +254,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertIs(source.handle, handle)
 
     def test_sample_tree_and_sample_elements_separate_files_from_maps(self):
-        self.win.open_files([self.h5, self.tiff])
+        self.win.source_manager.open_files([self.h5, self.tiff])
         tree = self.win.sampleTree
         hdf5_sample = tree.topLevelItem(0)
         hdf5_file = hdf5_sample.child(0)
@@ -296,7 +299,7 @@ class SourceLifecycleTests(unittest.TestCase):
         )
 
     def test_sample_element_state_cycles_only_when_its_icon_is_clicked(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         element_list = self.win.elementMapList
         element_list.setCurrentRow(0)
         item = element_list.currentItem()
@@ -322,12 +325,12 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(self.win.project_data.sample_channel_state(sample_id, key), cycled)
 
     def test_refresh_preserves_existing_expansion_and_expands_new_samples(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         tree = self.win.sampleTree
         original_sample_id = tree.topLevelItem(0).data(0, self.win.project_tab.NODE_ID_ROLE)
         tree.topLevelItem(0).setExpanded(True)
 
-        self.win.open_files([self.tiff])
+        self.win.source_manager.open_files([self.tiff])
 
         items = {
             tree.topLevelItem(row).data(0, self.win.project_tab.NODE_ID_ROLE): tree.topLevelItem(
@@ -340,7 +343,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertTrue(items[new_sample_id].isExpanded())
 
     def test_space_toggles_all_selected_project_elements(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         element_list = self.win.project_tab.channelList
         self.assertEqual(
             element_list.selectionMode(),
@@ -377,7 +380,7 @@ class SourceLifecycleTests(unittest.TestCase):
                 self.assertFalse(getattr(self.win, name).icon().isNull())
 
     def test_open_close_reopen_hdf5_and_tiff(self):
-        self.win.open_files([self.h5, self.tiff])
+        self.win.source_manager.open_files([self.h5, self.tiff])
         self.assertEqual(self.win.loadedFileComboBox.count(), 2)
         self.assertEqual(self.win.elementList.count(), 1)
         for filename, count in ((self.h5, 2), (self.tiff, 1)):
@@ -385,32 +388,32 @@ class SourceLifecycleTests(unittest.TestCase):
             self.assertEqual(len(source.list_elements()), count)
             ref = source.list_elements()[0].ref
             np.testing.assert_array_equal(source.load_array(ref), self.data)
-            self.win.close_source(filename)
+            self.win.source_manager.close_source(filename)
             self.assertFalse(source.is_open)
             self.assertIsNone(source.handle)
-            self.win.close_source(filename)  # repeated close is harmless
-            self.win.open_files([filename])
+            self.win.source_manager.close_source(filename)  # repeated close is harmless
+            self.win.source_manager.open_files([filename])
             reopened = self.win.project_data.sources[filename]
             self.assertIsNot(reopened, source)
             np.testing.assert_array_equal(reopened.load_array(ref), self.data)
-        self.win.close_all_files()
+        self.win.source_manager.close_all_files()
         self.assertEqual(self.win.loadedFileComboBox.count(), 2)
         self.assertTrue(all(not s.is_open for s in self.win.project_data.sources.values()))
 
     def test_new_hdf5_sample_materializes_inherited_channel_before_refresh(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         first_sample = next(iter(self.win.project_data.samples.values()))
         channel = first_sample.channels["Fe"]
-        settings = self.win._ensure_element_settings(channel.ref)
+        settings = self.win.element_controller.ensure_settings(channel.ref)
         self.win.project_data.add_project_channel("Fe", channel.name, settings)
-        self.win._effective_channels_changed()
+        self.win.element_controller.effective_channels_changed()
 
         second_h5 = str(Path(self.temp.name) / "second.h5")
         with h5py.File(second_h5, "w") as f:
             f.attrs["default"] = "entry"
             group = f.create_group("entry/plotselect")
             group.create_dataset("Fe", data=self.data)
-        self.win.open_files([second_h5])
+        self.win.source_manager.open_files([second_h5])
 
         second_sample = self.win.project_data.samples[
             self.win.project_data.assets[second_h5].sample_id
@@ -418,7 +421,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertIn(second_sample.channels["Fe"].ref, self.win.project_data.element_settings)
 
     def test_duplicate_channel_uses_current_error_dialog_without_partial_addition(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         sample_id = next(iter(self.win.project_data.samples))
         duplicate_h5 = str(Path(self.temp.name) / "duplicate.h5")
         with h5py.File(duplicate_h5, "w") as f:
@@ -427,7 +430,7 @@ class SourceLifecycleTests(unittest.TestCase):
             group.create_dataset("Fe", data=self.data)
 
         with patch.object(self.win, "show_error") as show_error:
-            self.win.open_files([duplicate_h5], sample_id=sample_id)
+            self.win.source_manager.open_files([duplicate_h5], sample_id=sample_id)
 
         self.assertNotIn(duplicate_h5, self.win.project_data.assets)
         summary, details = show_error.call_args.args[:2]
@@ -439,7 +442,7 @@ class SourceLifecycleTests(unittest.TestCase):
         second = str(Path(self.temp.name) / "sample_Zn.tiff")
         Image.fromarray(self.data).save(second)
 
-        self.win.open_files([self.tiff, second])
+        self.win.source_manager.open_files([self.tiff, second])
 
         self.assertEqual(len(self.win.project_data.samples), 1)
         sample = next(iter(self.win.project_data.samples.values()))
@@ -453,8 +456,8 @@ class SourceLifecycleTests(unittest.TestCase):
         Image.fromarray(self.data).save(first)
         Image.fromarray(self.data).save(second)
 
-        self.win.open_files([first])
-        self.win.open_files([second])
+        self.win.source_manager.open_files([first])
+        self.win.source_manager.open_files([second])
 
         second_sample = self.win.project_data.samples[
             self.win.project_data.assets[second].sample_id
@@ -465,13 +468,13 @@ class SourceLifecycleTests(unittest.TestCase):
         )
 
     def test_project_data_resolution_is_used_for_new_images(self):
-        self.win.open_files([self.h5])
-        self.win.createImage()
+        self.win.source_manager.open_files([self.h5])
+        self.win.image_controller.create_image()
         self.win.project_tab.resolutionValue.setValue(125)
         self.win.project_tab.resolutionUnits.setCurrentText("µm")
 
         image_id = self.win.imageList.currentItem().data(self.win.imageList.IMG_NUM_ROLE)
-        self.assertEqual(self.win.imageSettings[image_id].resolution, [125, "µm"])
+        self.assertEqual(self.win.project_data.images[image_id].resolution, [125, "µm"])
 
     def test_project_and_sample_channel_states(self):
         other = str(Path(self.temp.name) / "other" / "elements.h5")
@@ -481,7 +484,7 @@ class SourceLifecycleTests(unittest.TestCase):
             group = f.create_group("entry/plotselect")
             group.create_dataset("Fe", data=self.data)
             group.create_dataset("Zn", data=self.data * 3)
-        self.win.open_files([self.h5, other])
+        self.win.source_manager.open_files([self.h5, other])
 
         project_list = self.win.project_tab.channelList
         project_order = [
@@ -521,8 +524,8 @@ class SourceLifecycleTests(unittest.TestCase):
             SampleChannelState.INHERIT.value,
         )
 
-        self.win._cycle_sample_element_state(fe_item)
-        self.win._cycle_sample_element_state(fe_item)
+        self.win.element_controller.cycle_sample_element_state(fe_item)
+        self.win.element_controller.cycle_sample_element_state(fe_item)
         self.assertEqual(len(self.win.project_data.effective_refs()), 1)
         self.assertEqual(
             self.win.project_data.sample_channel_state(first_sample, "Fe"), SampleChannelState.SKIP
@@ -533,8 +536,8 @@ class SourceLifecycleTests(unittest.TestCase):
             for row in range(self.win.elementList.count())
             if self.win.elementList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
         )
-        self.win._cycle_sample_element_state(fe_item)
-        self.win._cycle_sample_element_state(fe_item)
+        self.win.element_controller.cycle_sample_element_state(fe_item)
+        self.win.element_controller.cycle_sample_element_state(fe_item)
         self.assertEqual(len(self.win.project_data.effective_refs()), 2)
         self.assertEqual(
             self.win.project_data.sample_channel_state(first_sample, "Fe"),
@@ -548,7 +551,7 @@ class SourceLifecycleTests(unittest.TestCase):
             group = handle.create_group("entry/plotselect")
             group.create_dataset("Cu", data=self.data)
             group.create_dataset("Fe", data=self.data * 2)
-        self.win.open_files([self.h5, other])
+        self.win.source_manager.open_files([self.h5, other])
         for key in ("Cu", "Fe", "Zn"):
             sample = next(
                 sample
@@ -556,15 +559,15 @@ class SourceLifecycleTests(unittest.TestCase):
                 if key in sample.channels
             )
             self.win.project_data.add_project_channel_from_sample(sample.sample_id, key)
-        self.win._effective_channels_changed()
+        self.win.element_controller.effective_channels_changed()
 
         first_id = self.win.project_data.assets[self.h5].sample_id
         second_id = self.win.project_data.assets[other].sample_id
         self.win.analysisSampleComboBox.setCurrentIndex(
             self.win.analysisSampleComboBox.findData(first_id)
         )
-        self.win.update_analysis_channels()
-        self.win.update_analysis_elements()
+        self.win.analysis_controller.update_channels()
+        self.win.analysis_controller.update_elements()
         self.assertEqual(
             {self.win.analysisChNuclei.itemText(row) for row in range(1, 3)},
             {"Fe", "Zn"},
@@ -580,8 +583,8 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.analysisSampleComboBox.setCurrentIndex(
             self.win.analysisSampleComboBox.findData(second_id)
         )
-        self.win.update_analysis_channels()
-        self.win.update_analysis_elements()
+        self.win.analysis_controller.update_channels()
+        self.win.analysis_controller.update_elements()
 
         refs = {
             self.win.analysisElements.item(row).data(ElementListWidget.ELEMENT_REF_ROLE)
@@ -596,35 +599,35 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertNotIn(first_ref, refs)
 
     def test_analysis_inputs_are_disabled_while_busy(self):
-        self.win.set_analysis_busy(True)
+        self.win.analysis_controller.set_busy(True)
         for widget in (
             self.win.analysisSampleComboBox,
             self.win.analysisChNuclei,
             self.win.analysisChTissue,
             self.win.analysisElements,
             self.win.analysisOptions,
-            self.win.clusterMinK,
-            self.win.clusterMaxK,
-            self.win.clusterNInit,
-            self.win.nucleiExpansion,
-            self.win.nucleiMinArea,
+            self.win.analysis_controller.cluster_min_k,
+            self.win.analysis_controller.cluster_max_k,
+            self.win.analysis_controller.cluster_n_init,
+            self.win.analysis_controller.nuclei_expansion,
+            self.win.analysis_controller.nuclei_min_area,
         ):
             self.assertFalse(widget.isEnabled())
 
-        self.win.set_analysis_busy(False)
+        self.win.analysis_controller.set_busy(False)
         self.assertTrue(self.win.analysisSampleComboBox.isEnabled())
         self.assertTrue(self.win.analysisElements.isEnabled())
 
     def test_analysis_requires_a_saved_project(self):
         self.assertIsNone(self.win.project_dir)
-        self.win._analysisWorker = None
+        self.win.analysis_controller.worker = None
 
         with patch.object(QtWidgets.QMessageBox, "information") as information:
-            self.win.run_analysis()
+            self.win.analysis_controller.run()
 
         information.assert_called_once()
         self.assertIn("Save the project", information.call_args.args[2])
-        self.assertIsNone(self.win._analysisWorker)
+        self.assertIsNone(self.win.analysis_controller.worker)
 
     def test_selecting_sample_restores_its_segmentation_result(self):
         other = str(Path(self.temp.name) / "other.h5")
@@ -632,11 +635,11 @@ class SourceLifecycleTests(unittest.TestCase):
             handle.attrs["default"] = "entry"
             group = handle.create_group("entry/plotselect")
             group.create_dataset("Cu", data=self.data)
-        self.win.open_files([self.h5, other])
+        self.win.source_manager.open_files([self.h5, other])
         for sample in self.win.project_data.samples.values():
             for key in sample.channels:
                 self.win.project_data.add_project_channel_from_sample(sample.sample_id, key)
-        self.win._effective_channels_changed()
+        self.win.element_controller.effective_channels_changed()
 
         first_id = self.win.project_data.assets[self.h5].sample_id
         second_id = self.win.project_data.assets[other].sample_id
@@ -670,16 +673,17 @@ class SourceLifecycleTests(unittest.TestCase):
             def update_element_maps(self, maps):
                 self.updated_element_maps.append(maps)
 
-        self.win.naparihelper = FakeNapariHelper()
+        controller = self.win.analysis_controller
+        controller.naparihelper = FakeNapariHelper()
         self.win.analysisSampleComboBox.setCurrentIndex(
             self.win.analysisSampleComboBox.findData(first_id)
         )
-        self.win.analysis_sample_changed()
+        controller.sample_changed()
 
-        self.assertIs(self.win.naparihelper.sample, xrf_sample)
+        self.assertIs(controller.naparihelper.sample, xrf_sample)
         expected_map = self.win.project_data.element_settings[zn_ref].transformedData()
-        self.assertEqual(len(self.win.naparihelper.element_maps), 1)
-        np.testing.assert_array_equal(self.win.naparihelper.element_maps[0], expected_map)
+        self.assertEqual(len(controller.naparihelper.element_maps), 1)
+        np.testing.assert_array_equal(controller.naparihelper.element_maps[0], expected_map)
         self.assertEqual(self.win.analysisChNuclei.currentData(), fe_ref)
         self.assertEqual(self.win.analysisChTissue.currentData(), zn_ref)
         checked = {
@@ -688,35 +692,35 @@ class SourceLifecycleTests(unittest.TestCase):
             if self.win.analysisElements.item(row).checkState() == QtCore.Qt.Checked
         }
         self.assertEqual(checked, {zn_ref})
-        self.assertEqual(self.win._segmentation_parameters(), parameters)
+        self.assertEqual(controller.segmentation_parameters(), parameters)
 
         settings = self.win.project_data.element_settings[zn_ref]
-        set_sample_calls = self.win.naparihelper.set_sample_calls
+        set_sample_calls = controller.naparihelper.set_sample_calls
         with patch.object(settings, "transformedData", wraps=settings.transformedData) as transform:
-            self.win.refresh_analysis_result_view()
+            controller.refresh_result_view()
             transform.assert_not_called()
-            self.assertEqual(self.win.naparihelper.set_sample_calls, set_sample_calls)
+            self.assertEqual(controller.naparihelper.set_sample_calls, set_sample_calls)
 
             settings.gamma += 0.1
-            self.win.refresh_analysis_result_view()
+            controller.refresh_result_view()
             transform.assert_called_once_with()
-            self.assertEqual(self.win.naparihelper.set_sample_calls, set_sample_calls)
-            self.assertEqual(len(self.win.naparihelper.updated_element_maps), 1)
-            self.assertEqual(set(self.win.naparihelper.updated_element_maps[0]), {"Zn"})
+            self.assertEqual(controller.naparihelper.set_sample_calls, set_sample_calls)
+            self.assertEqual(len(controller.naparihelper.updated_element_maps), 1)
+            self.assertEqual(set(controller.naparihelper.updated_element_maps[0]), {"Zn"})
 
         self.win.analysisSampleComboBox.setCurrentIndex(
             self.win.analysisSampleComboBox.findData(second_id)
         )
-        self.win.analysis_sample_changed()
+        controller.sample_changed()
 
-        self.assertIsNone(self.win.naparihelper.sample)
-        self.assertEqual(self.win._segmentation_parameters(), parameters)
+        self.assertIsNone(controller.naparihelper.sample)
+        self.assertEqual(controller.segmentation_parameters(), parameters)
 
     def test_project_roundtrip_restores_segmentation_result(self):
         from exhale.xrf_refcopy.xrf_other_channel import NucleiChannel, TissueChannel
         from exhale.xrf_refcopy.xrf_sample_class import XRFSample
 
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         sample = next(iter(self.win.project_data.samples.values()))
         for key in sample.channels:
             self.win.project_data.add_project_channel_from_sample(sample.sample_id, key)
@@ -744,7 +748,7 @@ class SourceLifecycleTests(unittest.TestCase):
         )
         project_dir = Path(self.temp.name) / "segmentation-project"
 
-        projectio.save_project(self.win, project_dir / "project.xhp")
+        projectio.save_project(self.win.project_data, project_dir / "project.xhp")
         self.win.project_state_manager.mark_saved()
         self.assertTrue(self.win.project_manager.load_project_dir(project_dir))
 
@@ -758,15 +762,15 @@ class SourceLifecycleTests(unittest.TestCase):
         )
 
     def test_analysis_rejects_an_unavailable_sample_channel(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         sample = next(iter(self.win.project_data.samples.values()))
         self.win.project_data.add_project_channel_from_sample(sample.sample_id, "Fe")
-        self.win._effective_channels_changed()
+        self.win.element_controller.effective_channels_changed()
         ref = sample.channels["Fe"].ref
-        self.win.close_source(self.h5)
+        self.win.source_manager.close_source(self.h5)
 
         with self.assertRaisesRegex(RuntimeError, "is not open"):
-            self.win._analysis_element_settings([ref])
+            self.win.analysis_controller.element_settings([ref])
 
     def test_images_and_image_map_choices_follow_selected_sample(self):
         other = str(Path(self.temp.name) / "other" / "elements.h5")
@@ -775,7 +779,7 @@ class SourceLifecycleTests(unittest.TestCase):
             f.attrs["default"] = "entry"
             group = f.create_group("entry/plotselect")
             group.create_dataset("Fe", data=self.data)
-        self.win.open_files([self.h5, other])
+        self.win.source_manager.open_files([self.h5, other])
 
         project_list = self.win.project_tab.channelList
         fe_item = next(
@@ -791,10 +795,10 @@ class SourceLifecycleTests(unittest.TestCase):
             self.win.loadedFileComboBox.setCurrentIndex(
                 self.win.loadedFileComboBox.findData(sample_id)
             )
-            self.win.createImage()
+            self.win.image_controller.create_image()
             self.assertEqual(self.win.imageList.count(), 1)
             image_id = self.win.imageList.currentItem().data(self.win.imageList.IMG_NUM_ROLE)
-            image = self.win.imageSettings[image_id]
+            image = self.win.project_data.images[image_id]
             self.assertEqual(image.name, "New image")
             self.assertFalse(image.elements)
             refs = {
@@ -824,12 +828,12 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(self.win.imageElementBoxes[0].combo.currentData().source_id, self.h5)
 
     def test_image_element_choices_follow_sample_element_order(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         sample = next(iter(self.win.project_data.samples.values()))
         self.win.project_data.add_project_channel_from_sample(sample.sample_id, "Zn")
         self.win.project_data.override_sample_channel(sample.sample_id, "Fe")
 
-        self.win._effective_channels_changed()
+        self.win.element_controller.effective_channels_changed()
 
         list_refs = [
             self.win.elementList.item(row).data(ElementListWidget.ELEMENT_REF_ROLE)
@@ -846,14 +850,14 @@ class SourceLifecycleTests(unittest.TestCase):
         )
 
     def test_project_channel_name_edit_updates_all_matching_maps(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         self.win.loadedFileComboBox.setCurrentIndex(0)
         item = next(
             self.win.elementList.item(row)
             for row in range(self.win.elementList.count())
             if self.win.elementList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
         )
-        self.win._cycle_sample_element_state(item)
+        self.win.element_controller.cycle_sample_element_state(item)
         item = next(
             self.win.elementList.item(row)
             for row in range(self.win.elementList.count())
@@ -873,7 +877,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(self.win.project_data.element_settings[ref].name, "Iron")
 
     def test_close_preserves_materialized_elements_and_image_copies(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         source = self.win.project_data.sources[self.h5]
         candidate = source.list_elements()[0]
         element = ElementSettings(ref=candidate.ref, data=source.channel_data(candidate.ref))
@@ -881,8 +885,8 @@ class SourceLifecycleTests(unittest.TestCase):
         image = ImageSettings("Retained image")
         image.elements[0] = element.copy()
         self.assertIs(image.elements[0].data_source, element.data_source)
-        self.win.imageSettings[1] = image
-        self.win.close_source(self.h5)
+        self.win.project_data.images[1] = image
+        self.win.source_manager.close_source(self.h5)
         np.testing.assert_array_equal(element.data, self.data)
         np.testing.assert_array_equal(image.elements[0].data, self.data)
         image.elements[0].trfRange[0] = 5
@@ -890,8 +894,8 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertIs(self.win.project_data.element_settings[candidate.ref], element)
 
     def test_refresh_excludes_closed_sources_and_does_not_duplicate(self):
-        self.win.open_files([self.h5, self.tiff])
-        self.win.close_source(self.tiff)
+        self.win.source_manager.open_files([self.h5, self.tiff])
+        self.win.source_manager.close_source(self.tiff)
         for _ in range(2):
             self.win.refresh_project_ui()
             self.assertEqual(self.win.loadedFileComboBox.count(), 2)
@@ -902,7 +906,7 @@ class SourceLifecycleTests(unittest.TestCase):
             )
 
     def test_project_roundtrip_preserves_source_aliases(self):
-        self.win.open_files([self.h5, self.tiff])
+        self.win.source_manager.open_files([self.h5, self.tiff])
         self.win.project_data.element_defaults = ElementSettingsDefaults(
             normalizer=Normalizers.SQRT,
             range_mode="percent",
@@ -913,7 +917,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.project_data.sources[self.tiff].alias = "Image B"
         project_dir = Path(self.temp.name) / "sources"
         filename = project_dir / "project.xhp"
-        projectio.save_project(self.win, filename)
+        projectio.save_project(self.win.project_data, filename)
         self.win.project_state_manager.mark_saved()
         old_sources = list(self.win.project_data.sources.values())
         with patch.object(self.win, "show_error") as error:
@@ -936,7 +940,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.clear_project()
         self.assertFalse(self.win.project_data.sources)
         self.assertFalse(self.win.project_data.element_settings)
-        self.assertFalse(self.win.imageSettings)
+        self.assertFalse(self.win.project_data.images)
         self.assertEqual(self.win.elementList.count(), 0)
 
     def test_failed_atomic_save_preserves_existing_project_file(self):
@@ -947,13 +951,13 @@ class SourceLifecycleTests(unittest.TestCase):
 
         with patch("exhale.project.projectio.os.replace", side_effect=OSError("failed")):
             with self.assertRaises(OSError):
-                projectio.save_project(self.win, project_file)
+                projectio.save_project(self.win.project_data, project_file)
 
         self.assertEqual(project_file.read_text(encoding="utf-8"), "previous state\n")
         self.assertEqual(list(project_dir.iterdir()), [project_file])
 
     def test_project_restores_sample_image_and_independent_settings(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         source = self.win.project_data.sources[self.h5]
         sample_id = self.win.project_data.assets[self.h5].sample_id
         image = ImageSettings("Element image", sample_id=sample_id, sample_source_ids=[self.h5])
@@ -967,17 +971,17 @@ class SourceLifecycleTests(unittest.TestCase):
             image.createElementOverride(slot)
             image.elements[slot].name = f"Local {slot}"
             image.elements[slot].trfRange = [2, 9]
-        self.win.imageSettings = {1: image}
+        self.win.project_data.images = {1: image}
         project_dir = Path(self.temp.name) / "mixed"
         path = project_dir / "project.xhp"
-        projectio.save_project(self.win, path)
+        projectio.save_project(self.win.project_data, path)
         self.win.project_state_manager.mark_saved()
         with patch.object(self.win, "show_error") as error:
             self.assertTrue(self.win.project_manager.load_project_dir(project_dir))
             error.assert_not_called()
         self.assertEqual(len(self.win.project_data.effective_refs()), 2)
-        restored = self.win.imageSettings[1]
-        self.assertIs(self.win.currentImage, restored)
+        restored = self.win.project_data.images[1]
+        self.assertIs(self.win.image_controller.current_image, restored)
         for slot, element in restored.elements.items():
             combo = self.win.imageElementBoxes[slot].combo
             self.assertTrue(
@@ -994,12 +998,12 @@ class SourceLifecycleTests(unittest.TestCase):
             local.trfRange[0] = 4
             self.assertEqual(global_element.trfRange, original_range)
             np.testing.assert_array_equal(local.data, self.data * (slot + 1))
-        self.win.close_all_files()
+        self.win.source_manager.close_all_files()
         for slot, local in restored.elements.items():
             np.testing.assert_array_equal(local.data, self.data * (slot + 1))
 
     def test_missing_project_file_preserves_channels_and_image_references(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         source = self.win.project_data.sources[self.h5]
         sample = self.win.project_data.samples[self.win.project_data.assets[self.h5].sample_id]
         ref = source.list_elements()[0].ref
@@ -1008,11 +1012,11 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.project_data.add_project_channel("Fe", "Fe", element)
         image = ImageSettings("Missing", sample_id=sample.sample_id, sample_source_ids=[self.h5])
         image.setElement(0, element, sample.channels["Fe"].key)
-        self.win.imageSettings = {1: image}
+        self.win.project_data.images = {1: image}
         project_dir = Path(self.temp.name) / "missing"
-        projectio.save_project(self.win, project_dir / "project.xhp")
+        projectio.save_project(self.win.project_data, project_dir / "project.xhp")
         self.win.project_state_manager.mark_saved()
-        self.win.close_all_files()
+        self.win.source_manager.close_all_files()
         Path(self.h5).unlink()
 
         with patch.object(self.win, "show_error"):
@@ -1021,12 +1025,12 @@ class SourceLifecycleTests(unittest.TestCase):
         asset = self.win.project_data.assets[self.h5]
         self.assertFalse(asset.is_available)
         self.assertIn("Fe", self.win.project_data.samples[asset.sample_id].channels)
-        self.assertEqual(self.win.imageSettings[1].elements[0].ref, ref)
+        self.assertEqual(self.win.project_data.images[1].elements[0].ref, ref)
         with self.assertRaisesRegex(RuntimeError, "closed"):
-            self.win.imageSettings[1].elements[0].transformedData()
+            self.win.project_data.images[1].elements[0].transformedData()
 
     def test_project_roundtrip_preserves_channel_model_and_explicit_overrides(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         source = self.win.project_data.sources[self.h5]
         sample = self.win.project_data.samples[self.win.project_data.assets[self.h5].sample_id]
         settings = {}
@@ -1047,9 +1051,9 @@ class SourceLifecycleTests(unittest.TestCase):
         image.setElement(0, settings["Fe"], "Fe")
         image.setElement(1, settings["Zn"], "Zn")
         image.createElementOverride(1).name = "Image zinc"
-        self.win.imageSettings = {1: image}
+        self.win.project_data.images = {1: image}
         project_dir = Path(self.temp.name) / "model"
-        projectio.save_project(self.win, project_dir / "project.xhp")
+        projectio.save_project(self.win.project_data, project_dir / "project.xhp")
         self.win.project_state_manager.mark_saved()
 
         self.assertTrue(self.win.project_manager.load_project_dir(project_dir))
@@ -1061,7 +1065,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(self.win.project_data.samples[empty_sample.sample_id].name, "Empty sample")
         self.assertEqual(self.win.project_data.image_defaults.layout, Layouts.IB)
         self.assertEqual(self.win.project_data.image_defaults.fontsize, 17)
-        restored_image = self.win.imageSettings[1]
+        restored_image = self.win.project_data.images[1]
         self.assertNotIn(0, restored_image.elements)
         self.assertEqual(restored_image.suspended_elements[0][1], "Fe")
         self.assertIsNot(
@@ -1072,12 +1076,12 @@ class SourceLifecycleTests(unittest.TestCase):
 
         self.assertTrue(self.win.project_manager.save_project())
         self.assertTrue(self.win.project_manager.load_project_dir(project_dir))
-        reloaded_image = self.win.imageSettings[1]
+        reloaded_image = self.win.project_data.images[1]
         self.assertNotIn(0, reloaded_image.elements)
         self.assertNotIn(0, reloaded_image.suspended_elements)
 
     def test_project_reader_defaults_optional_fields_and_skips_broken_objects(self):
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         source = self.win.project_data.sources[self.h5]
         ref = source.list_elements()[0].ref
         element = ElementSettings(ref=ref, data=source.load_array(ref))
@@ -1089,7 +1093,7 @@ class SourceLifecycleTests(unittest.TestCase):
 
         empty_image = ImageSettings("Empty", sample_id=sample_id, sample_source_ids=[self.h5])
         restored_empty = projectio._imagesettings_from_json(
-            projectio._imagesettings_to_json(2, empty_image), self.win
+            projectio._imagesettings_to_json(2, empty_image), self.win.project_data
         )
         self.assertEqual(restored_empty.sample_id, sample_id)
 
@@ -1099,25 +1103,25 @@ class SourceLifecycleTests(unittest.TestCase):
             "dataset": ref.item_id,
         }
         with self.assertRaises(KeyError):
-            projectio._imagesettings_from_json(image_state, self.win)
+            projectio._imagesettings_from_json(image_state, self.win.project_data)
 
         image_state = projectio._imagesettings_to_json(1, image)
         image_state.pop("clip_colors")
-        restored = projectio._imagesettings_from_json(image_state, self.win)
+        restored = projectio._imagesettings_from_json(image_state, self.win.project_data)
         self.assertTrue(restored.clipColors)
         self.assertFalse(restored.suspended_elements)
 
-        state = projectio.export_project_state(self.win)
+        state = projectio.export_project_state(self.win.project_data)
         state["version"] = projectio.PROJECT_VERSION - 1
         state["element_settings"][0]["path"] = state["element_settings"][0].pop("ref")
         state["images"].append({"id": 9, "name": "Broken image", "sample_id": "missing"})
         self.win.clear_project()
-        issues = projectio.load_project_state(self.win, state, open_files=False)
+        issues = projectio.load_project_state(self.win.project_data, state, open_files=False)
         self.assertTrue(any("element's settings" in issue for issue in issues))
         self.assertTrue(any("Broken image" in issue for issue in issues))
 
     def test_project_reader_accepts_older_versions_but_rejects_newer_ones(self):
-        state = projectio.export_project_state(self.win)
+        state = projectio.export_project_state(self.win.project_data)
         state["version"] = projectio.PROJECT_VERSION - 1
         projectio.validate_project_state(state)
 
@@ -1131,8 +1135,8 @@ class SourceLifecycleTests(unittest.TestCase):
             projectio.validate_project_state(state)
 
     def test_loading_an_older_usable_project_marks_it_dirty(self):
-        self.win.open_files([self.h5])
-        state = projectio.export_project_state(self.win)
+        self.win.source_manager.open_files([self.h5])
+        state = projectio.export_project_state(self.win.project_data)
         state["version"] = projectio.PROJECT_VERSION - 1
         project_dir = Path(self.temp.name) / "older"
         projectio.save_project_state(state, project_dir / "project.xhp")
@@ -1152,7 +1156,7 @@ class SourceLifecycleTests(unittest.TestCase):
         manager = self.win.project_state_manager
         self.assertFalse(manager.is_dirty)
 
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         self.assertTrue(manager.compare_now())
         self.assertTrue(self.win.isWindowModified())
 
@@ -1169,7 +1173,7 @@ class SourceLifecycleTests(unittest.TestCase):
 
     def test_dirty_project_replacement_can_be_cancelled_or_discarded(self):
         manager = self.win.project_state_manager
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         self.assertTrue(manager.compare_now())
 
         with patch.object(
@@ -1193,7 +1197,7 @@ class SourceLifecycleTests(unittest.TestCase):
         manager = self.win.project_state_manager
         self.win.settings.remove(PROJECT_SAVE_ON_EXIT_KEY)
         self.addCleanup(self.win.settings.remove, PROJECT_SAVE_ON_EXIT_KEY)
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
 
         with (
             patch.object(self.win.project_manager, "save_project", return_value=True) as save,
@@ -1208,7 +1212,7 @@ class SourceLifecycleTests(unittest.TestCase):
         manager = self.win.project_state_manager
         self.win.settings.setValue(PROJECT_SAVE_ON_EXIT_KEY, False)
         self.addCleanup(self.win.settings.remove, PROJECT_SAVE_ON_EXIT_KEY)
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
 
         with patch.object(
             QtWidgets.QMessageBox, "question", return_value=QtWidgets.QMessageBox.Cancel
@@ -1220,7 +1224,7 @@ class SourceLifecycleTests(unittest.TestCase):
         project_dir.mkdir()
         self.win.project_dir = project_dir
         self.win.project_state_manager.mark_saved()
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         manager = self.win.project_state_manager
         self.assertTrue(manager.compare_now())
         autosave = manager.write_autosave()
@@ -1234,10 +1238,10 @@ class SourceLifecycleTests(unittest.TestCase):
         project_dir = Path(self.temp.name) / "recovery"
         project_dir.mkdir()
         self.win.project_dir = project_dir
-        projectio.save_project(self.win, project_dir / "project.xhp")
+        projectio.save_project(self.win.project_data, project_dir / "project.xhp")
         self.win.project_state_manager.mark_saved()
 
-        self.win.open_files([self.h5])
+        self.win.source_manager.open_files([self.h5])
         manager = self.win.project_state_manager
         self.assertTrue(manager.compare_now())
         manager.write_autosave()
@@ -1255,11 +1259,11 @@ class SourceLifecycleTests(unittest.TestCase):
         from exhale.data.source_refs import open_source
 
         for filename in (self.h5, self.tiff):
-            self.win.open_files([filename])
+            self.win.source_manager.open_files([filename])
             original = self.win.project_data.sources[filename]
             duplicate = open_source(filename)
-            with patch("exhale.main_window.open_source", return_value=duplicate):
-                self.win.open_files([filename])
+            with patch("exhale.project.sourcemanager.open_source", return_value=duplicate):
+                self.win.source_manager.open_files([filename])
             self.assertFalse(duplicate.is_open)
             self.assertIs(self.win.project_data.sources[filename], original)
             self.assertTrue(original.is_open)

@@ -51,6 +51,7 @@ class ProjectStateManager(QtCore.QObject):
     def connect_sources(self) -> None:
         """Connect controls that modify serialized project state."""
         w = self.window
+        image = w.image_controller
         signals = [
             w.elementList.itemChanged,
             w.elementName.editingFinished,
@@ -64,17 +65,17 @@ class ProjectStateManager(QtCore.QObject):
             w.imageList.itemChanged,
             w.composeLayoutCB.currentIndexChanged,
             w.composeColors.currentIndexChanged,
-            w.composeScalebar.currentIndexChanged,
-            w.composeScalebarColor.colorChanged,
-            w.composeScalebarBgColor.colorChanged,
-            w.composeScalebarBg.toggled,
-            w.composeFontsize.valueChanged,
-            w.composeDPI.valueChanged,
-            w.composePanelLabels.toggled,
-            w.composeElementLabels.toggled,
-            w.composeElementBorders.toggled,
-            w.composeElementLabelsColored.toggled,
-            w.composePanelLabelColor.colorChanged,
+            image.scalebar.currentIndexChanged,
+            image.scalebar_color.colorChanged,
+            image.scalebar_background_color.colorChanged,
+            image.scalebar_background_enabled.toggled,
+            image.font_size.valueChanged,
+            image.dpi.valueChanged,
+            image.panel_labels.toggled,
+            image.element_labels.toggled,
+            image.element_borders.toggled,
+            image.colored_element_labels.toggled,
+            image.panel_label_color.colorChanged,
             w.imageHeaderBox.border.valueChanged,
             w.imageHeaderBox.colorChanged,
         ]
@@ -174,7 +175,9 @@ class ProjectStateManager(QtCore.QObject):
 
     def write_autosave(self) -> Path:
         path = self.autosave_path()
-        projectio.save_project_state(projectio.export_project_state(self.window), path)
+        projectio.save_project_state(
+            projectio.export_project_state(self.window.project_data, self.window.project_dir), path
+        )
         return path
 
     def discard_autosave(self, project_dir=None) -> None:
@@ -218,7 +221,7 @@ class ProjectStateManager(QtCore.QObject):
             return False
         with self.suspend_notifications():
             self.window.clear_project()
-            projectio.load_project_state(self.window, state)
+            projectio.load_project_state(self.window.project_data, state)
             self.window.project_dir = None
             self.window.refresh_project_ui()
         self._baseline = None
@@ -227,7 +230,9 @@ class ProjectStateManager(QtCore.QObject):
         return True
 
     def _snapshot(self) -> str:
-        return self._canonical_state(projectio.export_project_state(self.window))
+        return self._canonical_state(
+            projectio.export_project_state(self.window.project_data, self.window.project_dir)
+        )
 
     @staticmethod
     def _canonical_state(state) -> str:

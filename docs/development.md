@@ -14,6 +14,17 @@ persistence, lifecycle policy, and project controls are grouped in
 `exhale/xrf_refcopy/`.
 Tests are in `tests/`.
 
+Feature controllers own their mutable UI state. Do not duplicate controller
+selection, worker, thread, or derived-view state on `MainWindow`, and do not
+add permanent forwarding methods there. Application-wide signals may connect
+controllers, but one controller must not call another controller's private
+methods.
+
+Source-file selection, opening, closing, removal, and relocation belong to
+`SourceManager`. Project-directory creation, loading, and saving belong to
+`ProjectManager`. Do not add forwarding methods for either workflow to
+`MainWindow`; connect actions and callers to the owning manager.
+
 Bundled icons, Qt Designer files, and model data belong in
 `exhale/resources/`. Packaging files belong in `packaging/`, and release
 automation is in `.github/workflows/`.
@@ -147,6 +158,12 @@ to sample settings propagate to images using them. An image-local override
 is an explicit copy recorded in `ImageSettings.element_overrides`; changes to
 that copy must not propagate back to the sample. Code handling image
 elements must preserve this distinction and the corresponding channel key.
+
+`ProjectData` owns all saved project objects, including composed-image
+settings. Persistence code must operate on that model and must not inspect or
+modify windows, widgets, selections, or GUI signals. Project lifecycle
+controllers are responsible for refreshing the interface after a model has
+been loaded.
 
 ## Running and testing
 
