@@ -67,6 +67,12 @@ def _run_application(pyi_splash=None):
         parser.add_argument(
             "-r", "--recompile", action="store_true", help="recompile modified UI files"
         )
+        parser.add_argument(
+            "-R",
+            "--recompile-only",
+            action="store_true",
+            help="recompile all UI files and exit",
+        )
     parser.add_argument(
         "-p", "--project", metavar="DIR", dest="project_dir", help="saved project directory to load"
     )
@@ -98,13 +104,17 @@ def _run_application(pyi_splash=None):
             uip = resdir.joinpath("ui", uif + ".ui")
             py = os.path.join(output_dir, uif + "_ui.py")
             if os.path.exists(uip) and (
-                not os.path.exists(py) or os.path.getmtime(uip) > os.path.getmtime(py)
+                args.recompile_only
+                or not os.path.exists(py)
+                or os.path.getmtime(uip) > os.path.getmtime(py)
             ):
-                if args.recompile:
+                if args.recompile or args.recompile_only:
                     print(f"Recompiling {uif}")
                     _recompile_ui(uip, py)
                 else:
                     print(f"Run with -r to recompile updated {uif} UI file")
+        if args.recompile_only:
+            return 0
 
     from qtpy import QtCore, QtGui, QtWidgets
 

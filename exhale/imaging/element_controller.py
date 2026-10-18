@@ -27,6 +27,7 @@ class ElementController:
         """Connect element-map controls and initialize their choices."""
         window = self.window
         element_list = window.elementList
+        element_list.use_sample_check_delegate()
         window.loadedFileComboBox.currentIndexChanged.connect(self.sample_changed)
         element_list.itemUnwanted.connect(self.skip_sample_element)
         element_list.stateToggleRequested.connect(self.cycle_sample_element_state)

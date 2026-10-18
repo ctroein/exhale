@@ -12,6 +12,7 @@ from qtpy import QtCore, QtGui, QtWidgets
 
 from . import appearance, application_description, application_name, application_title, icons
 from .analysis.controller import AnalysisController
+from .analysis.correlation_controller import CorrelationController
 from .data.projectdata import ProjectData
 from .exceptiondialog import ExceptionDetailsDialog, ExceptionDialog
 from .imaging.element_controller import ElementController
@@ -78,11 +79,13 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.element_controller = ElementController(self)
         self.image_controller = ImageController(self)
         self.analysis_controller = AnalysisController(self)
+        self.correlation_controller = CorrelationController(self)
 
         self.element_controller.setup()
         self.image_controller.setup()
         self.element_controller.refresh_sample_selector()
         self.analysis_controller.setup()
+        self.correlation_controller.setup()
         self._configure_splitter_persistence()
         self.tabWidget.setCurrentIndex(0)
         self.project_state_manager = ProjectStateManager(self)
@@ -124,6 +127,21 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             "analysis": (self.analysisSplitter, self.analysisTab, (180, 400, 200)),
             "analysis_left": (self.analysisLeftSplitter, self.analysisTab, (2, 1)),
             "analysis_right": (self.analysisRightSplitter, self.analysisTab, (2, 1)),
+            "element_correlations": (
+                self.elementCorrelationSplitter,
+                self.elementCorrelationTab,
+                (1, 3),
+            ),
+            "element_scatter": (
+                self.elementScatterSplitter,
+                self.elementScatterTab,
+                (1, 3),
+            ),
+            "sample_similarities": (
+                self.sampleSimilaritySplitter,
+                self.sampleSimilarityTab,
+                (1, 3),
+            ),
         }
         self._splitter_initializers = {
             name: initialize_splitter_on_show(
@@ -176,6 +194,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.deleteImageButton.setToolTip("Delete image")
         self.showSingleElementButton.set_icon_name(icons.IconName.ELEMENT_ONLY)
         self.composeSave.setIcon(icons.icon(icons.IconName.IMAGE))
+        self.copyElementCorrelationTable.setIcon(icons.icon(icons.IconName.COPY))
+        self.copySampleSimilarityTable.setIcon(icons.icon(icons.IconName.COPY))
+        self.saveElementCorrelationPlot.setIcon(icons.icon(icons.IconName.SCREENSHOT))
+        self.saveElementScatterPlot.setIcon(icons.icon(icons.IconName.SCREENSHOT))
+        self.saveSampleSimilarityPlot.setIcon(icons.icon(icons.IconName.SCREENSHOT))
+        self.analysisScreenshot.set_icon_name(icons.IconName.SCREENSHOT)
         self.analysisFit.set_icon_name(icons.IconName.MAXIMIZE)
         for button in self.findChildren(IconToolButton):
             button.reload_icon()
@@ -187,9 +211,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.elementPlot.reload_appearance()
         self.elementHistogramPlot.reload_appearance()
         self.elementList.reload_icons()
+        self.analysisElements.reload_icons()
         self.imageList.reload_icons()
         self.project_tab.reload_icons()
         self.analysisLayerList.reload_appearance()
+        self.correlation_controller.reload_appearance()
         if self.analysis_controller.naparihelper is not None:
             self.analysis_controller.naparihelper.set_theme(
                 "dark" if appearance.is_dark() else "light"
@@ -310,6 +336,7 @@ Licensed under the MIT License.</p>
         self.image_controller.clear_project()
         self.element_controller.clear_project()
         self.analysis_controller.clear_project()
+        self.correlation_controller.clear_project()
 
         # Let any dependent widgets rebuild
         self.channelsChanged.emit()

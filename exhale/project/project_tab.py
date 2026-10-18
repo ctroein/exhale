@@ -8,6 +8,7 @@ from qtpy.QtCore import Qt
 
 from .. import icons
 from ..imaging.listwidgets import ElementListWidget
+from ..widgets import IconCheckDelegate
 
 
 class _SampleTreeDelegate(QtWidgets.QStyledItemDelegate):
@@ -35,7 +36,7 @@ class ProjectTab(QtCore.QObject):
 
     NODE_KIND_ROLE = Qt.UserRole
     NODE_ID_ROLE = Qt.UserRole + 1
-    PROJECT_ENABLED_ROLE = Qt.UserRole + 10
+    FILE_ICON_ROLE = Qt.UserRole + 2
 
     def __init__(self, window):
         super().__init__(window.projectDataTab)
@@ -66,6 +67,8 @@ class ProjectTab(QtCore.QObject):
         self.channelList.setSelectionMode(
             QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection
         )
+        self.channelList.setItemDelegate(IconCheckDelegate(self.channelList))
+        self.elementMapList.use_sample_check_delegate()
         self.refreshChannelsButton.setIcon(icons.icon(icons.IconName.REFRESH))
         self.addProjectFilesButton.setIcon(icons.icon(icons.IconName.OPEN))
         self.sampleTree.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -82,7 +85,7 @@ class ProjectTab(QtCore.QObject):
         self.sampleTree.itemDoubleClicked.connect(self._begin_tree_edit)
         self.sampleTree.itemChanged.connect(self._tree_item_changed)
         self.elementMapList.stateToggleRequested.connect(self._cycle_map_state)
-        self.channelList.itemDoubleClicked.connect(self._toggle_project_channel)
+        self.channelList.itemChanged.connect(self._project_channel_check_changed)
         self.refreshChannelsButton.clicked.connect(self.refresh_channels)
         self.addProjectFilesButton.clicked.connect(window.source_manager.select_and_open_files)
         self.addSampleFilesButton.clicked.connect(self._add_files_to_sample)
@@ -110,7 +113,7 @@ class ProjectTab(QtCore.QObject):
             if current is not None:
                 selected = self.channelList.selectedItems() or [current]
                 self._set_project_channels(
-                    selected, not bool(current.data(self.PROJECT_ENABLED_ROLE))
+                    selected, current.checkState() == Qt.CheckState.Unchecked
                 )
             return True
         return super().eventFilter(watched, event)
@@ -175,6 +178,7 @@ class ProjectTab(QtCore.QObject):
                         if channel.ref is not None and channel.ref.source_id == asset_id
                     ]
                     single_map_tiff = asset.source.kind == "tiff" and len(channels) == 1
+                    multichannel_tiff = asset.source.kind == "tiff" and len(channels) > 1
                     name = labels.get(asset.path, Path(asset.path).name)
                     if not asset.is_available:
                         name += " [unavailable]"
@@ -182,9 +186,16 @@ class ProjectTab(QtCore.QObject):
                         [name, channels[0].key if single_map_tiff else ""]
                     )
                     file_item.setFlags(file_item.flags() | Qt.ItemFlag.ItemIsEditable)
-                    file_item.setIcon(0, icons.icon(icons.IconName.FILE))
+                    if single_map_tiff:
+                        icon_name = icons.IconName.ELEMENT
+                    elif multichannel_tiff:
+                        icon_name = icons.IconName.FILE_MULTICHANNEL_IMAGE
+                    else:
+                        icon_name = icons.IconName.FILE_DATA
+                    file_item.setIcon(0, icons.icon(icon_name))
                     file_item.setData(0, self.NODE_KIND_ROLE, "file")
                     file_item.setData(0, self.NODE_ID_ROLE, asset_id)
+                    file_item.setData(0, self.FILE_ICON_ROLE, icon_name.value)
                     file_item.setToolTip(0, asset.path)
                     sample_item.addChild(file_item)
                     if asset_id == selected_asset:
@@ -273,12 +284,11 @@ class ProjectTab(QtCore.QObject):
                 name = project_channel.name if project_channel is not None else available.name
                 text = key if name == key else f"{name} [{key}]"
                 enabled = project_channel is not None
-                item = QtWidgets.QListWidgetItem(
-                    icons.icon(icons.IconName.MAP_YES if enabled else icons.IconName.MAP_NO), text
-                )
+                item = QtWidgets.QListWidgetItem(text)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked)
                 item.setData(ElementListWidget.CHANNEL_KEY_ROLE, key)
                 item.setData(ElementListWidget.ELEMENT_REF_ROLE, available.ref)
-                item.setData(self.PROJECT_ENABLED_ROLE, enabled)
                 self.channelList.addItem(item)
                 if key == current_key:
                     selected_item = item
@@ -333,15 +343,15 @@ class ProjectTab(QtCore.QObject):
         """Reload palette-dependent icons used by the project-data controls."""
         self.addProjectFilesButton.setIcon(icons.icon(icons.IconName.OPEN))
         self.refreshChannelsButton.setIcon(icons.icon(icons.IconName.REFRESH))
-        for row in range(self.channelList.count()):
-            item = self.channelList.item(row)
-            enabled = bool(item.data(self.PROJECT_ENABLED_ROLE))
-            item.setIcon(icons.icon(icons.IconName.MAP_YES if enabled else icons.IconName.MAP_NO))
-        self.refresh_sample_maps()
-        for row in range(self.sampleTree.topLevelItemCount()):
-            sample_item = self.sampleTree.topLevelItem(row)
-            for child_row in range(sample_item.childCount()):
-                sample_item.child(child_row).setIcon(0, icons.icon(icons.IconName.FILE))
+        self.channelList.viewport().update()
+        self.elementMapList.viewport().update()
+        with QtCore.QSignalBlocker(self.sampleTree):
+            for row in range(self.sampleTree.topLevelItemCount()):
+                sample_item = self.sampleTree.topLevelItem(row)
+                for child_row in range(sample_item.childCount()):
+                    file_item = sample_item.child(child_row)
+                    icon_name = icons.IconName(file_item.data(0, self.FILE_ICON_ROLE))
+                    file_item.setIcon(0, icons.icon(icon_name))
 
     def _tree_selection_changed(self):
         self.refresh_sample_maps()
@@ -398,26 +408,26 @@ class ProjectTab(QtCore.QObject):
             self.refresh(sample_id)
 
     def _set_project_channels(self, items, enabled):
-        for item in items:
-            key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
-            ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
-            if enabled:
-                settings = self.window.element_controller.ensure_settings(ref)
-                _sample, channel = self.project.channel_for_ref(ref)
-                channel.settings = settings
-                self.project.add_project_channel(key, channel.name, settings)
-            else:
-                self.project.remove_project_channel(key)
-            item.setData(self.PROJECT_ENABLED_ROLE, enabled)
-            item.setIcon(icons.icon(icons.IconName.MAP_YES if enabled else icons.IconName.MAP_NO))
+        with QtCore.QSignalBlocker(self.channelList):
+            for item in items:
+                key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
+                ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
+                if enabled:
+                    settings = self.window.element_controller.ensure_settings(ref)
+                    _sample, channel = self.project.channel_for_ref(ref)
+                    channel.settings = settings
+                    self.project.add_project_channel(key, channel.name, settings)
+                else:
+                    self.project.remove_project_channel(key)
+                item.setCheckState(Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked)
         self.window.element_controller.effective_channels_changed()
         self.window.element_controller.refresh_current_channel_states()
         self.refresh_sample_maps()
         self.refresh_map_counts()
         self._mark_changed()
 
-    def _toggle_project_channel(self, item):
-        self._set_project_channels([item], not bool(item.data(self.PROJECT_ENABLED_ROLE)))
+    def _project_channel_check_changed(self, item):
+        self._set_project_channels([item], item.checkState() == Qt.CheckState.Checked)
 
     def _cycle_map_state(self, item):
         sample_id = self.selected_sample_id()

@@ -10,6 +10,7 @@ from qtpy.QtCore import Qt
 from .. import appearance
 from ..data.projectdata import SegmentationParameters, SegmentationResult
 from ..imaging.listwidgets import ElementListWidget
+from ..widgets import IconCheckDelegate
 from .analysis_settings_dialog import AnalysisSettingsDialog
 from .analysisworker import AnalysisWorker
 from .segmentationio import result_relative_path, save_xrf_sample
@@ -34,6 +35,7 @@ class AnalysisController:
         self._result_sample_id = None
         self._element_signatures = {}
         self._view_fitted_on_show = False
+        window.analysisElements.setItemDelegate(IconCheckDelegate(window.analysisElements))
 
         dialog = AnalysisSettingsDialog(window)
         self.settings_dialog = dialog
@@ -102,6 +104,7 @@ class AnalysisController:
         window.analysisRun.pressed.connect(self.run)
         window.analysisAbort.pressed.connect(self.abort)
         window.analysisExport.clicked.connect(self.export_results)
+        window.analysisScreenshot.clicked.connect(self.save_screenshot)
         window.analysisFit.clicked.connect(self.naparihelper.viewer.reset_view)
         self.set_busy(False)
 
@@ -198,6 +201,7 @@ class AnalysisController:
         self.window.analysisInfo.clear()
         self.update_layer_controls()
         self.window.analysisExport.setEnabled(False)
+        self.window.analysisScreenshot.setEnabled(False)
 
     def show_result(self, result: SegmentationResult) -> None:
         window = self.window
@@ -232,6 +236,7 @@ class AnalysisController:
         }
         self.update_layer_controls()
         window.analysisExport.setEnabled(True)
+        window.analysisScreenshot.setEnabled(True)
 
     def _segmentation_element_settings(self, result: SegmentationResult):
         project_data = self.window.project_data
@@ -292,6 +297,7 @@ class AnalysisController:
                     Qt.CheckState.Unchecked
                     if channel.ref in unchecked_refs
                     else Qt.CheckState.Checked,
+                    element_icon=False,
                 )
 
     def _effective_channels(self):
@@ -344,6 +350,9 @@ class AnalysisController:
             widget.setEnabled(not busy)
         window.analysisProgress.setRange(0, 0 if busy else 1)
         window.analysisExport.setEnabled(
+            not busy and self.naparihelper is not None and self.naparihelper.sample is not None
+        )
+        window.analysisScreenshot.setEnabled(
             not busy and self.naparihelper is not None and self.naparihelper.sample is not None
         )
         window.analysisAbort.setEnabled(busy)
@@ -484,6 +493,29 @@ class AnalysisController:
         QtWidgets.QMessageBox.information(
             window, "Export complete", f"Analysis results exported to:\n{output}"
         )
+
+    def save_screenshot(self) -> None:
+        """Save the currently displayed segmentation canvas as a PNG image."""
+        if self.naparihelper is None or self.naparihelper.sample is None:
+            return
+        window = self.window
+        filename = window.askFileName(
+            "Save segmentation screenshot",
+            filter="PNG image (*.png)",
+            settingname="AnalysisScreenshotDir",
+            save=True,
+            defaultfilename="segmentation.png",
+        )
+        if filename is None:
+            return
+        try:
+            self.naparihelper.viewer.screenshot(
+                path=filename,
+                canvas_only=True,
+                flash=True,
+            )
+        except Exception as exc:
+            window.show_error("Saving screenshot failed", str(exc))
 
     def clear_project(self) -> None:
         """Clear controller-owned derived display state for a new project."""

@@ -17,7 +17,8 @@ installed package or source checkout.
 
 ### `exhale/__main__.py`
 
-Application entry point. It optionally recompiles changed Designer files,
+Application entry point. It optionally recompiles changed Designer files, can
+recompile every generated UI module without launching the application,
 creates `QApplication` and `MainWindow`, initializes appearance and icons,
 handles initial files or projects, and reports top-level failures. It also
 integrates with the PyInstaller splash screen.
@@ -182,6 +183,17 @@ parameter dialog, worker and thread lifetime, saved-result display,
 incremental Napari updates, and result export. `MainWindow` supplies the
 generated widgets and application-level services but owns no analysis state.
 
+### `exhale/analysis/correlation_controller.py`
+
+Owns the three independent Correlations subtabs, their sample and element
+selection, disposable session caches, calculation requests, and result views.
+
+### `exhale/analysis/correlations.py`
+
+Computes element Pearson-correlation matrices with pairwise finite-value
+filtering, between-sample similarities from aligned correlation fingerprints,
+and value-positioned density grids for element scatter views.
+
 ### `exhale/analysis/analysisworker.py`
 
 Defines the background `AnalysisWorker`. It captures Python and native stderr,
@@ -225,6 +237,11 @@ preserve layer presentation state.
 Implements the layer list shown beside Napari. Rows expose visibility, colour,
 opacity, blending, and reorder/remove operations while reflecting the actual
 viewer layers.
+
+### `exhale/analysis/correlationwidgets.py`
+
+Provides independent reusable correlation-matrix views and the pyqtgraph
+heat-map/scatter plotting widgets used by the Correlations tab.
 
 ### `exhale/imaging/listwidgets.py`
 

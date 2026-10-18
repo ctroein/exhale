@@ -44,6 +44,100 @@ class IconToolButton(QtWidgets.QToolButton):
         self.setIconSize(QtCore.QSize(extent, extent))
 
 
+class _IconCheckStyle(QtWidgets.QProxyStyle):
+    """Give item-view check indicators enough room for the 24-unit SVGs."""
+
+    INDICATOR_SIZE = 24
+
+    def pixelMetric(self, metric, option=None, widget=None):
+        if metric in (
+            QtWidgets.QStyle.PixelMetric.PM_IndicatorWidth,
+            QtWidgets.QStyle.PixelMetric.PM_IndicatorHeight,
+        ):
+            return self.INDICATOR_SIZE
+        return super().pixelMetric(metric, option, widget)
+
+
+class IconCheckDelegate(QtWidgets.QStyledItemDelegate):
+    """Paint Exhale icons in the standard item-view check-indicator rectangle."""
+
+    DEFAULT_ICONS = {
+        QtCore.Qt.CheckState.Unchecked: icons.IconName.CHECKBOX,
+        QtCore.Qt.CheckState.PartiallyChecked: icons.IconName.CHECKBOX_DEFAULT_MARKED,
+        QtCore.Qt.CheckState.Checked: icons.IconName.CHECKBOX_MARKED,
+    }
+
+    def __init__(self, parent=None, icon_name_for_state=None):
+        super().__init__(parent)
+        self._icon_name_for_state = icon_name_for_state
+        if isinstance(parent, QtWidgets.QAbstractItemView) and not isinstance(
+            parent.style(), _IconCheckStyle
+        ):
+            indicator_style = _IconCheckStyle()
+            indicator_style.setParent(parent)
+            parent.setStyle(indicator_style)
+
+    def indicator_icon_name(self, index, state):
+        """Return the semantic icon name for one model check state."""
+        if self._icon_name_for_state is not None:
+            return self._icon_name_for_state(index, state)
+        return self.DEFAULT_ICONS[state]
+
+    @staticmethod
+    def indicator_rect(option, index):
+        """Return the active style's standard check-indicator rectangle."""
+        widget = option.widget
+        style = widget.style() if widget is not None else QtWidgets.QApplication.style()
+        return style.subElementRect(
+            QtWidgets.QStyle.SubElement.SE_ItemViewItemCheckIndicator,
+            option,
+            widget,
+        )
+
+    def paint(self, painter, option, index):
+        styled = QtWidgets.QStyleOptionViewItem(option)
+        self.initStyleOption(styled, index)
+        if not (styled.features & QtWidgets.QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator):
+            super().paint(painter, option, index)
+            return
+
+        indicator_rect = self.indicator_rect(styled, index)
+        widget = styled.widget
+        style = widget.style() if widget is not None else QtWidgets.QApplication.style()
+
+        style.drawPrimitive(
+            QtWidgets.QStyle.PrimitiveElement.PE_PanelItemViewItem,
+            styled,
+            painter,
+            widget,
+        )
+        content = QtWidgets.QStyleOptionViewItem(styled)
+        content.features &= ~QtWidgets.QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
+        if content.direction == QtCore.Qt.LayoutDirection.RightToLeft:
+            content.rect.setRight(indicator_rect.left())
+        else:
+            content.rect.setLeft(indicator_rect.right())
+        style.drawControl(
+            QtWidgets.QStyle.ControlElement.CE_ItemViewItem,
+            content,
+            painter,
+            widget,
+        )
+
+        mode = (
+            QtGui.QIcon.Mode.Normal
+            if styled.state & QtWidgets.QStyle.StateFlag.State_Enabled
+            else QtGui.QIcon.Mode.Disabled
+        )
+        icons.icon(self.indicator_icon_name(index, styled.checkState)).paint(
+            painter,
+            indicator_rect,
+            QtCore.Qt.AlignmentFlag.AlignCenter,
+            mode,
+            QtGui.QIcon.State.Off,
+        )
+
+
 class _SplitterInitializer(QtCore.QObject):
     """Restore or proportion a splitter once its containing widget is shown."""
 

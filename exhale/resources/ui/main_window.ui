@@ -373,7 +373,18 @@
               <number>5</number>
              </property>
              <item>
-              <widget class="QComboBox" name="analysisSampleComboBox"/>
+              <layout class="QHBoxLayout" name="analysisSampleLayout">
+               <item>
+                <widget class="QLabel" name="analysisSampleLabel">
+                 <property name="text">
+                  <string>Sample</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QComboBox" name="analysisSampleComboBox"/>
+               </item>
+              </layout>
              </item>
              <item>
               <layout class="QHBoxLayout" name="horizontalLayout_9">
@@ -451,9 +462,16 @@
                 </widget>
                </item>
                <item>
-                <widget class="QPushButton" name="analysisExport">
+               <widget class="QPushButton" name="analysisExport">
                  <property name="text">
                   <string>Export</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="IconToolButton" name="analysisScreenshot">
+                 <property name="toolTip">
+                  <string>Save screenshot</string>
                  </property>
                 </widget>
                </item>
@@ -502,16 +520,577 @@
         </item>
        </layout>
       </widget>
-      <widget class="QWidget" name="tab">
+      <widget class="QWidget" name="correlationsTab">
        <attribute name="title">
-        <string>Correlative</string>
+        <string>Correlations</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_5">
+       <layout class="QVBoxLayout" name="correlationsTabLayout">
         <item>
-         <widget class="QLabel" name="label_14">
-          <property name="text">
-           <string>Here you will be able to overlay images from other modalities</string>
-          </property>
+         <widget class="QTabWidget" name="correlationModes">
+          <widget class="QWidget" name="elementCorrelationTab">
+           <attribute name="title">
+            <string>Element correlations</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="elementCorrelationTabLayout">
+            <item>
+             <widget class="QSplitter" name="elementCorrelationSplitter">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="handleWidth">
+               <number>8</number>
+              </property>
+              <widget class="QWidget" name="elementCorrelationControls">
+               <layout class="QVBoxLayout" name="elementCorrelationControlsLayout" stretch="0,1,0">
+                <item>
+                 <widget class="QWidget" name="elementCorrelationTop">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <layout class="QVBoxLayout" name="elementCorrelationTopLayout">
+                   <property name="leftMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="rightMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="bottomMargin">
+                    <number>0</number>
+                   </property>
+                   <item>
+                    <widget class="QLabel" name="elementCorrelationSampleLabel">
+                     <property name="sizePolicy">
+                      <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                       <horstretch>0</horstretch>
+                       <verstretch>0</verstretch>
+                      </sizepolicy>
+                     </property>
+                     <property name="text">
+                      <string>Sample</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QComboBox" name="elementCorrelationSample" />
+                   </item>
+                   <item>
+                    <layout class="QHBoxLayout" name="elementCorrelationDecimalsLayout">
+                     <item>
+                      <widget class="QCheckBox" name="showElementCorrelationValues">
+                       <property name="text">
+                        <string>Show values</string>
+                       </property>
+                       <property name="checked">
+                        <bool>true</bool>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <spacer name="elementCorrelationDecimalsSpacer">
+                       <property name="orientation">
+                        <enum>Qt::Horizontal</enum>
+                       </property>
+                       <property name="sizeType">
+                        <enum>QSizePolicy::Expanding</enum>
+                       </property>
+                      </spacer>
+                     </item>
+                     <item>
+                      <widget class="QLabel" name="elementCorrelationDecimalsLabel">
+                       <property name="sizePolicy">
+                        <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                         <horstretch>0</horstretch>
+                         <verstretch>0</verstretch>
+                        </sizepolicy>
+                       </property>
+                       <property name="text">
+                        <string>Decimals</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <widget class="QSpinBox" name="elementCorrelationDecimals">
+                       <property name="minimum">
+                        <number>1</number>
+                       </property>
+                       <property name="maximum">
+                        <number>4</number>
+                       </property>
+                       <property name="value">
+                        <number>2</number>
+                       </property>
+                      </widget>
+                     </item>
+                    </layout>
+                   </item>
+                   <item>
+                    <layout class="QHBoxLayout" name="elementCorrelationActions">
+                     <item>
+                      <widget class="QPushButton" name="copyElementCorrelationTable">
+                       <property name="text">
+                        <string>Copy table</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <widget class="QPushButton" name="saveElementCorrelationPlot">
+                       <property name="text">
+                        <string>Save plot…</string>
+                       </property>
+                      </widget>
+                     </item>
+                    </layout>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item stretch="1">
+                 <spacer name="elementCorrelationSpacer">
+                  <property name="orientation">
+                   <enum>Qt::Vertical</enum>
+                  </property>
+                  <property name="sizeType">
+                   <enum>QSizePolicy::Expanding</enum>
+                  </property>
+                 </spacer>
+                </item>
+                <item>
+                 <widget class="QLabel" name="elementCorrelationStatus">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="text">
+                   <string />
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+              <widget class="QWidget" name="elementCorrelationResults">
+               <layout class="QVBoxLayout" name="elementCorrelationResultsLayout">
+                <item>
+                 <widget class="QWidget" name="elementCorrelationPlotHost" />
+                </item>
+               </layout>
+              </widget>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="elementScatterTab">
+           <attribute name="title">
+            <string>Element scatter</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="elementScatterTabLayout">
+            <item>
+             <widget class="QSplitter" name="elementScatterSplitter">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="handleWidth">
+               <number>8</number>
+              </property>
+              <widget class="QWidget" name="elementScatterControls">
+               <layout class="QVBoxLayout" name="elementScatterControlsLayout" stretch="0,1,0">
+                <item>
+                 <widget class="QWidget" name="elementScatterTop">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <layout class="QVBoxLayout" name="elementScatterTopLayout">
+                   <property name="leftMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="rightMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="bottomMargin">
+                    <number>0</number>
+                   </property>
+                   <item>
+                    <widget class="QLabel" name="elementScatterSampleLabel">
+                     <property name="sizePolicy">
+                      <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                       <horstretch>0</horstretch>
+                       <verstretch>0</verstretch>
+                      </sizepolicy>
+                     </property>
+                     <property name="text">
+                      <string>Sample</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QComboBox" name="elementScatterSample" />
+                   </item>
+                   <item>
+                    <layout class="QGridLayout" name="elementScatterElementsLayout">
+                     <item row="0" column="0">
+                      <widget class="QLabel" name="elementScatterXLabel">
+                       <property name="sizePolicy">
+                        <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                         <horstretch>0</horstretch>
+                         <verstretch>0</verstretch>
+                        </sizepolicy>
+                       </property>
+                       <property name="text">
+                        <string>X element</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="0" column="1">
+                      <widget class="QComboBox" name="elementScatterX" />
+                     </item>
+                     <item row="1" column="0">
+                      <widget class="QLabel" name="elementScatterYLabel">
+                       <property name="sizePolicy">
+                        <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                         <horstretch>0</horstretch>
+                         <verstretch>0</verstretch>
+                        </sizepolicy>
+                       </property>
+                       <property name="text">
+                        <string>Y element</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item row="1" column="1">
+                      <widget class="QComboBox" name="elementScatterY" />
+                     </item>
+                    </layout>
+                   </item>
+                   <item>
+                    <layout class="QHBoxLayout" name="elementScatterPresentationLayout">
+                     <item>
+                      <widget class="QLabel" name="elementScatterPresentationLabel">
+                       <property name="sizePolicy">
+                        <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                         <horstretch>0</horstretch>
+                         <verstretch>0</verstretch>
+                        </sizepolicy>
+                       </property>
+                       <property name="text">
+                        <string>Plot</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <widget class="QComboBox" name="elementScatterPresentation">
+                       <item>
+                        <property name="text">
+                         <string>Scatter</string>
+                        </property>
+                       </item>
+                       <item>
+                        <property name="text">
+                         <string>Density</string>
+                        </property>
+                       </item>
+                       <property name="currentIndex">
+                        <number>1</number>
+                       </property>
+                      </widget>
+                     </item>
+                    </layout>
+                   </item>
+                   <item>
+                    <layout class="QHBoxLayout" name="elementScatterBinsLayout">
+                     <item>
+                      <widget class="QLabel" name="elementScatterBinsLabel">
+                       <property name="sizePolicy">
+                        <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                         <horstretch>0</horstretch>
+                         <verstretch>0</verstretch>
+                        </sizepolicy>
+                       </property>
+                       <property name="text">
+                        <string>Bins</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <widget class="QSpinBox" name="elementScatterBins">
+                       <property name="minimum">
+                        <number>10</number>
+                       </property>
+                       <property name="maximum">
+                        <number>200</number>
+                       </property>
+                       <property name="singleStep">
+                        <number>10</number>
+                       </property>
+                       <property name="value">
+                        <number>60</number>
+                       </property>
+                      </widget>
+                     </item>
+                    </layout>
+                   </item>
+                   <item>
+                    <layout class="QHBoxLayout" name="elementScatterActions" stretch="0,1">
+                     <item>
+                      <widget class="QPushButton" name="saveElementScatterPlot">
+                       <property name="text">
+                        <string>Save plot…</string>
+                       </property>
+                       <property name="sizePolicy">
+                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                         <horstretch>0</horstretch>
+                         <verstretch>0</verstretch>
+                        </sizepolicy>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <spacer name="elementScatterActionSpacer">
+                       <property name="orientation">
+                        <enum>Qt::Horizontal</enum>
+                       </property>
+                       <property name="sizeType">
+                        <enum>QSizePolicy::Expanding</enum>
+                       </property>
+                      </spacer>
+                     </item>
+                    </layout>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item stretch="1">
+                 <spacer name="elementScatterSpacer">
+                  <property name="orientation">
+                   <enum>Qt::Vertical</enum>
+                  </property>
+                  <property name="sizeType">
+                   <enum>QSizePolicy::Expanding</enum>
+                  </property>
+                 </spacer>
+                </item>
+                <item>
+                 <widget class="QLabel" name="elementScatterStatus">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="text">
+                   <string />
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+              <widget class="QWidget" name="elementScatterResults">
+               <layout class="QVBoxLayout" name="elementScatterResultsLayout">
+                <item>
+                 <widget class="QWidget" name="elementScatterPlotHost" />
+                </item>
+               </layout>
+              </widget>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="sampleSimilarityTab">
+           <attribute name="title">
+            <string>Sample similarities</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="sampleSimilarityTabLayout">
+            <item>
+             <widget class="QSplitter" name="sampleSimilaritySplitter">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="handleWidth">
+               <number>8</number>
+              </property>
+              <widget class="QWidget" name="sampleSimilarityControls">
+               <layout class="QVBoxLayout" name="sampleSimilarityControlsLayout" stretch="0,1,0,0,1,0,0,0">
+                <item>
+                 <widget class="QLabel" name="sampleSimilaritySamplesLabel">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="text">
+                   <string>Samples</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QListWidget" name="sampleSimilaritySamples">
+                  <property name="selectionMode">
+                   <enum>QAbstractItemView::ExtendedSelection</enum>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="calculateSampleSimilarities">
+                  <property name="text">
+                   <string>Calculate</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="sampleSimilaritySummary">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="text">
+                   <string />
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QTreeWidget" name="sampleSimilarityExcluded">
+                  <property name="selectionMode">
+                   <enum>QAbstractItemView::NoSelection</enum>
+                  </property>
+                  <property name="rootIsDecorated">
+                   <bool>false</bool>
+                  </property>
+                  <property name="itemsExpandable">
+                   <bool>false</bool>
+                  </property>
+                  <column>
+                   <property name="text">
+                    <string>Excluded element</string>
+                   </property>
+                  </column>
+                  <column>
+                   <property name="text">
+                    <string>Samples</string>
+                   </property>
+                  </column>
+                 </widget>
+                </item>
+                <item>
+                 <layout class="QHBoxLayout" name="sampleSimilarityDecimalsLayout">
+                  <item>
+                   <widget class="QCheckBox" name="showSampleSimilarityValues">
+                    <property name="text">
+                     <string>Show values</string>
+                    </property>
+                    <property name="checked">
+                     <bool>true</bool>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <spacer name="sampleSimilarityDecimalsSpacer">
+                    <property name="orientation">
+                     <enum>Qt::Horizontal</enum>
+                    </property>
+                    <property name="sizeType">
+                     <enum>QSizePolicy::Expanding</enum>
+                    </property>
+                   </spacer>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="sampleSimilarityDecimalsLabel">
+                    <property name="sizePolicy">
+                     <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                      <horstretch>0</horstretch>
+                      <verstretch>0</verstretch>
+                     </sizepolicy>
+                    </property>
+                    <property name="text">
+                     <string>Decimals</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QSpinBox" name="sampleSimilarityDecimals">
+                    <property name="minimum">
+                     <number>1</number>
+                    </property>
+                    <property name="maximum">
+                     <number>4</number>
+                    </property>
+                    <property name="value">
+                     <number>2</number>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <layout class="QHBoxLayout" name="sampleSimilarityActions">
+                  <item>
+                   <widget class="QPushButton" name="copySampleSimilarityTable">
+                    <property name="text">
+                     <string>Copy table</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="saveSampleSimilarityPlot">
+                    <property name="text">
+                     <string>Save plot…</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QLabel" name="sampleSimilarityStatus">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="text">
+                   <string />
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+              <widget class="QWidget" name="sampleSimilarityResults">
+               <layout class="QVBoxLayout" name="sampleSimilarityResultsLayout">
+                <item>
+                 <widget class="QWidget" name="sampleSimilarityPlotHost" />
+                </item>
+               </layout>
+              </widget>
+             </widget>
+            </item>
+           </layout>
+          </widget>
          </widget>
         </item>
        </layout>

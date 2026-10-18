@@ -19,7 +19,9 @@ import numpy as np
 from PIL import Image
 from qtpy import QtCore, QtTest, QtWidgets
 
+from exhale import icons
 from exhale.analysis.controller import AnalysisController
+from exhale.analysis.correlations import correlation_matrix
 from exhale.data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from exhale.data.imagesettings import ImageSettings, Layouts
 from exhale.data.projectdata import (
@@ -28,10 +30,11 @@ from exhale.data.projectdata import (
     SegmentationResult,
 )
 from exhale.data.source_refs import open_source
-from exhale.imaging.listwidgets import ElementListWidget
+from exhale.imaging.listwidgets import ElementListWidget, SampleElementCheckDelegate
 from exhale.main_window import ACTIVE_TAB_SETTINGS_KEY, SPLITTER_SETTINGS_PREFIX, MainWindow
 from exhale.project import projectio
 from exhale.project.projectstatemanager import PROJECT_SAVE_ON_EXIT_KEY
+from exhale.widgets import IconCheckDelegate
 
 
 class SourceLifecycleTests(unittest.TestCase):
@@ -51,6 +54,9 @@ class SourceLifecycleTests(unittest.TestCase):
             group.create_dataset("Zn", data=self.data * 2)
         self.tiff = str(Path(self.temp.name) / "image.tiff")
         Image.fromarray(self.data).save(self.tiff)
+        self.multichannel_tiff = str(Path(self.temp.name) / "rgb-image.tiff")
+        rgb_data = np.stack((self.data, self.data * 2, self.data * 3), axis=-1).astype(np.uint8)
+        Image.fromarray(rgb_data).save(self.multichannel_tiff)
         with patch.object(AnalysisController, "setup", lambda controller: None):
             self.win = MainWindow()
         self.addCleanup(self.dispose_window)
@@ -64,7 +70,7 @@ class SourceLifecycleTests(unittest.TestCase):
         tabs = self.win.tabWidget
         self.assertEqual(
             [tabs.tabText(i) for i in range(tabs.count())],
-            ["Project data", "Element maps", "Segmentation", "Correlative"],
+            ["Project data", "Element maps", "Segmentation", "Correlations"],
         )
         self.assertEqual(tabs.currentIndex(), 0)
         tabs.setCurrentWidget(self.win.analysisTab)
@@ -75,6 +81,40 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.actionClearFiles.trigger()
         self.assertFalse(self.win.project_data.sources[self.h5].is_open)
         self.assertEqual(self.win.loadedFileComboBox.count(), 1)
+
+    def test_element_correlations_reuse_the_session_cache(self):
+        self.win.source_manager.open_files([self.h5])
+        sample_id = next(iter(self.win.project_data.samples))
+        for key in ("Fe", "Zn"):
+            self.win.project_data.add_project_channel_from_sample(sample_id, key)
+
+        with patch(
+            "exhale.analysis.correlation_controller.correlation_matrix",
+            wraps=correlation_matrix,
+        ) as calculate:
+            self.win.channelsChanged.emit()
+            self.assertIsNone(self.win.correlation_controller.element_matrix.result)
+            self.win.correlation_controller.calculate_elements()
+            result = self.win.correlation_controller.element_matrix.result
+            self.win.correlation_controller.calculate_elements()
+
+        self.assertEqual(calculate.call_count, 1)
+        self.assertEqual(result.values.shape, (2, 2))
+        np.testing.assert_allclose(result.values, np.ones((2, 2)))
+
+        self.win.correlation_controller.copy_table()
+        self.assertEqual(
+            QtWidgets.QApplication.clipboard().text(),
+            "\tFe\tZn\nFe\t1\t1\nZn\t1\t1",
+        )
+
+        self.win.correlation_controller._show_pair(0, 1)
+        self.assertIs(self.win.correlationModes.currentWidget(), self.win.elementScatterTab)
+        self.assertEqual(self.win.elementScatterX.currentData(), "Zn")
+        self.assertEqual(self.win.elementScatterY.currentData(), "Fe")
+
+        self.win.correlationModes.setCurrentWidget(self.win.sampleSimilarityTab)
+        self.assertIs(self.win.correlation_controller.element_matrix.result, result)
 
     def test_active_tab_is_restored_from_global_settings_without_dirtying_project(self):
         settings = self.win.settings
@@ -102,6 +142,9 @@ class SourceLifecycleTests(unittest.TestCase):
             "analysis",
             "analysis_left",
             "analysis_right",
+            "element_correlations",
+            "element_scatter",
+            "sample_similarities",
         }
         self.assertEqual(set(self.win._splitter_initializers), expected_names)
         previous = {}
@@ -172,9 +215,9 @@ class SourceLifecycleTests(unittest.TestCase):
         )
 
         with patch.object(QtWidgets.QMessageBox, "warning") as warning:
-            self.win.project_tab._toggle_project_channel(hdf5_item)
+            hdf5_item.setCheckState(QtCore.Qt.CheckState.Checked)
             self.assertIn("Fe", self.win.project_data.project_channels)
-            self.win.project_tab._toggle_project_channel(hdf5_item)
+            hdf5_item.setCheckState(QtCore.Qt.CheckState.Unchecked)
 
         self.assertNotIn("Fe", self.win.project_data.project_channels)
         self.assertTrue(self.win.element_controller.has_settings_failure(tiff_channel.ref))
@@ -254,17 +297,28 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertIs(source.handle, handle)
 
     def test_sample_tree_and_sample_elements_separate_files_from_maps(self):
-        self.win.source_manager.open_files([self.h5, self.tiff])
+        self.win.source_manager.open_files([self.h5, self.tiff, self.multichannel_tiff])
         tree = self.win.sampleTree
         hdf5_sample = tree.topLevelItem(0)
         hdf5_file = hdf5_sample.child(0)
         tiff_sample = tree.topLevelItem(1)
         tiff_file = tiff_sample.child(0)
+        multichannel_tiff_file = tiff_sample.child(1)
 
         self.assertFalse(self.win.mapsPane.isHidden())
         self.assertEqual(hdf5_file.childCount(), 0)
         self.assertEqual(tiff_file.childCount(), 0)
         self.assertEqual(tiff_file.text(1), "image")
+        self.assertEqual(
+            hdf5_file.icon(0).cacheKey(), icons.icon(icons.IconName.FILE_DATA).cacheKey()
+        )
+        self.assertEqual(
+            tiff_file.icon(0).cacheKey(), icons.icon(icons.IconName.ELEMENT).cacheKey()
+        )
+        self.assertEqual(
+            multichannel_tiff_file.icon(0).cacheKey(),
+            icons.icon(icons.IconName.FILE_MULTICHANNEL_IMAGE).cacheKey(),
+        )
 
         tree.setCurrentItem(hdf5_sample)
         self.app.processEvents()
@@ -298,7 +352,7 @@ class SourceLifecycleTests(unittest.TestCase):
             expected_state,
         )
 
-    def test_sample_element_state_cycles_only_when_its_icon_is_clicked(self):
+    def test_sample_element_state_cycles_only_when_its_indicator_is_clicked(self):
         self.win.source_manager.open_files([self.h5])
         element_list = self.win.elementMapList
         element_list.setCurrentRow(0)
@@ -306,11 +360,21 @@ class SourceLifecycleTests(unittest.TestCase):
         sample_id = self.win.project_tab.selected_sample_id()
         key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
         initial = self.win.project_data.sample_channel_state(sample_id, key)
+        delegate = element_list.itemDelegate()
+        self.assertIsInstance(delegate, SampleElementCheckDelegate)
+        self.assertEqual(item.checkState(), QtCore.Qt.CheckState.PartiallyChecked)
+        self.assertTrue(item.icon().isNull())
+        index = element_list.indexFromItem(item)
+        option = QtWidgets.QStyleOptionViewItem()
+        option.rect = element_list.visualRect(index)
+        option.widget = element_list
+        delegate.initStyleOption(option, index)
+        option = delegate._style_option(option, index)
 
         QtTest.QTest.mouseClick(
             element_list.viewport(),
             QtCore.Qt.MouseButton.LeftButton,
-            pos=element_list._state_icon_rect(item).center(),
+            pos=delegate.indicator_rect(option, index).center(),
         )
         cycled = self.win.project_data.sample_channel_state(sample_id, key)
         self.assertNotEqual(cycled, initial)
@@ -323,6 +387,16 @@ class SourceLifecycleTests(unittest.TestCase):
             pos=QtCore.QPoint(row_rect.right() - 2, row_rect.center().y()),
         )
         self.assertEqual(self.win.project_data.sample_channel_state(sample_id, key), cycled)
+
+    def test_reloading_icons_does_not_replace_project_files(self):
+        self.win.source_manager.open_files([self.h5])
+
+        with patch.object(self.win.source_manager, "replace_project_asset_path") as replace:
+            icons.initialize()
+            self.win.project_tab.reload_icons()
+            self.app.processEvents()
+
+        replace.assert_not_called()
 
     def test_refresh_preserves_existing_expansion_and_expands_new_samples(self):
         self.win.source_manager.open_files([self.h5])
@@ -357,13 +431,36 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(set(self.win.project_data.project_channels), {"Fe", "Zn"})
         self.assertTrue(
             all(
-                element_list.item(row).data(self.win.project_tab.PROJECT_ENABLED_ROLE)
+                element_list.item(row).checkState() == QtCore.Qt.CheckState.Checked
                 for row in range(element_list.count())
             )
         )
 
         QtTest.QTest.keyClick(element_list, QtCore.Qt.Key_Space)
         self.assertFalse(self.win.project_data.project_channels)
+
+    def test_project_element_indicator_updates_project_state(self):
+        self.win.source_manager.open_files([self.h5])
+        element_list = self.win.project_tab.channelList
+        item = element_list.item(0)
+        delegate = element_list.itemDelegate()
+        self.assertIsInstance(delegate, IconCheckDelegate)
+        self.assertTrue(item.icon().isNull())
+
+        index = element_list.indexFromItem(item)
+        option = QtWidgets.QStyleOptionViewItem()
+        option.rect = element_list.visualRect(index)
+        option.widget = element_list
+        delegate.initStyleOption(option, index)
+        QtTest.QTest.mouseClick(
+            element_list.viewport(),
+            QtCore.Qt.MouseButton.LeftButton,
+            pos=delegate.indicator_rect(option, index).center(),
+        )
+
+        key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
+        self.assertEqual(item.checkState(), QtCore.Qt.CheckState.Checked)
+        self.assertIn(key, self.win.project_data.project_channels)
 
     def test_action_icons_have_fallbacks(self):
         for name in (
@@ -497,7 +594,7 @@ class SourceLifecycleTests(unittest.TestCase):
             if project_list.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
         )
         project_list.setCurrentItem(fe_item)
-        self.win.project_tab._toggle_project_channel(fe_item)
+        fe_item.setCheckState(QtCore.Qt.CheckState.Checked)
 
         self.assertIn("Fe", self.win.project_data.project_channels)
         self.assertEqual(len(self.win.project_data.effective_refs()), 2)
@@ -617,6 +714,53 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.analysis_controller.set_busy(False)
         self.assertTrue(self.win.analysisSampleComboBox.isEnabled())
         self.assertTrue(self.win.analysisElements.isEnabled())
+
+    def test_analysis_elements_use_standard_check_state_with_custom_glyphs(self):
+        self.win.source_manager.open_files([self.h5])
+        sample_id = self.win.project_data.assets[self.h5].sample_id
+        for key in ("Fe", "Zn"):
+            self.win.project_data.add_project_channel_from_sample(sample_id, key)
+        self.win.element_controller.effective_channels_changed()
+        self.win.analysisSampleComboBox.addItem("elements", sample_id)
+        self.win.analysis_controller.update_elements()
+
+        element_list = self.win.analysisElements
+        item = element_list.item(0)
+        delegate = element_list.itemDelegate()
+        self.assertIsInstance(delegate, IconCheckDelegate)
+        option = QtWidgets.QStyleOptionViewItem()
+        index = element_list.indexFromItem(item)
+        option.rect = element_list.visualRect(index)
+        option.widget = element_list
+        delegate.initStyleOption(option, index)
+        self.assertTrue(
+            option.features & QtWidgets.QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
+        )
+        self.assertEqual(item.checkState(), QtCore.Qt.Checked)
+        self.assertTrue(item.icon().isNull())
+
+        QtTest.QTest.mouseClick(
+            element_list.viewport(),
+            QtCore.Qt.LeftButton,
+            pos=delegate.indicator_rect(option, index).center(),
+        )
+
+        self.assertEqual(item.checkState(), QtCore.Qt.Unchecked)
+        self.assertTrue(item.icon().isNull())
+
+    def test_segmentation_screenshot_saves_the_canvas(self):
+        viewer = Mock()
+        self.win.analysis_controller.naparihelper = SimpleNamespace(sample=object(), viewer=viewer)
+        filename = str(Path(self.temp.name) / "segmentation.png")
+
+        with patch.object(self.win, "askFileName", return_value=filename):
+            self.win.analysis_controller.save_screenshot()
+
+        viewer.screenshot.assert_called_once_with(
+            path=filename,
+            canvas_only=True,
+            flash=True,
+        )
 
     def test_analysis_requires_a_saved_project(self):
         self.assertIsNone(self.win.project_dir)
@@ -787,7 +931,7 @@ class SourceLifecycleTests(unittest.TestCase):
             for row in range(project_list.count())
             if project_list.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
         )
-        self.win.project_tab._toggle_project_channel(fe_item)
+        fe_item.setCheckState(QtCore.Qt.CheckState.Checked)
 
         first_id = self.win.project_data.assets[self.h5].sample_id
         second_id = self.win.project_data.assets[other].sample_id
@@ -818,12 +962,12 @@ class SourceLifecycleTests(unittest.TestCase):
             for row in range(project_list.count())
             if project_list.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
         )
-        self.win.project_tab._toggle_project_channel(fe_item)
+        fe_item.setCheckState(QtCore.Qt.CheckState.Unchecked)
         self.win.loadedFileComboBox.setCurrentIndex(self.win.loadedFileComboBox.findData(first_id))
         self.assertIsNone(self.win.imageElementBoxes[0].combo.currentData())
         self.assertEqual(self.win.imageElementBoxes[0].combo.count(), 1)
 
-        self.win.project_tab._toggle_project_channel(fe_item)
+        fe_item.setCheckState(QtCore.Qt.CheckState.Checked)
         self.win.loadedFileComboBox.setCurrentIndex(self.win.loadedFileComboBox.findData(first_id))
         self.assertEqual(self.win.imageElementBoxes[0].combo.currentData().source_id, self.h5)
 

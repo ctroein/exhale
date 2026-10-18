@@ -8,12 +8,16 @@ from qtpy.QtCore import Qt
 from .. import icons
 from ..data.imagesettings import ImageSettings
 from ..data.source_refs import ElementRef
+from ..widgets import IconCheckDelegate
 
 _GROUP_DIVIDER_ROLE = Qt.UserRole + 13
+_SAMPLE_STATE_ROLE = Qt.UserRole + 10
+_SAMPLE_DEFERRED_ROLE = Qt.UserRole + 11
+_SAMPLE_PROJECT_ENABLED_ROLE = Qt.UserRole + 12
 
 
 class _ElementItemDelegate(QtWidgets.QStyledItemDelegate):
-    """Expose the standard decoration geometry to the owning Python widget."""
+    """Add optional group dividers to ordinary element-list rows."""
 
     DIVIDER_HEIGHT = 5
 
@@ -38,25 +42,46 @@ class _ElementItemDelegate(QtWidgets.QStyledItemDelegate):
             size.setHeight(size.height() + self.DIVIDER_HEIGHT)
         return size
 
-    def decoration_rect(self, index, item_rect):
-        view = self.parent()
-        option = QtWidgets.QStyleOptionViewItem()
-        self.initStyleOption(option, index)
-        option.rect = item_rect
-        option.widget = view
-        option = self._style_option(option, index)
-        if not option.decorationSize.isValid():
-            size = view.style().pixelMetric(
-                QtWidgets.QStyle.PixelMetric.PM_SmallIconSize,
-                option,
-                view,
-            )
-            option.decorationSize = QtCore.QSize(size, size)
-        return view.style().subElementRect(
-            QtWidgets.QStyle.SubElement.SE_ItemViewItemDecoration,
-            option,
-            view,
+
+class SampleElementCheckDelegate(IconCheckDelegate):
+    """Render sample-channel states while retaining standard checkbox interaction."""
+
+    DIVIDER_HEIGHT = 5
+
+    def indicator_icon_name(self, index, state):
+        if state == Qt.CheckState.Checked:
+            return icons.IconName.CHECKBOX_MARKED
+        if state == Qt.CheckState.Unchecked:
+            return icons.IconName.CHECKBOX_DENIED_EXTENDED
+        return (
+            icons.IconName.CHECKBOX_DEFAULT_MARKED
+            if index.data(_SAMPLE_PROJECT_ENABLED_ROLE)
+            else icons.IconName.CHECKBOX
         )
+
+    def _style_option(self, option, index):
+        option = QtWidgets.QStyleOptionViewItem(option)
+        if index.data(_GROUP_DIVIDER_ROLE):
+            option.rect.adjust(0, self.DIVIDER_HEIGHT, 0, 0)
+        return option
+
+    def paint(self, painter, option, index):
+        if index.data(_GROUP_DIVIDER_ROLE):
+            painter.save()
+            painter.setPen(option.palette.color(QtGui.QPalette.ColorRole.Mid))
+            y = option.rect.top() + self.DIVIDER_HEIGHT // 2
+            painter.drawLine(option.rect.left() + 4, y, option.rect.right() - 4, y)
+            painter.restore()
+        super().paint(painter, self._style_option(option, index), index)
+
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        if index.data(_GROUP_DIVIDER_ROLE):
+            size.setHeight(size.height() + self.DIVIDER_HEIGHT)
+        return size
+
+    def editorEvent(self, event, model, option, index):
+        return super().editorEvent(event, model, self._style_option(option, index), index)
 
 
 class ExhaleListWidget(QtWidgets.QListWidget):
@@ -81,16 +106,17 @@ class ElementListWidget(ExhaleListWidget):
 
     ELEMENT_REF_ROLE = Qt.UserRole + 1
     CHANNEL_KEY_ROLE = Qt.UserRole + 2
-    SAMPLE_STATE_ROLE = Qt.UserRole + 10
-    SAMPLE_DEFERRED_ROLE = Qt.UserRole + 11
-    SAMPLE_PROJECT_ENABLED_ROLE = Qt.UserRole + 12
+    ELEMENT_ICON_ROLE = Qt.UserRole + 3
+    SAMPLE_STATE_ROLE = _SAMPLE_STATE_ROLE
+    SAMPLE_DEFERRED_ROLE = _SAMPLE_DEFERRED_ROLE
+    SAMPLE_PROJECT_ENABLED_ROLE = _SAMPLE_PROJECT_ENABLED_ROLE
     stateToggleRequested = QtCore.Signal(QtWidgets.QListWidgetItem)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setItemDelegate(_ElementItemDelegate(self))
         self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
-        self._state_icon_press_item = None
+        self.itemChanged.connect(self._sample_check_state_changed)
         # self.setDragDropMode(QtWidgets.QAbstractItemView.DragDropMode.DragDrop)
         # self.setDefaultDropAction(Qt.MoveAction)
         # self.setSortingEnabled(True)
@@ -113,11 +139,16 @@ class ElementListWidget(ExhaleListWidget):
             Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked,
         )
 
-    def addChannel(self, name, key, ref, check_state, *, tristate=False):
+    def addChannel(self, name, key, ref, check_state, *, tristate=False, element_icon=True):
         """Add a project or sample channel with its effective state."""
-        item = QtWidgets.QListWidgetItem(icons.icon(icons.IconName.ELEMENT), name)
+        item = (
+            QtWidgets.QListWidgetItem(icons.icon(icons.IconName.ELEMENT), name)
+            if element_icon
+            else QtWidgets.QListWidgetItem(name)
+        )
         item.setData(self.ELEMENT_REF_ROLE, ref)
         item.setData(self.CHANNEL_KEY_ROLE, key)
+        item.setData(self.ELEMENT_ICON_ROLE, element_icon)
         item.setToolTip(f"Channel key: {key}")
         if tristate:
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserTristate)
@@ -145,69 +176,46 @@ class ElementListWidget(ExhaleListWidget):
         self.addItem(item)
         return item
 
+    def use_sample_check_delegate(self):
+        """Use standard tristate interaction with sample-state indicator icons."""
+        self.setItemDelegate(SampleElementCheckDelegate(self))
+
     @staticmethod
     def updateSampleChannel(item, state, *, deferred, project_enabled):
         state_name = state.value if hasattr(state, "value") else str(state)
-        active = state_name == "override" or (deferred and project_enabled)
-        if deferred:
-            icon_name = icons.IconName.MAP_PROJECT_YES if active else icons.IconName.MAP_PROJECT_NO
-        else:
-            icon_name = icons.IconName.MAP_YES if active else icons.IconName.MAP_NO
         item.setData(ElementListWidget.SAMPLE_STATE_ROLE, state_name)
         item.setData(ElementListWidget.SAMPLE_DEFERRED_ROLE, deferred)
         item.setData(ElementListWidget.SAMPLE_PROJECT_ENABLED_ROLE, project_enabled)
-        item.setIcon(icons.icon(icon_name))
+        item.setFlags(
+            item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsUserTristate
+        )
+        item.setCheckState(ElementListWidget._sample_check_state(state_name, deferred))
+        item.setIcon(QtGui.QIcon())
         item.setToolTip("")
 
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Space and self.currentItem() is not None:
-            if self.currentItem().data(self.SAMPLE_STATE_ROLE) is not None:
-                event.accept()
-                self.stateToggleRequested.emit(self.currentItem())
-                return
-        super().keyPressEvent(event)
+    @staticmethod
+    def _sample_check_state(state_name, deferred):
+        if deferred:
+            return Qt.CheckState.PartiallyChecked
+        if state_name == "override":
+            return Qt.CheckState.Checked
+        return Qt.CheckState.Unchecked
 
-    def mousePressEvent(self, event):
-        self._state_icon_press_item = None
-        position = event.pos()
-        if event.button() == Qt.MouseButton.LeftButton:
-            item = self.itemAt(position)
-            if item is not None and item.data(self.SAMPLE_STATE_ROLE) is not None:
-                if self._state_icon_rect(item).contains(position):
-                    self._state_icon_press_item = item
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        item = self._state_icon_press_item
-        self._state_icon_press_item = None
-        if (
-            item is not None
-            and event.button() == Qt.MouseButton.LeftButton
-            and self.itemAt(event.pos()) is item
-            and self._state_icon_rect(item).contains(event.pos())
+    def _sample_check_state_changed(self, item):
+        state_name = item.data(self.SAMPLE_STATE_ROLE)
+        if state_name is not None and item.checkState() != self._sample_check_state(
+            state_name,
+            bool(item.data(self.SAMPLE_DEFERRED_ROLE)),
         ):
-            event.accept()
             self.stateToggleRequested.emit(item)
-            return
-        super().mouseReleaseEvent(event)
-
-    def _state_icon_rect(self, item):
-        index = self.indexFromItem(item)
-        return self.itemDelegate().decoration_rect(index, self.visualRect(index))
 
     def reload_icons(self):
         for row in range(self.count()):
             item = self.item(row)
             state = item.data(self.SAMPLE_STATE_ROLE)
-            if state is None:
+            if state is None and item.data(self.ELEMENT_ICON_ROLE):
                 item.setIcon(icons.icon(icons.IconName.ELEMENT))
-            else:
-                self.updateSampleChannel(
-                    item,
-                    state,
-                    deferred=bool(item.data(self.SAMPLE_DEFERRED_ROLE)),
-                    project_enabled=bool(item.data(self.SAMPLE_PROJECT_ENABLED_ROLE)),
-                )
+        self.viewport().update()
 
 
 class ImageListWidget(ExhaleListWidget):

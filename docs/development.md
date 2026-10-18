@@ -142,9 +142,10 @@ directly. Change the corresponding `.ui` file and regenerate the Python module
 with:
 
 ```bash
-./run_exhale.py --recompile
+./run_exhale.py --recompile-only
 ```
 
+This recompiles every UI Python module and exits without starting the application.
 The regeneration code in `exhale.__main__._recompile_ui` rewrites generated
 binding-specific imports to use `qtpy`.
 

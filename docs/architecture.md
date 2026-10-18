@@ -23,6 +23,8 @@ source-file import, closure, removal, and relocation, and `ProjectStateManager`
 owns dirty-state, autosave, and recovery policy.
 `AnalysisController` owns Segmentation-tab selection, execution, result
 display, and export, including its worker and Napari state.
+`CorrelationController` owns the three independent Correlations subtabs,
+their disposable numerical results, session caching, and result presentation.
 `ElementController` owns Element maps selection, effective channel
 presentation, transformation controls, and single-map display.
 `ImageController` owns composed-image selection, slot and override editing,
@@ -114,6 +116,16 @@ passes application-level changes to it. The classes under `xrf_refcopy/`
 implement nuclei segmentation, tissue masking, intensity partitioning,
 per-element clustering, and combined sample tables.
 
+Element correlations use the effective selected channels of one sample and
+their untransformed source arrays. Between-sample similarities use only channel
+keys selected and available in every included sample, so every fingerprint has
+the same ordered features. These derived matrices are disposable session state
+and are not part of the saved project.
+Element density views use regular bins spanning all paired finite values and
+retain source values as plot coordinates. Bin counts are divided by their
+value-space areas and interpolated in value space. The user can set the bin
+count or instead show a bounded-size ordinary scatter plot.
+
 Completed analysis is represented by `SegmentationResult` in the project
 model. The large arrays and result tables are stored separately by
 `exhale.analysis.segmentationio` in an HDF5 sidecar below the project; the main
@@ -139,7 +151,7 @@ the appropriate modules. `SourceManager` handles the independent lifecycle of
 the data files referenced by the project.
 
 Application-wide window state is separate from project data. `QSettings`
-stores the window geometry, active tab, and all five main-window splitter
+stores the window geometry, active tab, and all main-window splitter
 layouts. Splitters restore only after their containing tab has usable geometry
 and are saved only after they have been initialized. A saved layout containing
 a completely collapsed pane is discarded in favor of the default proportions
