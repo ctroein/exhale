@@ -137,19 +137,71 @@ class _LayoutGeometry:
     element_y: tuple[int, ...]
 
 
-@dataclass
-class _DrawingContext:
-    """Pillow objects and shared presentation values for one composition."""
+@dataclass(frozen=True)
+class RasterPrimitive:
+    """A native-resolution array placed in a composition rectangle."""
 
-    canvas: Image.Image
-    draw: ImageDraw.ImageDraw
-    font: ImageFont.ImageFont
-    panel_font: ImageFont.ImageFont
+    array: np.ndarray
+    rect: tuple[int, int, int, int]
+    cache_key: object | None = None
+
+
+@dataclass(frozen=True)
+class ColoredRasterPrimitive:
+    """A scalar array colourized and additively blended for interactive display."""
+
+    array: np.ndarray
+    rect: tuple[float, float, float, float]
+    color: tuple[float, float, float]
+
+
+@dataclass(frozen=True)
+class RectanglePrimitive:
+    """A filled or outlined rectangle in composition coordinates."""
+
+    box: tuple[int, int, int, int]
+    fill: tuple[int, int, int, int] | None = None
+    outline: tuple[int, int, int, int] | None = None
+    width: int = 1
+
+
+@dataclass(frozen=True)
+class TextPrimitive:
+    """Anchored text in composition coordinates."""
+
+    xy: tuple[int, int]
+    text: str
     font_size: float
-    label_dx: int
-    label_dy: int
-    image_colors: np.ndarray
-    foreground_color: np.ndarray
+    fill: tuple[int, int, int, int]
+    anchor: str
+    font_family: str = "DejaVu Sans"
+    outlined: bool = False
+
+
+@dataclass(frozen=True)
+class LinePrimitive:
+    """A solid line in composition coordinates."""
+
+    xy: tuple[tuple[int, int], tuple[int, int]]
+    fill: tuple[int, int, int, int]
+    width: int
+
+
+@dataclass(frozen=True)
+class CompositionDescription:
+    """Renderer-independent content and geometry for one composition."""
+
+    size: tuple[int, int]
+    background: tuple[int, int, int, int]
+    primitives: tuple[
+        RasterPrimitive
+        | ColoredRasterPrimitive
+        | RectanglePrimitive
+        | TextPrimitive
+        | LinePrimitive,
+        ...,
+    ]
+    mapping: ComposedImageMapping
 
 
 class ImageComposer:
@@ -213,8 +265,9 @@ class ImageComposer:
             self.coord_mapping = None
             canvas.clear_image()
             return
-        rgba = self.compose(image)
-        canvas.set_image(rgba, reset_view=reset_view)
+        description = self.describe(image, additive=True)
+        self.coord_mapping = description.mapping
+        canvas.set_composition(description, reset_view=reset_view)
 
     def map_coordinates(self, x, y):
         "Map top-left-origin composed-canvas coordinates to source pixels."
@@ -311,129 +364,29 @@ class ImageComposer:
             element_y=tuple(int(value) for value in element_y),
         )
 
-    def _strip_images(self, elements, layer_keys, layers):
-        """Return cached Pillow images for the individual element panels."""
-        images = {}
-        for slot, _element in elements:
-            key = layer_keys[slot]
-            if key not in self._strip_image_cache:
-                layer = layers[slot]
-                self._strip_image_cache[key] = _resize_rgba(layer, (layer.shape[1], layer.shape[0]))
-            images[slot] = self._strip_image_cache[key]
-        return images
-
     @staticmethod
-    def _drawing_context(image, geometry):
-        """Create the canvas and shared drawing resources."""
-        canvas = Image.new(
-            "RGBA",
-            (geometry.width, geometry.height),
-            _rgb255(image.borderColor),
-        )
-        font_size = image.fontsize * image.dpi / 72
-        return _DrawingContext(
-            canvas=canvas,
-            draw=ImageDraw.Draw(canvas, mode="RGBA"),
-            font=_font(font_size),
-            panel_font=_font(font_size * 1.2),
-            font_size=font_size,
-            label_dx=int(round(0.012 * geometry.width)),
-            label_dy=int(round(0.016 * geometry.height)),
-            image_colors=image.colorscheme.colors(),
-            foreground_color=image.panelLabelColor,
-        )
-
-    @staticmethod
-    def _draw_text(context, xy, text, font, fill, anchor=None, stroke_scale=0.06):
-        """Draw outlined text onto the composition canvas."""
-        stroke_width = max(1, int(round(stroke_scale * font.size)))
-        overlay = Image.new("RGBA", context.canvas.size, (0, 0, 0, 0))
-        overlay_draw = ImageDraw.Draw(overlay, mode="RGBA")
-        outline = _outline_color(np.array(fill[:3]) / 255.0)
-        x, y = xy
-        for dx in range(-stroke_width, stroke_width + 1):
-            for dy in range(-stroke_width, stroke_width + 1):
-                if dx * dx + dy * dy <= stroke_width * stroke_width:
-                    overlay_draw.text(
-                        (x + dx, y + dy),
-                        text,
-                        font=font,
-                        fill=outline,
-                        anchor=anchor,
-                    )
-        overlay_draw.text(xy, text, font=font, fill=fill, anchor=anchor)
-        context.canvas.alpha_composite(overlay)
-
-    def _draw_element_strip(self, image, elements, layers, strip_images, geometry, context):
-        """Draw individual element panels, borders, and labels."""
-        if image.layout == Layouts.MERGED:
-            return
-        border_width = int(image.borderWidth)
-        for index, (x, y, (slot, element)) in enumerate(
-            zip(geometry.element_x, geometry.element_y, elements, strict=True)
-        ):
-            layer = layers[slot]
-            height, width = layer.shape
-            context.canvas.alpha_composite(strip_images[slot], dest=(x, y))
-
-            element_border_width = (border_width + 1) // 3
-            if image.elementBorders and element_border_width > 0:
-                context.draw.rectangle(
-                    [
-                        x - element_border_width,
-                        y - element_border_width,
-                        x + width + element_border_width - 1,
-                        y + height + element_border_width - 1,
-                    ],
-                    outline=_rgb255(context.image_colors[slot]),
-                    width=element_border_width,
-                )
-
-            if image.panelLabels:
-                self._draw_text(
-                    context,
-                    (x + context.label_dx, y + context.label_dy),
-                    chr(ord("A") + index),
-                    context.panel_font,
-                    _rgb255(context.foreground_color),
-                    anchor="la",
-                )
-            if image.elementLabels:
-                color = (
-                    context.image_colors[slot]
-                    if image.elementLabelsColored
-                    else context.foreground_color
-                )
-                self._draw_text(
-                    context,
-                    (x + width - context.label_dx, y + context.label_dy),
-                    element.name,
-                    context.font,
-                    _rgb255(color),
-                    anchor="ra",
-                )
-
-    @staticmethod
-    def _draw_scale_bar(image, geometry, context):
-        """Draw a physical scale bar when resolution and placement permit it."""
+    def _scale_bar_primitives(image, geometry, font_size):
+        """Describe a physical scale bar when resolution and placement permit it."""
         if image.scalebar == Scalebars.NONE:
-            return
+            return ()
         resolution, units = image.resolution
         if resolution is None or resolution <= 0 or units == "None":
-            return
+            return ()
 
         target_length = (geometry.merged_width / geometry.merged_scale) * resolution * 0.20
         physical_length = _nice_number(target_length)
         if physical_length <= 0:
-            return
+            return ()
 
         bar_width = int(round((physical_length / resolution) * geometry.merged_scale))
         bar_width = max(8, min(bar_width, int(0.8 * geometry.merged_width)))
-        line_width = max(2, int(round(context.font_size * 0.18)))
-        padding = max(4, int(round(context.font_size * 0.7)))
-        text_gap = max(2, int(round(context.font_size * 0.25)))
+        line_width = max(2, int(round(font_size * 0.18)))
+        padding = max(4, int(round(font_size * 0.7)))
+        text_gap = max(2, int(round(font_size * 0.25)))
         label = _format_length(physical_length, units)
-        bbox = context.draw.textbbox((0, 0), label, font=context.font)
+        font = _font(font_size)
+        measure = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+        bbox = measure.textbbox((0, 0), label, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
@@ -449,98 +402,244 @@ class ImageComposer:
             line_y = text_y + text_height + text_gap
         x1 = x0 + bar_width
 
+        primitives = []
         if image.scalebarBgAlpha is not None:
             box_x0 = min(x0, x0 + (bar_width - text_width) // 2) - padding // 2
             box_x1 = max(x1, x0 + (bar_width + text_width) // 2) + padding // 2
             box_y0 = min(text_y, line_y) - padding // 2
             box_y1 = max(text_y + text_height, line_y + line_width) + padding // 2
-            overlay = Image.new("RGBA", context.canvas.size, (0, 0, 0, 0))
-            overlay_draw = ImageDraw.Draw(overlay, mode="RGBA")
-            overlay_draw.rectangle(
-                [box_x0, box_y0, box_x1, box_y1],
-                fill=_rgb255(
-                    image.scalebarBgColor,
-                    alpha=int(round(255 * image.scalebarBgAlpha)),
-                ),
+            primitives.append(
+                RectanglePrimitive(
+                    (box_x0, box_y0, box_x1, box_y1),
+                    fill=_rgb255(
+                        image.scalebarBgColor,
+                        alpha=int(round(255 * image.scalebarBgAlpha)),
+                    ),
+                )
             )
-            context.canvas.alpha_composite(overlay)
 
         color = _rgb255(image.scalebarColor)
-        context.draw.line(
-            [(x0, line_y), (x1, line_y)],
-            fill=color,
-            width=line_width,
+        primitives.append(LinePrimitive(((x0, line_y), (x1, line_y)), fill=color, width=line_width))
+        primitives.append(
+            TextPrimitive(
+                (x0 + bar_width // 2, text_y),
+                label,
+                font_size,
+                color,
+                "ma",
+            )
         )
-        context.draw.text(
-            (x0 + bar_width // 2, text_y),
-            label,
-            font=context.font,
-            fill=color,
-            anchor="ma",
-        )
+        return tuple(primitives)
 
     @staticmethod
-    def _save(array, image, savename):
-        """Save the composed array, flattening transparency for PDF output."""
-        extension = Path(savename).suffix.lower()
-        output = Image.fromarray(array, mode="RGBA")
-        if extension == ".pdf":
-            background = tuple(int(255 * value) for value in np.clip(image.borderColor, 0, 1))
-            flattened = Image.new("RGB", output.size, background)
-            flattened.paste(output, mask=output.getchannel("A"))
-            flattened.save(savename, resolution=float(image.dpi))
-        else:
-            output.save(savename)
+    def _draw_outlined_text(canvas, primitive):
+        """Draw an outlined text primitive onto a Pillow canvas."""
+        font = _font(primitive.font_size)
+        stroke_width = max(1, int(round(0.06 * font.size)))
+        overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay, mode="RGBA")
+        outline = _outline_color(np.array(primitive.fill[:3]) / 255.0)
+        x, y = primitive.xy
+        for dx in range(-stroke_width, stroke_width + 1):
+            for dy in range(-stroke_width, stroke_width + 1):
+                if dx * dx + dy * dy <= stroke_width * stroke_width:
+                    draw.text(
+                        (x + dx, y + dy),
+                        primitive.text,
+                        font=font,
+                        fill=outline,
+                        anchor=primitive.anchor,
+                    )
+        draw.text(
+            primitive.xy,
+            primitive.text,
+            font=font,
+            fill=primitive.fill,
+            anchor=primitive.anchor,
+        )
+        canvas.alpha_composite(overlay)
 
-    def compose(self, image: ImageSettings, savename=None):
-        """Compose and optionally save an exact-size RGBA image."""
+    def _render_description(self, description):
+        """Render a composition description through the exact Pillow path."""
+        canvas = Image.new("RGBA", description.size, description.background)
+        draw = ImageDraw.Draw(canvas, mode="RGBA")
+        for primitive in description.primitives:
+            if isinstance(primitive, RasterPrimitive):
+                rendered = self._strip_image_cache.get(primitive.cache_key)
+                if rendered is None:
+                    rendered = _resize_rgba(primitive.array, primitive.rect[2:])
+                    if primitive.cache_key is not None:
+                        self._strip_image_cache[primitive.cache_key] = rendered
+                canvas.alpha_composite(rendered, dest=primitive.rect[:2])
+            elif isinstance(primitive, RectanglePrimitive):
+                if primitive.fill is not None and primitive.fill[3] < 255:
+                    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+                    ImageDraw.Draw(overlay, mode="RGBA").rectangle(
+                        primitive.box,
+                        fill=primitive.fill,
+                        outline=primitive.outline,
+                        width=primitive.width,
+                    )
+                    canvas.alpha_composite(overlay)
+                else:
+                    draw.rectangle(
+                        primitive.box,
+                        fill=primitive.fill,
+                        outline=primitive.outline,
+                        width=primitive.width,
+                    )
+            elif isinstance(primitive, LinePrimitive):
+                draw.line(primitive.xy, fill=primitive.fill, width=primitive.width)
+            elif primitive.outlined:
+                self._draw_outlined_text(canvas, primitive)
+            else:
+                draw.text(
+                    primitive.xy,
+                    primitive.text,
+                    font=_font(primitive.font_size),
+                    fill=primitive.fill,
+                    anchor=primitive.anchor,
+                )
+        return canvas
+
+    @staticmethod
+    def _save(array, image, savename, description):
+        """Save raster formats directly and PDF through its hybrid renderer."""
+        extension = Path(savename).suffix.lower()
+        if extension == ".pdf":
+            from .pdfexport import export_composition_pdf
+
+            export_composition_pdf(description, image.dpi, savename)
+        else:
+            Image.fromarray(array, mode="RGBA").save(savename)
+
+    def describe(self, image: ImageSettings, *, additive=False) -> CompositionDescription:
+        """Build the shared arrays, geometry, annotations, and coordinate mapping."""
         if not image.elements:
             raise ValueError("No elements to compose")
 
         elements = sorted(image.elements.items())
         element_shapes = np.array([element.data.shape for _, element in elements], dtype=int)
         layer_keys, layers = self._layers(elements)
-        merged = self.merged_image(image, layers)
-        merged_height, merged_width, _channels = merged.shape
+        merged_height, merged_width = element_shapes.max(axis=0)
+        merged = None if additive else self.merged_image(image, layers)
         geometry = self._layout_geometry(
             image,
             element_shapes,
             (merged_height, merged_width),
         )
-        strip_images = self._strip_images(elements, layer_keys, layers)
-        context = self._drawing_context(image, geometry)
+        font_size = image.fontsize * image.dpi / 72
+        label_dx = int(round(0.012 * geometry.width))
+        label_dy = int(round(0.016 * geometry.height))
+        image_colors = image.colorscheme.colors()
+        foreground_color = image.panelLabelColor
+        primitives = []
 
-        self._draw_element_strip(
-            image,
-            elements,
-            layers,
-            strip_images,
-            geometry,
-            context,
+        if image.layout != Layouts.MERGED:
+            border_width = int(image.borderWidth)
+            element_border_width = (border_width + 1) // 3
+            for index, (x, y, (slot, element)) in enumerate(
+                zip(geometry.element_x, geometry.element_y, elements, strict=True)
+            ):
+                layer = layers[slot]
+                height, width = layer.shape
+                primitives.append(
+                    RasterPrimitive(
+                        layer,
+                        (x, y, width, height),
+                        cache_key=layer_keys[slot],
+                    )
+                )
+                if image.elementBorders and element_border_width > 0:
+                    primitives.append(
+                        RectanglePrimitive(
+                            (
+                                x - element_border_width,
+                                y - element_border_width,
+                                x + width + element_border_width - 1,
+                                y + height + element_border_width - 1,
+                            ),
+                            outline=_rgb255(image_colors[slot]),
+                            width=element_border_width,
+                        )
+                    )
+                if image.panelLabels:
+                    primitives.append(
+                        TextPrimitive(
+                            (x + label_dx, y + label_dy),
+                            chr(ord("A") + index),
+                            font_size * 1.2,
+                            _rgb255(foreground_color),
+                            "la",
+                            outlined=True,
+                        )
+                    )
+                if image.elementLabels:
+                    color = image_colors[slot] if image.elementLabelsColored else foreground_color
+                    primitives.append(
+                        TextPrimitive(
+                            (x + width - label_dx, y + label_dy),
+                            element.name,
+                            font_size,
+                            _rgb255(color),
+                            "ra",
+                            outlined=True,
+                        )
+                    )
+
+        merged_rect = (
+            geometry.merged_x,
+            geometry.merged_y,
+            geometry.merged_width,
+            geometry.merged_height,
         )
-        context.canvas.alpha_composite(
-            _resize_rgba(merged, (geometry.merged_width, geometry.merged_height)),
-            dest=(geometry.merged_x, geometry.merged_y),
-        )
-        if image.panelLabels:
-            self._draw_text(
-                context,
-                (
-                    geometry.merged_x + context.label_dx,
-                    geometry.merged_y + context.label_dy,
-                ),
-                chr(ord("A") + len(elements)),
-                context.panel_font,
-                _rgb255(context.foreground_color),
-                anchor="la",
+        if additive:
+            primitives.append(
+                RectanglePrimitive(
+                    (
+                        geometry.merged_x,
+                        geometry.merged_y,
+                        geometry.merged_x + geometry.merged_width - 1,
+                        geometry.merged_y + geometry.merged_height - 1,
+                    ),
+                    fill=(0, 0, 0, 255),
+                )
             )
-        self._draw_scale_bar(image, geometry, context)
+            colors = image.colorscheme.colors()[[slot for slot, _element in elements]].copy()
+            if not image.clipColors:
+                maximum = colors.sum(axis=0)
+                maximum[maximum <= 0] = 1
+                colors /= maximum
+            for (slot, _element), color in zip(elements, colors, strict=True):
+                layer = layers[slot]
+                primitives.append(
+                    ColoredRasterPrimitive(
+                        layer,
+                        (
+                            geometry.merged_x,
+                            geometry.merged_y,
+                            geometry.merged_width * layer.shape[1] / merged_width,
+                            geometry.merged_height * layer.shape[0] / merged_height,
+                        ),
+                        tuple(float(value) for value in color),
+                    )
+                )
+        else:
+            primitives.append(RasterPrimitive(merged, merged_rect))
+        if image.panelLabels and image.layout != Layouts.MERGED:
+            primitives.append(
+                TextPrimitive(
+                    (geometry.merged_x + label_dx, geometry.merged_y + label_dy),
+                    chr(ord("A") + len(elements)),
+                    font_size * 1.2,
+                    _rgb255(foreground_color),
+                    "la",
+                    outlined=True,
+                ),
+            )
+        primitives.extend(self._scale_bar_primitives(image, geometry, font_size))
 
-        result = np.asarray(context.canvas, dtype=np.uint8).copy()
-        if savename is not None:
-            self._save(result, image, savename)
-
-        self.coord_mapping = ComposedImageMapping(
+        mapping = ComposedImageMapping(
             x=geometry.merged_x,
             y=geometry.merged_y,
             width=geometry.merged_width,
@@ -548,4 +647,19 @@ class ImageComposer:
             source_x=_nearest_lookup(merged_width, geometry.merged_width),
             source_y=_nearest_lookup(merged_height, geometry.merged_height),
         )
+        return CompositionDescription(
+            size=(geometry.width, geometry.height),
+            background=_rgb255(image.borderColor),
+            primitives=tuple(primitives),
+            mapping=mapping,
+        )
+
+    def compose(self, image: ImageSettings, savename=None):
+        """Compose and optionally save an exact-size RGBA image."""
+        description = self.describe(image)
+        result = np.asarray(self._render_description(description), dtype=np.uint8).copy()
+        if savename is not None:
+            self._save(result, image, savename, description)
+
+        self.coord_mapping = description.mapping
         return result

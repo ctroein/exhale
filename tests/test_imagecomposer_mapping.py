@@ -1,16 +1,29 @@
 """Exact mapping from composed-image display pixels to source pixels."""
 
+import os
+import tempfile
 import unittest
 from contextlib import ExitStack
+from pathlib import Path
 from unittest.mock import patch
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 from PIL import Image
+from qtpy import QtWidgets
 
 from exhale.data.elementsettings import ElementSettings
 from exhale.data.imagesettings import ImageSettings, Layouts, Scalebars
 from exhale.data.source_refs import ElementRef
-from exhale.imaging.imagecomposer import ImageComposer, _nearest_lookup
+from exhale.imaging.imagecomposer import (
+    ColoredRasterPrimitive,
+    CompositionDescription,
+    ImageComposer,
+    RasterPrimitive,
+    TextPrimitive,
+    _nearest_lookup,
+)
 
 
 class NearestLookupTests(unittest.TestCase):
@@ -28,6 +41,10 @@ class NearestLookupTests(unittest.TestCase):
 
 
 class ComposedImageMappingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
     def make_image(self, layout):
         image = ImageSettings("mapping")
         image.layout = layout
@@ -102,6 +119,69 @@ class ComposedImageMappingTests(unittest.TestCase):
 
             self.assertEqual(transformed[0].call_count, 2)
             self.assertTrue(all(method.call_count == 1 for method in transformed[1:]))
+
+    def test_description_keeps_native_rasters_separate_from_layout(self):
+        image = self.make_image(Layouts.IL)
+        description = ImageComposer().describe(image)
+        rasters = [
+            primitive
+            for primitive in description.primitives
+            if isinstance(primitive, RasterPrimitive)
+        ]
+
+        self.assertIsInstance(description, CompositionDescription)
+        self.assertEqual([raster.array.shape for raster in rasters[:2]], [(5, 7), (3, 11)])
+        self.assertEqual(rasters[0].rect[2:], (7, 5))
+        self.assertEqual(rasters[1].rect[2:], (11, 3))
+        self.assertEqual(rasters[-1].array.shape, (5, 11, 3))
+        self.assertEqual(
+            rasters[-1].rect,
+            (
+                description.mapping.x,
+                description.mapping.y,
+                description.mapping.width,
+                description.mapping.height,
+            ),
+        )
+
+    def test_merged_only_layout_has_no_panel_letter(self):
+        image = self.make_image(Layouts.MERGED)
+        image.panelLabels = True
+
+        description = ImageComposer().describe(image)
+
+        self.assertFalse(
+            any(isinstance(primitive, TextPrimitive) for primitive in description.primitives)
+        )
+
+    def test_additive_description_uses_native_scalar_layers(self):
+        image = self.make_image(Layouts.IL)
+
+        description = ImageComposer().describe(image, additive=True)
+        layers = [
+            primitive
+            for primitive in description.primitives
+            if isinstance(primitive, ColoredRasterPrimitive)
+        ]
+
+        self.assertEqual([layer.array.shape for layer in layers], [(5, 7), (3, 11)])
+        self.assertTrue(all(layer.rect[:2] == layers[0].rect[:2] for layer in layers))
+        self.assertEqual(layers[0].rect[:2], (description.mapping.x, description.mapping.y))
+        self.assertEqual(layers[0].color, (1.0, 0.0, 0.0))
+        self.assertEqual(layers[1].color, (0.0, 1.0, 0.0))
+
+    def test_pdf_contains_separate_native_raster_panels(self):
+        image = self.make_image(Layouts.IL)
+        image.panelLabels = True
+        image.elementLabels = True
+        with tempfile.TemporaryDirectory() as directory:
+            path = f"{directory}/composition.pdf"
+
+            ImageComposer().compose(image, path)
+
+            pdf = Path(path).read_bytes()
+        self.assertTrue(pdf.startswith(b"%PDF-"))
+        self.assertGreaterEqual(pdf.count(b"/Subtype /Image"), 3)
 
 
 if __name__ == "__main__":
