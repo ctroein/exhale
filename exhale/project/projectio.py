@@ -441,7 +441,7 @@ def load_project_state(
                 project_data.assets[asset_obj["asset_id"]].original_path = asset_obj[
                     "original_path"
                 ]
-            except Exception:
+            except Exception as exc:
                 if source is not None and source.is_open:
                     source.close()
                 source = LoadedSource(
@@ -449,6 +449,7 @@ def load_project_state(
                     filename,
                     asset_obj["alias"],
                     asset_obj["kind"],
+                    open_error=f"{type(exc).__name__}: {exc}",
                 )
                 project_data.register_unavailable_source(
                     source,
@@ -457,6 +458,7 @@ def load_project_state(
                     shape=project_data.samples[asset_obj["sample_id"]].shape,
                     original_path=asset_obj["original_path"],
                 )
+                issues.append(f"Data file {filename!r} could not be opened: {source.open_error}")
 
     for filename, asset_obj in zip(filenames, state["assets"], strict=True):
         asset_id = asset_obj["asset_id"]

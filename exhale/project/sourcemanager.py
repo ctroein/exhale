@@ -195,40 +195,8 @@ class SourceManager:
         if hasattr(window, "project_state_manager"):
             window.project_state_manager.project_changed()
 
-    def close_all_files(self) -> None:
-        """Close every currently open project source."""
-        for source_id in list(self.window.project_data.sources):
-            self.close_source(source_id)
-
-    def close_source(self, source_id) -> None:
-        """Close one source and select another available sample if necessary."""
-        window = self.window
-        source = window.project_data.sources.get(source_id)
-        if source is None or not source.is_open:
-            return
-        current_id = window.loadedFileComboBox.currentData()
-        source.close()
-
-        selected = current_id
-        asset = window.project_data.assets.get(source_id)
-        if asset is not None and current_id == asset.sample_id:
-            sample = window.project_data.samples[current_id]
-            if not any(
-                window.project_data.assets[value].is_available for value in sample.asset_ids
-            ):
-                selected = next(
-                    (
-                        candidate.sample_id
-                        for candidate in window.project_data.samples.values()
-                        if any(
-                            window.project_data.assets[value].is_available
-                            for value in candidate.asset_ids
-                        )
-                    ),
-                    None,
-                )
-        window.element_controller.refresh_sample_selector(selected)
-        window.element_controller.refresh_display_names()
-        window.project_tab.refresh(selected)
-        if hasattr(window, "project_state_manager"):
-            window.project_state_manager.project_changed()
+    def close_source_handles(self) -> None:
+        """Close source handles while discarding or shutting down a project."""
+        for source in self.window.project_data.sources.values():
+            if source.is_open:
+                source.close()

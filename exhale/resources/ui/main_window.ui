@@ -55,7 +55,7 @@
           <item><layout class="QHBoxLayout" name="samplesHeaderLayout"><item><widget class="QLabel" name="samplesLabel"><property name="text"><string>Samples and files</string></property></widget></item><item><spacer name="samplesHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item></layout></item>
           <item><widget class="QTreeWidget" name="sampleTree"><column><property name="text"><string>Name</string></property></column><column><property name="text"><string>Element map(s)</string></property></column></widget></item>
           <item><widget class="QLabel" name="selectedSampleLabel"><property name="text"><string>Selected sample</string></property></widget></item>
-          <item><layout class="QHBoxLayout" name="sampleButtonsLayout"><item><widget class="QToolButton" name="addProjectFilesButton"><property name="text"><string>Add file(s)…</string></property><property name="toolButtonStyle"><enum>Qt::ToolButtonTextBesideIcon</enum></property></widget></item><item><widget class="QPushButton" name="addSampleFilesButton"><property name="text"><string>Add files to sample…</string></property></widget></item><item><spacer name="sampleButtonsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="removeButton"><property name="text"><string>Remove selected</string></property></widget></item></layout></item>
+          <item><layout class="QHBoxLayout" name="sampleButtonsLayout"><item><widget class="QToolButton" name="addProjectFilesButton"><property name="text"><string>Add sample(s)…</string></property><property name="toolButtonStyle"><enum>Qt::ToolButtonTextBesideIcon</enum></property></widget></item><item><widget class="QPushButton" name="addSampleFilesButton"><property name="text"><string>Add files to sample…</string></property></widget></item><item><spacer name="sampleButtonsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="removeButton"><property name="text"><string>Remove selected</string></property></widget></item></layout></item>
          </layout></widget>
          <widget class="QWidget" name="mapsPane"><layout class="QVBoxLayout" name="mapsLayout" stretch="0,1">
           <item><widget class="QLabel" name="mapsLabel"><property name="text"><string>Sample elements</string></property></widget></item>
@@ -1113,7 +1113,6 @@
      <string>&amp;Project</string>
     </property>
     <addaction name="actionOpenFile"/>
-    <addaction name="actionClearFiles"/>
     <addaction name="separator"/>
     <addaction name="actionNewProject"/>
     <addaction name="actionOpenProject"/>
@@ -1197,24 +1196,13 @@
   </action>
   <action name="actionOpenFile">
    <property name="text">
-    <string>&amp;Add file(s)…</string>
+    <string>&amp;Add sample(s)…</string>
    </property>
    <property name="toolTip">
-    <string>Add one or more HDF5 or TIFF files</string>
+    <string>Add one or more samples from HDF5 or TIFF files</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+O</string>
-   </property>
-  </action>
-  <action name="actionClearFiles">
-   <property name="text">
-    <string>Cl&amp;ear Files</string>
-   </property>
-   <property name="toolTip">
-    <string>Close all open data files</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+W</string>
    </property>
   </action>
   <action name="actionQuit">

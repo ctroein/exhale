@@ -187,7 +187,7 @@ class ProjectTab(QtCore.QObject):
                     )
                     file_item.setFlags(file_item.flags() | Qt.ItemFlag.ItemIsEditable)
                     if single_map_tiff:
-                        icon_name = icons.IconName.ELEMENT
+                        icon_name = icons.IconName.FILE_SINGLECHANNEL_IMAGE
                     elif multichannel_tiff:
                         icon_name = icons.IconName.FILE_MULTICHANNEL_IMAGE
                     else:

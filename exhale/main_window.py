@@ -17,6 +17,7 @@ from .data.projectdata import ProjectData
 from .exceptiondialog import ExceptionDetailsDialog, ExceptionDialog
 from .imaging.element_controller import ElementController
 from .imaging.image_controller import ImageController
+from .imaging.listwidgets import ElementListWidget, ImageListWidget
 from .main_window_ui import Ui_MainWindow
 from .project.project_tab import ProjectTab
 from .project.projectmanager import ProjectManager
@@ -60,7 +61,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.appearance.changed.connect(self.reload_appearance)
 
         self.actionOpenFile.triggered.connect(self.source_manager.select_and_open_files)
-        self.actionClearFiles.triggered.connect(self.source_manager.close_all_files)
         self.actionNewProject.triggered.connect(self.project_manager.new_project)
         self.actionOpenProject.triggered.connect(self.project_manager.open_project)
         self.actionSaveProject.triggered.connect(self.project_manager.save_project)
@@ -179,7 +179,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def reload_icons(self):
         """Reload palette-dependent icons throughout the main window."""
         self.actionOpenFile.setIcon(icons.icon(icons.IconName.OPEN))
-        self.actionClearFiles.setIcon(icons.icon(icons.IconName.CLEAR_FILES))
         self.actionOpenProject.setIcon(icons.icon(icons.IconName.PROJECT))
         self.actionSaveProject.setIcon(icons.icon(icons.IconName.SAVE))
         self.actionSaveProjectAs.setIcon(icons.icon(icons.IconName.SAVE_AS))
@@ -192,7 +191,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.addImageButton.setToolTip("Add image")
         self.deleteImageButton.set_icon_name(icons.IconName.DELETE)
         self.deleteImageButton.setToolTip("Delete image")
-        self.showSingleElementButton.set_icon_name(icons.IconName.ELEMENT_ONLY)
+        self.showSingleElementButton.set_icon_name(icons.IconName.ELEMENT)
         self.composeSave.setIcon(icons.icon(icons.IconName.IMAGE))
         self.copyElementCorrelationTable.setIcon(icons.icon(icons.IconName.COPY))
         self.copySampleSimilarityTable.setIcon(icons.icon(icons.IconName.COPY))
@@ -237,6 +236,14 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             ):
                 details = f"{summary}\n\n{details}"
         self._exception_dialog.show_exception(title=title, summary=summary, details=details)
+
+    def show_source_unavailable(self, source_id):
+        """Show an expected data-file access failure without an internal-error dialog."""
+        source = self.project_data.sources[source_id]
+        message = f"The data file cannot be opened:\n{source.filename}"
+        if source.open_error:
+            message += f"\n\nCause: {source.open_error}"
+        QtWidgets.QMessageBox.warning(self, "Data file unavailable", message)
 
     def show_tiff_read_error(self, filenames, error):
         """Report an expected TIFF input or decoder failure without an internal-error trace."""
@@ -323,7 +330,7 @@ Licensed under the MIT License.</p>
 
     def clear_project(self):
         # Close open files first
-        self.source_manager.close_all_files()
+        self.source_manager.close_source_handles()
 
         # Clear model/state
         self.project_data.clear()
@@ -347,10 +354,34 @@ Licensed under the MIT License.</p>
         self.channelsChanged.emit()
 
         # Show something sensible
-        if self.imageList.count() > 0:
-            self.imageList.setCurrentRow(0)
-        elif self.elementList.count() > 0:
-            self.elementList.setCurrentRow(0)
+        available_image_row = next(
+            (
+                row
+                for row in range(self.imageList.count())
+                if all(
+                    element.data_source.is_available
+                    for element in self.project_data.images[
+                        self.imageList.item(row).data(ImageListWidget.IMG_NUM_ROLE)
+                    ].elements.values()
+                )
+            ),
+            None,
+        )
+        available_element_row = next(
+            (
+                row
+                for row in range(self.elementList.count())
+                if (ref := self.elementList.item(row).data(ElementListWidget.ELEMENT_REF_ROLE))
+                is not None
+                and ref.source_id in self.project_data.assets
+                and self.project_data.assets[ref.source_id].is_available
+            ),
+            None,
+        )
+        if available_image_row is not None:
+            self.imageList.setCurrentRow(available_image_row)
+        elif available_element_row is not None:
+            self.elementList.setCurrentRow(available_element_row)
         else:
             self.image_controller.set_controls_enabled(False)
             self.element_controller.set_controls_enabled(False)

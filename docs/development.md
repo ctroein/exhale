@@ -20,7 +20,7 @@ add permanent forwarding methods there. Application-wide signals may connect
 controllers, but one controller must not call another controller's private
 methods.
 
-Source-file selection, opening, closing, removal, and relocation belong to
+Source-file selection, opening, removal, and relocation belong to
 `SourceManager`. Project-directory creation, loading, and saving belong to
 `ProjectManager`. Do not add forwarding methods for either workflow to
 `MainWindow`; connect actions and callers to the owning manager.
@@ -28,6 +28,14 @@ Source-file selection, opening, closing, removal, and relocation belong to
 Bundled icons, Qt Designer files, and model data belong in
 `exhale/resources/`. Packaging files belong in `packaging/`, and release
 automation is in `.github/workflows/`.
+
+Editable and generative artwork sources belong in `artwork/`, not in the
+runtime package or packaging directories. Keep only application-ready runtime
+images in `exhale/resources/` and generated platform containers such as the
+current `.ico` and `.icns` files in `packaging/icons/`. The retained artwork
+layout and XRF generation procedure are described in
+[`code-overview.md`](code-overview.md) and
+`artwork/generate/xrf_cells_x_imagegen_prompt.md`.
 
 ## Python style and tooling
 

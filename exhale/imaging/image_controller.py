@@ -8,6 +8,7 @@ from qtpy import QtCore, QtGui, QtWidgets
 
 from ..data.constants import CONCENTRATION_UNITS
 from ..data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
+from ..data.source_refs import SourceUnavailableError
 from .image_settings_dialog import ImageSettingsDialog
 from .imagecomposer import ImageComposer
 from .listwidgets import ElementListWidget, ImageElementBox, ImageHeaderBox, ImageListWidget
@@ -248,6 +249,9 @@ class ImageController:
             self.composer.display_composed_image(
                 self.window.elementPlot, image, reset_view=reset_view
             )
+        except SourceUnavailableError as exc:
+            self.window.elementPlot.clear_image()
+            self.window.show_source_unavailable(exc.source_id)
         except (OSError, RuntimeError) as exc:
             self.window.elementPlot.clear_image()
             self.window.show_error("Cannot compose image", str(exc))
@@ -330,7 +334,16 @@ class ImageController:
             image.setElement(slot, None)
         else:
             ref = box.combo.itemData(index)
-            self.window.element_controller.ensure_settings(ref)
+            try:
+                self.window.element_controller.ensure_settings(ref)
+            except SourceUnavailableError as exc:
+                previous = image.elements.get(slot)
+                previous_ref = None if previous is None else previous.ref
+                previous_index = self.combo_index_for_data(box.combo, previous_ref)
+                with QtCore.QSignalBlocker(box.combo):
+                    box.combo.setCurrentIndex(max(0, previous_index))
+                self.window.show_source_unavailable(exc.source_id)
+                return
             sample, channel = self.window.project_data.channel_for_ref(ref)
             if sample.sample_id != image.sample_id:
                 raise ValueError("Image element belongs to a different sample")

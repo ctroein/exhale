@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the combined RGB guide used for XRF icon image generation."""
+"""Generate the combined RGB guide used for XRF artwork generation."""
 
 import csv
 from argparse import ArgumentParser
@@ -11,8 +11,25 @@ from scipy.interpolate import splev, splprep
 from scipy.ndimage import gaussian_filter, label
 
 HERE = Path(__file__).resolve().parent
-ICONS = HERE / "icons"
-DEFAULT_OUTPUT = ICONS / "xrf_cells_x_guide.png"
+DEFAULT_OUTPUT = HERE / "xrf_guide.png"
+
+# GIMP palette indices in 16-masks.png: background, overlap, yellow, blue.
+# Convert them to bit 0 = yellow and bit 1 = blue before extracting masks.
+_PALETTE_INDEX_TO_MASK_BITS = np.array((0b00, 0b11, 0b01, 0b10), dtype=np.uint8)
+
+
+def load_masks(source: Path) -> tuple[np.ndarray, np.ndarray]:
+    """Load the indexed four-colour source as yellow and blue Boolean masks."""
+    with Image.open(source) as image:
+        if image.mode != "P":
+            raise ValueError(f"the combined mask must be indexed, not {image.mode}")
+        indices = np.asarray(image).copy()
+    if indices.ndim != 2 or indices.shape[0] != indices.shape[1]:
+        raise ValueError("the combined mask must be a square image")
+    if indices.size == 0 or int(indices.max()) >= len(_PALETTE_INDEX_TO_MASK_BITS):
+        raise ValueError("the combined mask must use only palette indices 0 through 3")
+    mask_bits = _PALETTE_INDEX_TO_MASK_BITS[indices]
+    return (mask_bits & 0b01) != 0, (mask_bits & 0b10) != 0
 
 
 def component_boundary(component: np.ndarray) -> np.ndarray:
@@ -317,7 +334,7 @@ def anneal_component(
 
 
 def spline_mask(
-    source: Path,
+    mask: np.ndarray,
     size: int,
     seed: int,
     annealing_steps: int,
@@ -327,7 +344,7 @@ def spline_mask(
     curvature_coefficient: float,
 ) -> tuple[np.ndarray, float, float, int, int, list[dict[str, float]]]:
     """Optimize smooth closed contours around the connected mask components."""
-    small = np.asarray(Image.open(source).convert("L")) >= 128
+    small = np.asarray(mask, dtype=bool)
     if small.shape[0] != small.shape[1] or size % small.shape[0]:
         raise ValueError("the source must be square and divide the output size")
     grid_size = small.shape[0]
@@ -411,8 +428,7 @@ def spline_mask(
 
 
 def generate_guide(
-    yellow_source: Path,
-    blue_source: Path,
+    mask_source: Path,
     output: Path,
     size: int = 512,
     blur: float = 8.0,
@@ -424,6 +440,7 @@ def generate_guide(
     curvature_coefficient: float = 0.08,
     annealing_log: Path | None = None,
 ) -> tuple[tuple[float, float, int, int], tuple[float, float, int, int]]:
+    yellow_mask, blue_mask = load_masks(mask_source)
     (
         yellow,
         yellow_spill,
@@ -432,7 +449,7 @@ def generate_guide(
         yellow_contacts,
         yellow_diagnostics,
     ) = spline_mask(
-        yellow_source,
+        yellow_mask,
         size,
         seed,
         annealing_steps,
@@ -449,7 +466,7 @@ def generate_guide(
         blue_contacts,
         blue_diagnostics,
     ) = spline_mask(
-        blue_source,
+        blue_mask,
         size,
         seed + 1100,
         annealing_steps,
@@ -527,8 +544,7 @@ def parse_args() -> ArgumentParser:
 def main() -> None:
     args = parse_args().parse_args()
     yellow_metrics, blue_metrics = generate_guide(
-        ICONS / "16-yellow-mask.png",
-        ICONS / "16-blue-mask.png",
+        HERE / "16-masks.png",
         args.output,
         args.size,
         args.blur,

@@ -144,12 +144,40 @@ class ProjectStateManager(QtCore.QObject):
         """Save or resolve changes before closing the application."""
         if not self.compare_now():
             return True
-        if self.save_on_exit_enabled():
-            return self.window.project_manager.save_project()
         if skip_confirmation:
             self.discard_autosave()
             return True
+        if self.window.project_dir is None:
+            answer = self._ask_unsaved_exit()
+            if answer == "cancel":
+                return False
+            if answer == "save_as":
+                return self.window.project_manager.save_project_as()
+            self.discard_autosave()
+            return True
+        if self.save_on_exit_enabled():
+            return self.window.project_manager.save_project()
         return self.prepare_to_leave_project(f"exiting {application_name}")
+
+    def _ask_unsaved_exit(self) -> str:
+        dialog = QtWidgets.QMessageBox(self.window)
+        dialog.setWindowTitle("Unsaved project")
+        dialog.setIcon(QtWidgets.QMessageBox.Question)
+        dialog.setText("This project has not been saved.")
+        dialog.setInformativeText("Save it before quitting?")
+        save_button = dialog.addButton("Save as…", QtWidgets.QMessageBox.AcceptRole)
+        quit_button = dialog.addButton("Quit without saving", QtWidgets.QMessageBox.DestructiveRole)
+        cancel_button = dialog.addButton(QtWidgets.QMessageBox.Cancel)
+        dialog.setDefaultButton(save_button)
+        dialog.exec()
+        clicked = dialog.clickedButton()
+        if clicked is save_button:
+            return "save_as"
+        if clicked is quit_button:
+            return "quit"
+        if clicked is cancel_button:
+            return "cancel"
+        return "cancel"
 
     def autosave_enabled(self) -> bool:
         return self.window.settings.value(PROJECT_AUTOSAVE_KEY, True, type=bool)

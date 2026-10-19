@@ -52,7 +52,7 @@ class SampleElementCheckDelegate(IconCheckDelegate):
         if state == Qt.CheckState.Checked:
             return icons.IconName.CHECKBOX_MARKED
         if state == Qt.CheckState.Unchecked:
-            return icons.IconName.CHECKBOX_DENIED_EXTENDED
+            return icons.IconName.CHECKBOX_DENIED
         return (
             icons.IconName.CHECKBOX_DEFAULT_MARKED
             if index.data(_SAMPLE_PROJECT_ENABLED_ROLE)

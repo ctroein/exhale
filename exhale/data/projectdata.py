@@ -434,6 +434,8 @@ class ProjectData:
         for index, candidate in enumerate(candidates):
             if candidate.ref.item_id in names:
                 key, name = names[candidate.ref.item_id]
+            elif candidate.key is not None:
+                key = name = candidate.key
             elif proposal is not None:
                 if tiff_prefix is None:
                     key = proposal.channel_key

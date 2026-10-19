@@ -54,6 +54,7 @@ availability contract, `ArrayChannelData` wraps in-memory arrays, and
 Defines `ElementRef`, `ElementCandidate`, `LoadedSource`, and the HDF5/TIFF
 reader. It validates supported source layouts, owns file handles, enumerates
 maps, and translates TIFF pages or components into stable item identifiers.
+OME-TIFF channel names become the suggested channel names and keys.
 
 ### `exhale/data/tiffimport.py`
 
@@ -74,7 +75,7 @@ handling.
 
 ### `exhale/project/sourcemanager.py`
 
-Owns source-file selection, import, closure, removal, and relocation. It
+Owns source-file selection, import, removal, relocation, and source-handle cleanup. It
 coordinates source-related model changes with the element, image, project-tab,
 and dirty-state refreshes required after each operation.
 
@@ -295,13 +296,20 @@ document generated modules directly.
 
 `exhale/resources/icons/` contains packaged SVG and raster artwork.
 `exhale/resources/models/` contains the bundled StarDist model data.
+`artwork/generate/` contains the indexed mask, appearance reference, deterministic
+guide and alpha-mask utilities, and ImageGen procedure for XRF artwork. `artwork/logos/`
+contains selected full-size logo sources and retained alternatives;
+`artwork/splash/` contains editable splash-screen sources; and
+`artwork/unused-icons/` retains interface icons which are not packaged or used
+at runtime.
 
 ## Packaging and tests
 
 `packaging/` contains the PyInstaller specification and hooks, Windows Inno
-Setup definition, Conda recipe, platform icon sources, and icon-generation
-utilities. `.github/workflows/build.yml` builds release artifacts and publishes
-tagged packages.
+Setup definition, Conda recipe, generated platform icon containers, and the
+utility which rebuilds those containers from a selected artwork source.
+`.github/workflows/build.yml` builds Windows, Linux, and macOS frozen
+applications and publishes tagged packages.
 
 `tests/` contains the pytest/unittest regression suite. Test modules generally
 follow their corresponding application module or workflow; GUI tests use the

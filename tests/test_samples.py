@@ -52,6 +52,23 @@ class SampleTests(unittest.TestCase):
         self.assertEqual(sample.asset_ids, [str(path)])
         self.assertEqual(project.assets[str(path)].sample_id, sample.sample_id)
 
+    def test_ome_channel_names_become_sample_channel_keys(self):
+        path = self.root / "stack.ome.tif"
+        data = np.stack((np.ones((3, 4)), np.full((3, 4), 2))).astype("float32")
+        tifffile.imwrite(
+            path,
+            data,
+            ome=True,
+            photometric="minisblack",
+            metadata={"axes": "CYX", "Channel": {"Name": ["Fe_K", "Zn_K"]}},
+        )
+        project = ProjectData()
+
+        sample = project.register_source(self.open(path))
+
+        self.assertEqual(set(sample.channels), {"Fe_K", "Zn_K"})
+        self.assertEqual(sample.channels["Fe_K"].name, "Fe_K")
+
     def test_tiff_filename_proposal_recognizes_element_and_shell(self):
         proposal = infer_tiff_import("sample_control_P_K.tiff")
         self.assertEqual(proposal.sample_name, "sample_control")

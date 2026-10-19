@@ -10,7 +10,7 @@ from qtpy.QtCore import Qt
 
 from ..data.elementsettings import ElementSettings, Normalizers
 from ..data.projectdata import SampleChannelState, shortest_unique_path_suffixes
-from ..data.source_refs import ElementRef
+from ..data.source_refs import ElementRef, SourceUnavailableError
 from .listwidgets import ElementListWidget, ImageListWidget
 
 
@@ -47,6 +47,7 @@ class ElementController:
         window.elementSDButton.clicked.connect(partial(self._set_range_by_mode, "sd"))
         window.elementPercButton.clicked.connect(partial(self._set_range_by_mode, "percent"))
         window.elementHistogramPlot.limitsChanged.connect(self._histogram_limits_changed)
+        window.elementHistogramPlot.histogramRangeRequested.connect(self._histogram_range_requested)
 
     def current_sample(self):
         sample_id = self.window.loadedFileComboBox.currentData()
@@ -58,7 +59,7 @@ class ElementController:
             return project_data.element_settings[ref]
         source = project_data.sources[ref.source_id]
         if not source.is_open:
-            raise RuntimeError("Attempting to access closed file " + ref.source_id)
+            raise SourceUnavailableError(source)
         _sample, channel = project_data.channel_for_ref(ref)
         settings = ElementSettings(
             ref=ref,
@@ -100,6 +101,18 @@ class ElementController:
         if current_image_id in changed_images:
             window.image_controller.show_image(current_image_id)
             window.image_controller.update_composed_image(reset_view=True)
+        if failures:
+            unavailable = next(
+                (exc for _ref, exc in failures if isinstance(exc, SourceUnavailableError)),
+                None,
+            )
+            if unavailable is not None:
+                window.show_source_unavailable(unavailable.source_id)
+                failures = [
+                    (ref, exc)
+                    for ref, exc in failures
+                    if not isinstance(exc, SourceUnavailableError)
+                ]
         if failures:
             error = next(
                 (exc for _ref, exc in failures if "requires the 'imagecodecs' package" in str(exc)),
@@ -237,7 +250,11 @@ class ElementController:
         key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
         ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
         if key not in sample.channel_overrides:
-            settings = self.ensure_settings(ref)
+            try:
+                settings = self.ensure_settings(ref)
+            except SourceUnavailableError as exc:
+                self.window.show_source_unavailable(exc.source_id)
+                return
             self.window.project_data.override_sample_channel(
                 sample.sample_id, key, settings=settings
             )
@@ -287,15 +304,33 @@ class ElementController:
         if settings.normalizer == Normalizers.LOG:
             bins = np.geomspace(settings.minPositive, settings.dataRange[1], bins + 1)
             histogram_range = None
+            data_domain = (settings.minPositive, settings.dataRange[1])
         else:
             histogram_range = (min(0, settings.dataRange[0]), settings.dataRange[1])
+            data_domain = histogram_range
         histogram, edges = np.histogram(settings.data, bins=bins, range=histogram_range)
         self.window.elementHistogramPlot.set_histogram(
             histogram,
             edges,
             logarithmic=settings.normalizer == Normalizers.LOG,
+            data_domain=data_domain,
+            adaptive_binning=settings.normalizer != Normalizers.LOG,
         )
         self.window.gammaValue.setHidden(settings.normalizer != Normalizers.GAMMA)
+
+    def _histogram_range_requested(self, minimum, maximum) -> None:
+        settings = self.current_element
+        if settings is None or settings.normalizer == Normalizers.LOG:
+            return
+        domain = (min(0, settings.dataRange[0]), settings.dataRange[1])
+        histogram, edges = np.histogram(settings.data, bins=256, range=(minimum, maximum))
+        self.window.elementHistogramPlot.set_histogram(
+            histogram,
+            edges,
+            reset_view=False,
+            data_domain=domain,
+            adaptive_binning=True,
+        )
 
     def update_plot(self) -> None:
         if self.current_element is None:
@@ -354,7 +389,11 @@ class ElementController:
         with QtCore.QSignalBlocker(self.window.imageList):
             self.window.imageList.setCurrentRow(-1)
         self.window.image_controller.set_controls_enabled(False)
-        self.show_current_element()
+        try:
+            self.show_current_element()
+        except SourceUnavailableError as exc:
+            self.clear_selection()
+            self.window.show_source_unavailable(exc.source_id)
 
     def select_image_element(self, slot: int, *, reset_view=False) -> None:
         """Edit one image slot, or return to the composed image for ``-1``."""
@@ -387,7 +426,11 @@ class ElementController:
                     None,
                 )
                 window.elementList.setCurrentItem(item)
-        self.show_current_element()
+        try:
+            self.show_current_element()
+        except SourceUnavailableError as exc:
+            self.clear_selection()
+            self.window.show_source_unavailable(exc.source_id)
 
     def clear_selection(self) -> None:
         self.current_element = None
@@ -399,10 +442,14 @@ class ElementController:
             return
         ref = current.data(ElementListWidget.ELEMENT_REF_ROLE)
         key = current.data(ElementListWidget.CHANNEL_KEY_ROLE)
-        self.ensure_settings(ref)
         sample = self.current_sample()
         self._editing_channel_context = (None if sample is None else sample.sample_id, key)
-        self.edit_element(ref)
+        try:
+            self.ensure_settings(ref)
+            self.edit_element(ref)
+        except SourceUnavailableError as exc:
+            self.clear_selection()
+            self.window.show_source_unavailable(exc.source_id)
 
     def _mark_channel_settings_edited(self) -> None:
         settings = self.current_element

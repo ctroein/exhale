@@ -41,7 +41,7 @@ class PlotIntegrationTests(unittest.TestCase):
         self.window.source_manager.open_files([self.filename])
 
     def dispose(self):
-        self.window.source_manager.close_all_files()
+        self.window.source_manager.close_source_handles()
         self.window.deleteLater()
         self.app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
 

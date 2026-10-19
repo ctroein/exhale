@@ -54,6 +54,26 @@ class SourceReaderTests(unittest.TestCase):
             source.load_array(candidates[1].ref), self.data.astype("float32") / 3
         )
 
+    def test_ome_channel_names_are_exposed_as_channel_keys(self):
+        path = self.root / "named-channels.ome.tif"
+        data = np.stack((self.data, self.data + 20, self.data + 40)).astype("float32")
+        names = ["Al_K", "Fe_K", "Zn_K"]
+        tifffile.imwrite(
+            path,
+            data,
+            ome=True,
+            photometric="minisblack",
+            metadata={"axes": "CYX", "Channel": {"Name": names}},
+        )
+
+        source = self.open(path)
+        candidates = source.list_elements()
+
+        self.assertEqual([candidate.name for candidate in candidates], names)
+        self.assertEqual([candidate.key for candidate in candidates], names)
+        for index, candidate in enumerate(candidates):
+            np.testing.assert_array_equal(source.load_array(candidate.ref), data[index])
+
     def test_invalid_refs_and_closed_sources(self):
         path = self.root / "map.tif"
         tifffile.imwrite(path, self.data.astype("uint16"))

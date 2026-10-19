@@ -62,7 +62,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.addCleanup(self.dispose_window)
 
     def dispose_window(self):
-        self.win.source_manager.close_all_files()
+        self.win.source_manager.close_source_handles()
         self.win.deleteLater()
         self.app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
 
@@ -78,8 +78,6 @@ class SourceLifecycleTests(unittest.TestCase):
         with patch.object(self.win, "askFileName", return_value=[self.h5]):
             self.win.actionOpenFile.trigger()
         self.assertTrue(self.win.project_data.sources[self.h5].is_open)
-        self.win.actionClearFiles.trigger()
-        self.assertFalse(self.win.project_data.sources[self.h5].is_open)
         self.assertEqual(self.win.loadedFileComboBox.count(), 1)
 
     def test_element_correlations_reuse_the_session_cache(self):
@@ -465,7 +463,6 @@ class SourceLifecycleTests(unittest.TestCase):
     def test_action_icons_have_fallbacks(self):
         for name in (
             "actionOpenFile",
-            "actionClearFiles",
             "actionOpenProject",
             "actionSaveProject",
             "actionSaveProjectAs",
@@ -476,26 +473,16 @@ class SourceLifecycleTests(unittest.TestCase):
             with self.subTest(action=name):
                 self.assertFalse(getattr(self.win, name).icon().isNull())
 
-    def test_open_close_reopen_hdf5_and_tiff(self):
+    def test_clearing_project_closes_sources_without_intermediate_ui_refresh(self):
         self.win.source_manager.open_files([self.h5, self.tiff])
-        self.assertEqual(self.win.loadedFileComboBox.count(), 2)
-        self.assertEqual(self.win.elementList.count(), 1)
-        for filename, count in ((self.h5, 2), (self.tiff, 1)):
-            source = self.win.project_data.sources[filename]
-            self.assertEqual(len(source.list_elements()), count)
-            ref = source.list_elements()[0].ref
-            np.testing.assert_array_equal(source.load_array(ref), self.data)
-            self.win.source_manager.close_source(filename)
-            self.assertFalse(source.is_open)
-            self.assertIsNone(source.handle)
-            self.win.source_manager.close_source(filename)  # repeated close is harmless
-            self.win.source_manager.open_files([filename])
-            reopened = self.win.project_data.sources[filename]
-            self.assertIsNot(reopened, source)
-            np.testing.assert_array_equal(reopened.load_array(ref), self.data)
-        self.win.source_manager.close_all_files()
-        self.assertEqual(self.win.loadedFileComboBox.count(), 2)
-        self.assertTrue(all(not s.is_open for s in self.win.project_data.sources.values()))
+        with patch.object(
+            self.win.source_manager,
+            "close_source_handles",
+            wraps=self.win.source_manager.close_source_handles,
+        ) as close_all:
+            self.win.clear_project()
+
+        close_all.assert_called_once_with()
 
     def test_new_hdf5_sample_materializes_inherited_channel_before_refresh(self):
         self.win.source_manager.open_files([self.h5])
@@ -911,9 +898,9 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.project_data.add_project_channel_from_sample(sample.sample_id, "Fe")
         self.win.element_controller.effective_channels_changed()
         ref = sample.channels["Fe"].ref
-        self.win.source_manager.close_source(self.h5)
+        self.win.project_data.sources[self.h5].close()
 
-        with self.assertRaisesRegex(RuntimeError, "is not open"):
+        with self.assertRaisesRegex(RuntimeError, "cannot be opened"):
             self.win.analysis_controller.element_settings([ref])
 
     def test_images_and_image_map_choices_follow_selected_sample(self):
@@ -1030,7 +1017,7 @@ class SourceLifecycleTests(unittest.TestCase):
         image.elements[0] = element.copy()
         self.assertIs(image.elements[0].data_source, element.data_source)
         self.win.project_data.images[1] = image
-        self.win.source_manager.close_source(self.h5)
+        source.close()
         np.testing.assert_array_equal(element.data, self.data)
         np.testing.assert_array_equal(image.elements[0].data, self.data)
         image.elements[0].trfRange[0] = 5
@@ -1039,14 +1026,18 @@ class SourceLifecycleTests(unittest.TestCase):
 
     def test_refresh_excludes_closed_sources_and_does_not_duplicate(self):
         self.win.source_manager.open_files([self.h5, self.tiff])
-        self.win.source_manager.close_source(self.tiff)
+        hdf5_sample_id = self.win.project_data.assets[self.h5].sample_id
+        self.win.loadedFileComboBox.setCurrentIndex(
+            self.win.loadedFileComboBox.findData(hdf5_sample_id)
+        )
+        self.win.project_data.sources[self.tiff].close()
         for _ in range(2):
             self.win.refresh_project_ui()
             self.assertEqual(self.win.loadedFileComboBox.count(), 2)
             self.assertEqual(self.win.elementList.count(), 2)
             self.assertEqual(
                 self.win.loadedFileComboBox.currentData(),
-                self.win.project_data.assets[self.h5].sample_id,
+                hdf5_sample_id,
             )
 
     def test_project_roundtrip_preserves_source_aliases(self):
@@ -1142,7 +1133,7 @@ class SourceLifecycleTests(unittest.TestCase):
             local.trfRange[0] = 4
             self.assertEqual(global_element.trfRange, original_range)
             np.testing.assert_array_equal(local.data, self.data * (slot + 1))
-        self.win.source_manager.close_all_files()
+        self.win.source_manager.close_source_handles()
         for slot, local in restored.elements.items():
             np.testing.assert_array_equal(local.data, self.data * (slot + 1))
 
@@ -1160,18 +1151,34 @@ class SourceLifecycleTests(unittest.TestCase):
         project_dir = Path(self.temp.name) / "missing"
         projectio.save_project(self.win.project_data, project_dir / "project.xhp")
         self.win.project_state_manager.mark_saved()
-        self.win.source_manager.close_all_files()
+        self.win.source_manager.close_source_handles()
         Path(self.h5).unlink()
 
-        with patch.object(self.win, "show_error"):
+        with (
+            patch.object(self.win, "show_error") as internal_error,
+            patch.object(QtWidgets.QMessageBox, "warning") as warning,
+        ):
             self.assertTrue(self.win.project_manager.load_project_dir(project_dir))
+        internal_error.assert_not_called()
+        self.assertIn("could not be opened", warning.call_args.args[2])
+        self.assertIn("FileNotFoundError", warning.call_args.args[2])
 
         asset = self.win.project_data.assets[self.h5]
         self.assertFalse(asset.is_available)
+        self.assertIn("FileNotFoundError", asset.source.open_error)
         self.assertIn("Fe", self.win.project_data.samples[asset.sample_id].channels)
         self.assertEqual(self.win.project_data.images[1].elements[0].ref, ref)
-        with self.assertRaisesRegex(RuntimeError, "closed"):
+        with self.assertRaisesRegex(RuntimeError, "cannot be opened"):
             self.win.project_data.images[1].elements[0].transformedData()
+
+        item = next(
+            self.win.elementList.item(row)
+            for row in range(self.win.elementList.count())
+            if self.win.elementList.item(row).data(ElementListWidget.ELEMENT_REF_ROLE) == ref
+        )
+        with patch.object(self.win, "show_source_unavailable") as unavailable:
+            self.win.elementList.setCurrentItem(item)
+        unavailable.assert_called_once_with(self.h5)
 
     def test_project_roundtrip_preserves_channel_model_and_explicit_overrides(self):
         self.win.source_manager.open_files([self.h5])
@@ -1341,6 +1348,7 @@ class SourceLifecycleTests(unittest.TestCase):
         manager = self.win.project_state_manager
         self.win.settings.remove(PROJECT_SAVE_ON_EXIT_KEY)
         self.addCleanup(self.win.settings.remove, PROJECT_SAVE_ON_EXIT_KEY)
+        self.win.project_dir = Path(self.temp.name) / "saved-project"
         self.win.source_manager.open_files([self.h5])
 
         with (
@@ -1352,10 +1360,51 @@ class SourceLifecycleTests(unittest.TestCase):
         save.assert_called_once_with()
         question.assert_not_called()
 
+    def test_unsaved_project_prompts_before_opening_save_as(self):
+        manager = self.win.project_state_manager
+        self.win.settings.remove(PROJECT_SAVE_ON_EXIT_KEY)
+        self.addCleanup(self.win.settings.remove, PROJECT_SAVE_ON_EXIT_KEY)
+        self.win.source_manager.open_files([self.h5])
+
+        with (
+            patch.object(manager, "_ask_unsaved_exit", return_value="cancel"),
+            patch.object(self.win.project_manager, "save_project_as") as save_as,
+        ):
+            self.assertFalse(manager.prepare_to_exit())
+            save_as.assert_not_called()
+
+        with (
+            patch.object(manager, "_ask_unsaved_exit", return_value="quit"),
+            patch.object(self.win.project_manager, "save_project_as") as save_as,
+        ):
+            self.assertTrue(manager.prepare_to_exit())
+            save_as.assert_not_called()
+
+        with (
+            patch.object(manager, "_ask_unsaved_exit", return_value="save_as"),
+            patch.object(self.win.project_manager, "save_project_as", return_value=True) as save_as,
+        ):
+            self.assertTrue(manager.prepare_to_exit())
+            save_as.assert_called_once_with()
+
+    def test_quick_quit_does_not_save_dirty_project(self):
+        manager = self.win.project_state_manager
+        self.win.project_dir = Path(self.temp.name) / "saved-project"
+        self.win.source_manager.open_files([self.h5])
+
+        with (
+            patch.object(self.win.project_manager, "save_project") as save,
+            patch.object(manager, "_ask_unsaved_exit") as question,
+        ):
+            self.assertTrue(manager.prepare_to_exit(skip_confirmation=True))
+        save.assert_not_called()
+        question.assert_not_called()
+
     def test_exit_prompt_remains_available_when_auto_save_is_disabled(self):
         manager = self.win.project_state_manager
         self.win.settings.setValue(PROJECT_SAVE_ON_EXIT_KEY, False)
         self.addCleanup(self.win.settings.remove, PROJECT_SAVE_ON_EXIT_KEY)
+        self.win.project_dir = Path(self.temp.name) / "saved-project"
         self.win.source_manager.open_files([self.h5])
 
         with patch.object(

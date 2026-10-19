@@ -39,6 +39,19 @@ class HistogramWidgetTests(unittest.TestCase):
         self.assertFalse(self.widget.logarithmic)
         self.assertEqual(self.widget.curve.opts["fillLevel"], 0)
 
+    def test_full_view_is_the_maximum_x_range(self):
+        self.widget.set_histogram([2, 5, 3], [-1, 0, 2, 5])
+        initial_range = self.widget.getViewBox().viewRange()[0]
+
+        self.widget.getViewBox().setXRange(-100, 100, padding=0)
+
+        np.testing.assert_allclose(self.widget.getViewBox().viewRange()[0], initial_range)
+
+    def test_one_exceptional_count_does_not_determine_y_range(self):
+        self.assertEqual(self.widget._count_axis_maximum([10_000, 100, 40]), 200)
+        self.assertEqual(self.widget._count_axis_maximum([10_000, 0, 0]), 10_000)
+        self.assertEqual(self.widget._count_axis_maximum([0]), 1)
+
     def test_log_histogram_transforms_only_display_coordinates(self):
         counts = np.array([1, 4, 2])
         edges = np.geomspace(0.01, 100, 4)
@@ -84,6 +97,68 @@ class HistogramWidgetTests(unittest.TestCase):
         np.testing.assert_allclose(self.widget.limits, (0.2, 5))
         self.assertAlmostEqual(self.widget.minimum_marker.value(), np.log10(0.2))
         self.assertAlmostEqual(self.widget.maximum_marker.value(), np.log10(5))
+
+    def test_rebinned_histogram_keeps_full_marker_domain_and_limits(self):
+        self.widget.set_histogram([1, 2], [0, 5, 10], data_domain=(0, 100))
+        self.widget.set_limits(20, 80)
+        self.widget.set_histogram(
+            [3, 4],
+            [30, 35, 40],
+            data_domain=(0, 100),
+            adaptive_binning=True,
+            reset_view=False,
+        )
+
+        self.assertEqual(self.widget.limits, (20.0, 80.0))
+        self.widget.maximum_marker.setValue(95)
+        self.assertEqual(self.widget.maximum_marker.value(), 95)
+
+    def test_visible_range_requests_rebin_only_after_material_change(self):
+        self.widget.set_histogram(
+            np.ones(10),
+            np.linspace(0, 100, 11),
+            data_domain=(0, 100),
+            adaptive_binning=True,
+        )
+        requests = []
+        self.widget.histogramRangeRequested.connect(lambda low, high: requests.append((low, high)))
+
+        self.widget._request_visible_histogram()
+        self.assertEqual(requests, [])
+
+        self.widget.getViewBox().setXRange(10, 70, padding=0)
+        self.widget._request_visible_histogram()
+        self.assertEqual(requests, [])
+
+        self.widget.getViewBox().setXRange(20, 40, padding=0)
+        self.widget._request_visible_histogram()
+        self.assertEqual(requests, [(15.0, 45.0)])
+
+        self.widget.set_histogram(
+            np.ones(10),
+            np.linspace(15, 45, 11),
+            data_domain=(0, 100),
+            adaptive_binning=True,
+            reset_view=False,
+        )
+        self.widget.getViewBox().setXRange(18, 38, padding=0)
+        self.widget._request_visible_histogram()
+        self.assertEqual(requests, [(15.0, 45.0)])
+
+        self.widget.set_histogram(
+            np.ones(10),
+            np.linspace(0, 30, 11),
+            data_domain=(0, 100),
+            adaptive_binning=True,
+            reset_view=False,
+        )
+        self.widget.getViewBox().setXRange(1, 21, padding=0)
+        self.widget._request_visible_histogram()
+        self.assertEqual(requests, [(15.0, 45.0)])
+
+        self.widget.getViewBox().setXRange(0, 100, padding=0)
+        self.widget._request_visible_histogram()
+        self.assertEqual(requests[-1], (0.0, 100.0))
 
     def test_invalid_histograms_and_limits_are_rejected(self):
         invalid = (

@@ -1,6 +1,7 @@
 """Stable source/item identities and readers for Exhale element maps."""
 
 import os
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Any
 
@@ -37,6 +38,18 @@ class ElementCandidate:
 
     ref: ElementRef
     name: str
+    key: str | None = None
+
+
+class SourceUnavailableError(RuntimeError):
+    """Report attempted access to a source which could not be opened."""
+
+    def __init__(self, source: "LoadedSource"):
+        self.source_id = source.source_id
+        message = f"The data file cannot be opened: {source.filename}"
+        if source.open_error:
+            message += f"\n\nCause: {source.open_error}"
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -73,6 +86,23 @@ def _tiff_component_axis(page) -> int | None:
     return next(index for index, axis in enumerate(axes) if axis not in "YX")
 
 
+def _ome_channel_names(handle) -> tuple[str | None, ...]:
+    """Return channel names from a single OME image, if present."""
+    if not handle.is_ome or not handle.ome_metadata or len(handle.series) != 1:
+        return ()
+    try:
+        root = ET.fromstring(handle.ome_metadata)
+    except ET.ParseError:
+        return ()
+    pixels = root.find(".//{*}Pixels")
+    if pixels is None:
+        return ()
+    return tuple(
+        name if (name := channel.get("Name", "").strip()) else None
+        for channel in pixels.findall("{*}Channel")
+    )
+
+
 @dataclass
 class LoadedSource:
     """Own the backing file; materialized element arrays survive close()."""
@@ -83,6 +113,8 @@ class LoadedSource:
     kind: str
     handle: Any | None = None
     root: h5py.Group | None = None
+    tiff_channel_names: tuple[str | None, ...] = ()
+    open_error: str | None = None
 
     @property
     def is_open(self) -> bool:
@@ -104,12 +136,19 @@ class LoadedSource:
             if len(parts) == 4 and parts[2] == "component":
                 page = self.handle.pages[int(parts[1])]
                 component = int(parts[3])
+                if len(self.handle.pages) == 1 and component < len(self.tiff_channel_names):
+                    if name := self.tiff_channel_names[component]:
+                        return name
                 if page.photometric == 2 and page.shape[_tiff_component_axis(page)] in (3, 4):
                     return ("Red", "Green", "Blue", "Alpha")[component]
                 return f"{self.alias} [component {component + 1}]"
+            page_index = int(parts[1])
+            if len(self.tiff_channel_names) == len(self.handle.pages):
+                if name := self.tiff_channel_names[page_index]:
+                    return name
             if self.handle is not None and len(self.handle.pages) == 1:
                 return self.alias
-            return f"{self.alias} [page {int(ref.item_id.split('/')[1]) + 1}]"
+            return f"{self.alias} [page {page_index + 1}]"
         return ref.item_id.rsplit("/", 1)[-1]
 
     def list_elements(self) -> list[ElementCandidate]:
@@ -117,7 +156,7 @@ class LoadedSource:
             return []
         if self.kind == "hdf5":
             return [
-                ElementCandidate(ElementRef(self.source_id, entity.name), key)
+                ElementCandidate(ElementRef(self.source_id, entity.name), key, key)
                 for key, entity in self.root.items()
                 if isinstance(entity, h5py.Dataset)
             ]
@@ -132,7 +171,19 @@ class LoadedSource:
                         ElementRef(self.source_id, f"page/{page_index}/component/{component_index}")
                         for component_index in range(page.shape[component_axis])
                     )
-            return [ElementCandidate(ref, self.default_element_name(ref)) for ref in refs]
+            candidates = []
+            for ref in refs:
+                name = self.default_element_name(ref)
+                parts = ref.item_id.split("/")
+                metadata_name = False
+                if len(parts) == 2 and len(self.tiff_channel_names) == len(self.handle.pages):
+                    metadata_name = self.tiff_channel_names[int(parts[1])] is not None
+                elif len(parts) == 4 and len(self.handle.pages) == 1:
+                    metadata_name = int(parts[3]) < len(self.tiff_channel_names) and (
+                        self.tiff_channel_names[int(parts[3])] is not None
+                    )
+                candidates.append(ElementCandidate(ref, name, name if metadata_name else None))
+            return candidates
         raise NotImplementedError(self.kind)
 
     def data_object(self, ref: ElementRef):
@@ -140,7 +191,7 @@ class LoadedSource:
         if ref.source_id != self.source_id:
             raise ValueError(f"ElementRef belongs to {ref.source_id!r}, not {self.source_id!r}")
         if not self.is_open:
-            raise RuntimeError(f"Source is closed: {self.filename}")
+            raise SourceUnavailableError(self)
         if self.kind == "hdf5":
             item = self.handle[ref.item_id]
             if not isinstance(item, h5py.Dataset):
@@ -225,7 +276,14 @@ def open_source(filename: str) -> LoadedSource:
             )
             if len(map_shape) != 2 or not all(map_shape) or page.dtype.kind not in "buif":
                 raise ValueError(f"TIFF page {index + 1} must contain nonempty 2-D numeric maps")
-        return LoadedSource(filename, filename, alias, "tiff", handle)
+        return LoadedSource(
+            filename,
+            filename,
+            alias,
+            "tiff",
+            handle,
+            tiff_channel_names=_ome_channel_names(handle),
+        )
     except Exception:
         handle.close()
         raise

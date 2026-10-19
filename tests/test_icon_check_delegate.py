@@ -122,7 +122,7 @@ class IconCheckDelegateTests(unittest.TestCase):
             ),
             ("skip", True, False, QtCore.Qt.PartiallyChecked, icons.IconName.CHECKBOX),
             ("override", False, True, QtCore.Qt.Checked, icons.IconName.CHECKBOX_MARKED),
-            ("skip", False, True, QtCore.Qt.Unchecked, icons.IconName.CHECKBOX_DENIED_EXTENDED),
+            ("skip", False, True, QtCore.Qt.Unchecked, icons.IconName.CHECKBOX_DENIED),
         )
         for row, (state, deferred, project_enabled, check_state, icon_name) in enumerate(cases):
             item = view.addSampleChannel(

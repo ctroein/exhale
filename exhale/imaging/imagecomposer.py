@@ -13,6 +13,83 @@ from ..data.imagesettings import ImageSettings, Layouts, Scalebars
 
 Image.MAX_IMAGE_PIXELS = None
 
+_LUMA = np.array([0.2126, 0.7152, 0.0722])
+
+
+def _rgb255(rgb, alpha=255):
+    values = np.clip(np.asarray(rgb, dtype=float), 0, 1)
+    channels = [int(round(255 * value)) for value in values[:3]]
+    return tuple(channels + [int(alpha)])
+
+
+def _array_to_rgba(array):
+    array = np.clip(np.asarray(array, dtype=float), 0, 1)
+    if array.ndim == 2:
+        array = np.repeat(array[..., None], 3, axis=2)
+    alpha = np.full(array.shape[:2] + (1,), 255, dtype=np.uint8)
+    rgb = np.round(array[..., :3] * 255).astype(np.uint8)
+    return np.concatenate([rgb, alpha], axis=2)
+
+
+def _resize_rgba(array, size):
+    image = Image.fromarray(_array_to_rgba(array), mode="RGBA")
+    if image.size != tuple(size):
+        image = image.resize(tuple(size), resample=Image.Resampling.NEAREST)
+    return image
+
+
+def _font(size):
+    size = max(1, int(round(size)))
+    for name in ("DejaVuSans.ttf", "Arial.ttf"):
+        try:
+            return ImageFont.truetype(name, size=size)
+        except OSError:
+            pass
+    return ImageFont.load_default()
+
+
+def _outline_color(rgb):
+    rgb = np.clip(np.asarray(rgb, dtype=float), 0, 1)
+    linear = np.where(
+        rgb <= 0.04045,
+        rgb / 12.92,
+        ((rgb + 0.055) / 1.055) ** 2.4,
+    )
+    luma = float((linear * _LUMA).sum())
+    if luma < 0.05:
+        return _rgb255([1, 1, 1], alpha=153)
+    if luma < 0.12:
+        return _rgb255(rgb / 2, alpha=153)
+    return _rgb255([0, 0, 0], alpha=153)
+
+
+def _format_length(value, units):
+    """Convert a physical length to a suitable display prefix."""
+    if units not in DISPLAY_UNITS:
+        return f"{value:g} {units}"
+    value_nm = value * DISPLAY_UNITS[units]
+    chosen_unit, chosen_scale = "nm", 1.0
+    for unit, scale in DISPLAY_UNITS.items():
+        if value_nm / scale >= 1:
+            chosen_unit, chosen_scale = unit, scale
+    return f"{value_nm / chosen_scale:g} {chosen_unit}"
+
+
+def _nice_number(value):
+    if value <= 0:
+        return 0
+    exponent = math.floor(math.log10(value))
+    fraction = value / (10**exponent)
+    if fraction < 1.5:
+        nice_fraction = 1
+    elif fraction < 3.5:
+        nice_fraction = 2
+    elif fraction < 7.5:
+        nice_fraction = 5
+    else:
+        nice_fraction = 10
+    return nice_fraction * (10**exponent)
+
 
 def _nearest_lookup(source_size, target_size):
     """Return Pillow's exact nearest-neighbour source index for each output."""
@@ -43,6 +120,36 @@ class ComposedImageMapping:
         if not (0 <= local_x < self.width and 0 <= local_y < self.height):
             return None
         return int(self.source_x[local_x]), int(self.source_y[local_y])
+
+
+@dataclass(frozen=True)
+class _LayoutGeometry:
+    """Pixel geometry for the element strip and merged panel."""
+
+    width: int
+    height: int
+    merged_x: int
+    merged_y: int
+    merged_width: int
+    merged_height: int
+    merged_scale: float
+    element_x: tuple[int, ...]
+    element_y: tuple[int, ...]
+
+
+@dataclass
+class _DrawingContext:
+    """Pillow objects and shared presentation values for one composition."""
+
+    canvas: Image.Image
+    draw: ImageDraw.ImageDraw
+    font: ImageFont.ImageFont
+    panel_font: ImageFont.ImageFont
+    font_size: float
+    label_dx: int
+    label_dy: int
+    image_colors: np.ndarray
+    foreground_color: np.ndarray
 
 
 class ImageComposer:
@@ -125,380 +232,320 @@ class ImageComposer:
             "All files (*)",
         ]
 
-    def compose(self, image: ImageSettings, savename=None):
-        """
-        Compose image and return an RGBA uint8 array with exact pixel size.
-
-        Pillow/NumPy implementation:
-        - arrays are pasted directly into a top-left-origin canvas
-        - text, borders, and scale bar are drawn with ImageDraw
-        - coord_mapping reproduces Pillow's nearest-neighbour resize exactly
-        """
-
-        if not image.elements:
-            raise ValueError("No elements to compose")
-
-        elems = sorted(image.elements.items())
-        eshapes = np.array([e.data.shape for _, e in elems], dtype=int)
-        layer_keys, layers = self._layers(elems)
-
-        merged = ImageComposer.merged_image(image, layers)
-        mh, mw, _ = merged.shape
-        bw = int(image.borderWidth)
-
-        # ------------------------------------------------------------
-        # Layout geometry
-        # ------------------------------------------------------------
-        mscale = 1.0
+    @staticmethod
+    def _layout_geometry(image, element_shapes, merged_shape):
+        """Calculate all canvas and panel positions for one layout."""
+        merged_height, merged_width = merged_shape
+        border_width = int(image.borderWidth)
+        element_count = len(element_shapes)
 
         if image.layout in (Layouts.IL, Layouts.IR):
-            strip_w = int(eshapes[:, 1].max())
-            strip_h = int(eshapes[:, 0].sum() + bw * (len(elems) - 1))
+            strip_width = int(element_shapes[:, 1].max())
+            strip_height = int(element_shapes[:, 0].sum() + border_width * (element_count - 1))
+            merged_scale = strip_height / merged_height
+            output_merged_width = int(round(merged_width * merged_scale))
+            output_merged_height = strip_height
+            width = int(strip_width + output_merged_width + 3 * border_width)
+            height = int(strip_height + 2 * border_width)
 
-            mscale = strip_h / mh
-            merged_w = int(round(mw * mscale))
-            merged_h = strip_h
-
-            W = int(strip_w + merged_w + 3 * bw)
-            H = int(strip_h + 2 * bw)
-
-            exs = [bw] * len(elems)
+            element_x = [border_width] * element_count
             if image.layout == Layouts.IR:
-                exs = [int(W - bw - w) for h, w in eshapes]
-
-            eys = (np.cumsum(eshapes[:, 0] + bw) - eshapes[0, 0]).astype(int).tolist()
+                element_x = [
+                    int(width - border_width - item_width)
+                    for _item_height, item_width in element_shapes
+                ]
+            element_y = (
+                np.cumsum(element_shapes[:, 0] + border_width) - element_shapes[0, 0]
+            ).astype(int)
+            merged_x = (
+                2 * border_width + strip_width if image.layout == Layouts.IL else border_width
+            )
+            merged_y = border_width
 
         elif image.layout in (Layouts.IA, Layouts.IB):
-            strip_w = int(eshapes[:, 1].sum() + bw * (len(elems) - 1))
-            strip_h = int(eshapes[:, 0].max())
+            strip_width = int(element_shapes[:, 1].sum() + border_width * (element_count - 1))
+            strip_height = int(element_shapes[:, 0].max())
+            merged_scale = strip_width / merged_width
+            output_merged_width = strip_width
+            output_merged_height = int(round(merged_height * merged_scale))
+            width = int(strip_width + 2 * border_width)
+            height = int(strip_height + output_merged_height + 3 * border_width)
 
-            mscale = strip_w / mw
-            merged_w = strip_w
-            merged_h = int(round(mh * mscale))
-
-            W = int(strip_w + 2 * bw)
-            H = int(strip_h + merged_h + 3 * bw)
-
-            eys = [bw] * len(elems)
+            element_y = [border_width] * element_count
             if image.layout == Layouts.IB:
-                eys = [int(H - bw - h) for h, w in eshapes]
-
-            exs = (np.cumsum(eshapes[:, 1] + bw) - eshapes[0, 1]).astype(int).tolist()
+                element_y = [
+                    int(height - border_width - item_height)
+                    for item_height, _item_width in element_shapes
+                ]
+            element_x = (
+                np.cumsum(element_shapes[:, 1] + border_width) - element_shapes[0, 1]
+            ).astype(int)
+            merged_x = border_width
+            merged_y = (
+                2 * border_width + strip_height if image.layout == Layouts.IA else border_width
+            )
 
         elif image.layout == Layouts.MERGED:
-            merged_w, merged_h = int(mw), int(mh)
-            W, H = int(mw + 2 * bw), int(mh + 2 * bw)
-            exs, eys = [], []
+            merged_scale = 1.0
+            output_merged_width = int(merged_width)
+            output_merged_height = int(merged_height)
+            width = int(merged_width + 2 * border_width)
+            height = int(merged_height + 2 * border_width)
+            element_x = ()
+            element_y = ()
+            merged_x = border_width
+            merged_y = border_width
 
         else:
             raise NotImplementedError(image.layout)
 
-        # ------------------------------------------------------------
-        # Helpers
-        # ------------------------------------------------------------
-        def rgb255(rgb, alpha=255):
-            a = np.asarray(rgb, dtype=float)
-            a = np.clip(a, 0, 1)
-            vals = [int(round(255 * v)) for v in a[:3]]
-            return tuple(vals + [int(alpha)])
+        return _LayoutGeometry(
+            width=width,
+            height=height,
+            merged_x=int(merged_x),
+            merged_y=int(merged_y),
+            merged_width=output_merged_width,
+            merged_height=output_merged_height,
+            merged_scale=merged_scale,
+            element_x=tuple(int(value) for value in element_x),
+            element_y=tuple(int(value) for value in element_y),
+        )
 
-        def arr_to_rgba(arr):
-            arr = np.asarray(arr, dtype=float)
-            arr = np.clip(arr, 0, 1)
-            if arr.ndim == 2:
-                arr = np.repeat(arr[..., None], 3, axis=2)
-            alpha = np.full(arr.shape[:2] + (1,), 255, dtype=np.uint8)
-            rgb = np.round(arr[..., :3] * 255).astype(np.uint8)
-            return np.concatenate([rgb, alpha], axis=2)
-
-        def resize_rgba(arr, size):
-            pil = Image.fromarray(arr_to_rgba(arr), mode="RGBA")
-            if pil.size != tuple(size):
-                pil = pil.resize(tuple(size), resample=Image.Resampling.NEAREST)
-            return pil
-
-        strip_images = {}
-        for slot, _element in elems:
+    def _strip_images(self, elements, layer_keys, layers):
+        """Return cached Pillow images for the individual element panels."""
+        images = {}
+        for slot, _element in elements:
             key = layer_keys[slot]
             if key not in self._strip_image_cache:
                 layer = layers[slot]
-                self._strip_image_cache[key] = resize_rgba(layer, (layer.shape[1], layer.shape[0]))
-            strip_images[slot] = self._strip_image_cache[key]
+                self._strip_image_cache[key] = _resize_rgba(layer, (layer.shape[1], layer.shape[0]))
+            images[slot] = self._strip_image_cache[key]
+        return images
 
-        def get_font(size):
-            size = max(1, int(round(size)))
-            for name in ("DejaVuSans.ttf", "Arial.ttf"):
-                try:
-                    return ImageFont.truetype(name, size=size)
-                except OSError:
-                    pass
-            return ImageFont.load_default()
+    @staticmethod
+    def _drawing_context(image, geometry):
+        """Create the canvas and shared drawing resources."""
+        canvas = Image.new(
+            "RGBA",
+            (geometry.width, geometry.height),
+            _rgb255(image.borderColor),
+        )
+        font_size = image.fontsize * image.dpi / 72
+        return _DrawingContext(
+            canvas=canvas,
+            draw=ImageDraw.Draw(canvas, mode="RGBA"),
+            font=_font(font_size),
+            panel_font=_font(font_size * 1.2),
+            font_size=font_size,
+            label_dx=int(round(0.012 * geometry.width)),
+            label_dy=int(round(0.016 * geometry.height)),
+            image_colors=image.colorscheme.colors(),
+            foreground_color=image.panelLabelColor,
+        )
 
-        _LUMA = np.array([0.2126, 0.7152, 0.0722])
+    @staticmethod
+    def _draw_text(context, xy, text, font, fill, anchor=None, stroke_scale=0.06):
+        """Draw outlined text onto the composition canvas."""
+        stroke_width = max(1, int(round(stroke_scale * font.size)))
+        overlay = Image.new("RGBA", context.canvas.size, (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay, mode="RGBA")
+        outline = _outline_color(np.array(fill[:3]) / 255.0)
+        x, y = xy
+        for dx in range(-stroke_width, stroke_width + 1):
+            for dy in range(-stroke_width, stroke_width + 1):
+                if dx * dx + dy * dy <= stroke_width * stroke_width:
+                    overlay_draw.text(
+                        (x + dx, y + dy),
+                        text,
+                        font=font,
+                        fill=outline,
+                        anchor=anchor,
+                    )
+        overlay_draw.text(xy, text, font=font, fill=fill, anchor=anchor)
+        context.canvas.alpha_composite(overlay)
 
-        def luma(rgb):
-            rgb = np.asarray(rgb, dtype=float)
-            rgb = np.clip(rgb, 0, 1)
-            lin = np.where(
-                rgb <= 0.04045,
-                rgb / 12.92,
-                ((rgb + 0.055) / 1.055) ** 2.4,
-            )
-            return float((lin * _LUMA).sum())
+    def _draw_element_strip(self, image, elements, layers, strip_images, geometry, context):
+        """Draw individual element panels, borders, and labels."""
+        if image.layout == Layouts.MERGED:
+            return
+        border_width = int(image.borderWidth)
+        for index, (x, y, (slot, element)) in enumerate(
+            zip(geometry.element_x, geometry.element_y, elements, strict=True)
+        ):
+            layer = layers[slot]
+            height, width = layer.shape
+            context.canvas.alpha_composite(strip_images[slot], dest=(x, y))
 
-        def outline_color(rgb):
-            L = luma(rgb)
-            if L < 0.05:
-                return rgb255([1, 1, 1], alpha=153)
-            if L < 0.12:
-                return rgb255(np.asarray(rgb) / 2, alpha=153)
-            return rgb255([0, 0, 0], alpha=153)
-
-        def draw_text(draw, xy, text, font, fill, anchor=None, stroke_scale=0.06):
-            stroke_width = max(1, int(round(stroke_scale * font.size)))
-
-            # Create transparent overlay
-            overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-            odraw = ImageDraw.Draw(overlay, mode="RGBA")
-
-            # Semi-transparent black outline
-            # outline = (0, 0, 0, 153)  # 0.6 alpha
-            outline = outline_color(np.array(fill[:3]) / 255.0)
-
-            # Draw outline by stamping text in a circle
-            x, y = xy
-            for dx in range(-stroke_width, stroke_width + 1):
-                for dy in range(-stroke_width, stroke_width + 1):
-                    if dx * dx + dy * dy <= stroke_width * stroke_width:
-                        odraw.text((x + dx, y + dy), text, font=font, fill=outline, anchor=anchor)
-
-            # Draw main text (opaque) on same overlay
-            odraw.text(xy, text, font=font, fill=fill, anchor=anchor)
-
-            # Composite onto canvas
-            canvas.alpha_composite(overlay)
-
-        def format_length(value, units):
-            """
-            Convert a physical length to a suitable display prefix.
-
-            `value` is in the original `units`.
-            """
-            if units not in DISPLAY_UNITS:
-                return f"{value:g} {units}"
-            value_nm = value * DISPLAY_UNITS[units]
-            chosen_unit, chosen_scale = "nm", 1.0
-            for unit, scale in DISPLAY_UNITS.items():
-                if value_nm / scale >= 1:
-                    chosen_unit, chosen_scale = unit, scale
-
-            shown = value_nm / chosen_scale
-            return f"{shown:g} {chosen_unit}"
-
-        def nice_number(x):
-            if x <= 0:
-                return 0
-            exp = math.floor(math.log10(x))
-            f = x / (10**exp)
-            if f < 1.5:
-                nf = 1
-            elif f < 3.5:
-                nf = 2
-            elif f < 7.5:
-                nf = 5
-            else:
-                nf = 10
-            return nf * (10**exp)
-
-        def draw_scale_bar(draw):
-            if image.scalebar == Scalebars.NONE:
-                return
-
-            dx, units = image.resolution
-            if dx is None or dx <= 0 or units == "None":
-                return
-
-            # The scalebar must refer to the original input-image pixel size.
-            # merged_w / mscale is the corresponding width in original pixels.
-            target_phys = (merged_w / mscale) * dx * 0.20
-            bar_phys = nice_number(target_phys)
-            if bar_phys <= 0:
-                return
-
-            bar_px = int(round((bar_phys / dx) * mscale))
-            bar_px = max(8, min(bar_px, int(0.8 * merged_w)))
-
-            line_w = max(2, int(round(fontsize * 0.18)))
-            pad = max(4, int(round(fontsize * 0.7)))
-            text_gap = max(2, int(round(fontsize * 0.25)))
-            label = format_length(bar_phys, units)
-
-            bbox = draw.textbbox((0, 0), label, font=font)
-            tw = bbox[2] - bbox[0]
-            th = bbox[3] - bbox[1]
-
-            if image.scalebar in (Scalebars.LL, Scalebars.UL):
-                x0 = mx + pad
-            else:
-                x0 = mx + merged_w - pad - bar_px
-
-            if image.scalebar in (Scalebars.LL, Scalebars.LR):
-                y_line = my + merged_h - pad - th - text_gap
-                y_text = y_line + text_gap
-            else:
-                y_text = my + pad
-                y_line = y_text + th + text_gap
-
-            x1 = x0 + bar_px
-
-            # Optional background box
-            if image.scalebarBgAlpha is not None:
-                bx0 = min(x0, x0 + (bar_px - tw) // 2) - pad // 2
-                bx1 = max(x1, x0 + (bar_px + tw) // 2) + pad // 2
-                by0 = min(y_text, y_line) - pad // 2
-                by1 = max(y_text + th, y_line + line_w) + pad // 2
-
-                overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-                odraw = ImageDraw.Draw(overlay, mode="RGBA")
-                odraw.rectangle(
-                    [bx0, by0, bx1, by1],
-                    fill=rgb255(
-                        image.scalebarBgColor,
-                        alpha=int(round(255 * image.scalebarBgAlpha)),
-                    ),
-                )
-                canvas.alpha_composite(overlay)
-
-            color = rgb255(image.scalebarColor)
-            draw.line([(x0, y_line), (x1, y_line)], fill=color, width=line_w)
-
-            tx = x0 + bar_px // 2
-            draw.text(
-                (tx, y_text),
-                label,
-                font=font,
-                fill=color,
-                anchor="ma",
-            )
-
-        # ------------------------------------------------------------
-        # Canvas
-        # ------------------------------------------------------------
-        canvas = Image.new("RGBA", (W, H), rgb255(image.borderColor))
-        draw = ImageDraw.Draw(canvas, mode="RGBA")
-
-        imcolors = image.colorscheme.colors()
-        fgcolor = image.panelLabelColor
-
-        fontsize = image.fontsize * image.dpi / 72
-        # fontsize = max(1.0, (H * image.fontsize) / 300)
-        font = get_font(fontsize)
-        panel_font = get_font(fontsize * 1.2)
-
-        labelshift = [0.012, 0.016]
-        dx_label = int(round(labelshift[0] * W))
-        dy_label = int(round(labelshift[1] * H))
-
-        # ------------------------------------------------------------
-        # Element strip
-        # ------------------------------------------------------------
-        strip_elements = [] if image.layout == Layouts.MERGED else elems
-        for i, (x, y, (eix, e)) in enumerate(zip(exs, eys, strip_elements, strict=True)):
-            x = int(x)
-            y = int(y)
-
-            arr = layers[eix]
-            h, w = arr.shape
-
-            canvas.alpha_composite(strip_images[eix], dest=(x, y))
-
-            ebw = (bw + 1) // 3
-            if image.elementBorders and ebw > 0:
-                gap = 0
-                draw.rectangle(
+            element_border_width = (border_width + 1) // 3
+            if image.elementBorders and element_border_width > 0:
+                context.draw.rectangle(
                     [
-                        x - ebw - gap,
-                        y - ebw - gap,
-                        x + w + ebw + gap - 1,
-                        y + h + ebw + gap - 1,
+                        x - element_border_width,
+                        y - element_border_width,
+                        x + width + element_border_width - 1,
+                        y + height + element_border_width - 1,
                     ],
-                    outline=rgb255(imcolors[eix]),
-                    width=ebw,
+                    outline=_rgb255(context.image_colors[slot]),
+                    width=element_border_width,
                 )
 
             if image.panelLabels:
-                draw_text(
-                    draw,
-                    (x + dx_label, y + dy_label),
-                    chr(ord("A") + i),
-                    panel_font,
-                    rgb255(fgcolor),
+                self._draw_text(
+                    context,
+                    (x + context.label_dx, y + context.label_dy),
+                    chr(ord("A") + index),
+                    context.panel_font,
+                    _rgb255(context.foreground_color),
                     anchor="la",
                 )
-
             if image.elementLabels:
-                ecolor = imcolors[eix] if image.elementLabelsColored else fgcolor
-                draw_text(
-                    draw,
-                    (x + w - dx_label, y + dy_label),
-                    e.name,
-                    font,
-                    rgb255(ecolor),
+                color = (
+                    context.image_colors[slot]
+                    if image.elementLabelsColored
+                    else context.foreground_color
+                )
+                self._draw_text(
+                    context,
+                    (x + width - context.label_dx, y + context.label_dy),
+                    element.name,
+                    context.font,
+                    _rgb255(color),
                     anchor="ra",
                 )
 
-        # ------------------------------------------------------------
-        # Merged image
-        # ------------------------------------------------------------
-        mx, my = bw, bw
-        if image.layout == Layouts.IL:
-            mx = 2 * bw + strip_w
-        elif image.layout == Layouts.IA:
-            my = 2 * bw + strip_h
+    @staticmethod
+    def _draw_scale_bar(image, geometry, context):
+        """Draw a physical scale bar when resolution and placement permit it."""
+        if image.scalebar == Scalebars.NONE:
+            return
+        resolution, units = image.resolution
+        if resolution is None or resolution <= 0 or units == "None":
+            return
 
-        mx = int(mx)
-        my = int(my)
+        target_length = (geometry.merged_width / geometry.merged_scale) * resolution * 0.20
+        physical_length = _nice_number(target_length)
+        if physical_length <= 0:
+            return
 
-        canvas.alpha_composite(
-            resize_rgba(merged, (merged_w, merged_h)),
-            dest=(mx, my),
+        bar_width = int(round((physical_length / resolution) * geometry.merged_scale))
+        bar_width = max(8, min(bar_width, int(0.8 * geometry.merged_width)))
+        line_width = max(2, int(round(context.font_size * 0.18)))
+        padding = max(4, int(round(context.font_size * 0.7)))
+        text_gap = max(2, int(round(context.font_size * 0.25)))
+        label = _format_length(physical_length, units)
+        bbox = context.draw.textbbox((0, 0), label, font=context.font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+
+        if image.scalebar in (Scalebars.LL, Scalebars.UL):
+            x0 = geometry.merged_x + padding
+        else:
+            x0 = geometry.merged_x + geometry.merged_width - padding - bar_width
+        if image.scalebar in (Scalebars.LL, Scalebars.LR):
+            line_y = geometry.merged_y + geometry.merged_height - padding - text_height - text_gap
+            text_y = line_y + text_gap
+        else:
+            text_y = geometry.merged_y + padding
+            line_y = text_y + text_height + text_gap
+        x1 = x0 + bar_width
+
+        if image.scalebarBgAlpha is not None:
+            box_x0 = min(x0, x0 + (bar_width - text_width) // 2) - padding // 2
+            box_x1 = max(x1, x0 + (bar_width + text_width) // 2) + padding // 2
+            box_y0 = min(text_y, line_y) - padding // 2
+            box_y1 = max(text_y + text_height, line_y + line_width) + padding // 2
+            overlay = Image.new("RGBA", context.canvas.size, (0, 0, 0, 0))
+            overlay_draw = ImageDraw.Draw(overlay, mode="RGBA")
+            overlay_draw.rectangle(
+                [box_x0, box_y0, box_x1, box_y1],
+                fill=_rgb255(
+                    image.scalebarBgColor,
+                    alpha=int(round(255 * image.scalebarBgAlpha)),
+                ),
+            )
+            context.canvas.alpha_composite(overlay)
+
+        color = _rgb255(image.scalebarColor)
+        context.draw.line(
+            [(x0, line_y), (x1, line_y)],
+            fill=color,
+            width=line_width,
+        )
+        context.draw.text(
+            (x0 + bar_width // 2, text_y),
+            label,
+            font=context.font,
+            fill=color,
+            anchor="ma",
         )
 
+    @staticmethod
+    def _save(array, image, savename):
+        """Save the composed array, flattening transparency for PDF output."""
+        extension = Path(savename).suffix.lower()
+        output = Image.fromarray(array, mode="RGBA")
+        if extension == ".pdf":
+            background = tuple(int(255 * value) for value in np.clip(image.borderColor, 0, 1))
+            flattened = Image.new("RGB", output.size, background)
+            flattened.paste(output, mask=output.getchannel("A"))
+            flattened.save(savename, resolution=float(image.dpi))
+        else:
+            output.save(savename)
+
+    def compose(self, image: ImageSettings, savename=None):
+        """Compose and optionally save an exact-size RGBA image."""
+        if not image.elements:
+            raise ValueError("No elements to compose")
+
+        elements = sorted(image.elements.items())
+        element_shapes = np.array([element.data.shape for _, element in elements], dtype=int)
+        layer_keys, layers = self._layers(elements)
+        merged = self.merged_image(image, layers)
+        merged_height, merged_width, _channels = merged.shape
+        geometry = self._layout_geometry(
+            image,
+            element_shapes,
+            (merged_height, merged_width),
+        )
+        strip_images = self._strip_images(elements, layer_keys, layers)
+        context = self._drawing_context(image, geometry)
+
+        self._draw_element_strip(
+            image,
+            elements,
+            layers,
+            strip_images,
+            geometry,
+            context,
+        )
+        context.canvas.alpha_composite(
+            _resize_rgba(merged, (geometry.merged_width, geometry.merged_height)),
+            dest=(geometry.merged_x, geometry.merged_y),
+        )
         if image.panelLabels:
-            draw_text(
-                draw,
-                (mx + dx_label, my + dy_label),
-                chr(ord("A") + len(elems)),
-                panel_font,
-                rgb255(fgcolor),
+            self._draw_text(
+                context,
+                (
+                    geometry.merged_x + context.label_dx,
+                    geometry.merged_y + context.label_dy,
+                ),
+                chr(ord("A") + len(elements)),
+                context.panel_font,
+                _rgb255(context.foreground_color),
                 anchor="la",
             )
+        self._draw_scale_bar(image, geometry, context)
 
-        draw_scale_bar(draw)
-
-        # ------------------------------------------------------------
-        # Return/save
-        # ------------------------------------------------------------
-        buf = np.asarray(canvas, dtype=np.uint8).copy()
-
+        result = np.asarray(context.canvas, dtype=np.uint8).copy()
         if savename is not None:
-            ext = Path(savename).suffix.lower()
-            img = Image.fromarray(buf, mode="RGBA")
-
-            if ext == ".pdf":
-                bg = tuple(int(255 * c) for c in np.clip(image.borderColor, 0, 1))
-                flat = Image.new("RGB", img.size, bg)
-                flat.paste(img, mask=img.getchannel("A"))
-                flat.save(savename, resolution=float(image.dpi))
-            else:
-                img.save(savename)
+            self._save(result, image, savename)
 
         self.coord_mapping = ComposedImageMapping(
-            x=mx,
-            y=my,
-            width=merged_w,
-            height=merged_h,
-            source_x=_nearest_lookup(mw, merged_w),
-            source_y=_nearest_lookup(mh, merged_h),
+            x=geometry.merged_x,
+            y=geometry.merged_y,
+            width=geometry.merged_width,
+            height=geometry.merged_height,
+            source_x=_nearest_lookup(merged_width, geometry.merged_width),
+            source_y=_nearest_lookup(merged_height, geometry.merged_height),
         )
-        return buf
+        return result

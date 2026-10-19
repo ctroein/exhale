@@ -18,9 +18,13 @@ if str(ROOT) not in sys.path:
 
 
 def get_version():
+    configured = os.environ.get("EXHALE_VERSION")
+    if configured:
+        return configured.lstrip("v")
     tag = subprocess.check_output(
         ["git", "describe", "--tags", "--abbrev=0"],
         text=True,
+        cwd=ROOT,
     ).strip()
     return tag.lstrip("v")
 

@@ -11,6 +11,7 @@ on:
         options:
           - all
           - windows
+          - linux
           - macos
           - pypi
   push:
@@ -49,7 +50,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
-          pip install ".[pyinstaller]"
+          pip install .
 
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
@@ -99,6 +100,60 @@ jobs:
           Get-ChildItem dist\*.exe
           gh release upload "${{ github.ref_name }}" dist/*.exe --clobber
 
+  linux-app:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'linux'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install .
+
+      - name: Build frozen app
+        working-directory: packaging
+        env:
+          EXHALE_VERSION: ${{ github.ref_name }}
+        run: |
+          pyinstaller exhale.spec --noconfirm --distpath ../dist --workpath ../build
+
+      - name: Package Linux app
+        run: tar -C dist -czf dist/exhale-linux.tar.gz exhale
+
+      - name: Upload Linux workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: exhale-linux
+          path: dist/exhale-linux.tar.gz
+
+      - name: Create GitHub release if tag build
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || \
+          gh release create "${{ github.ref_name }}" --generate-notes
+
+      - name: Upload Linux archive to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" dist/exhale-linux.tar.gz --clobber
+
   macos-app:
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'macos'
     runs-on: macos-latest
@@ -124,7 +179,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
-          pip install ".[pyinstaller]"
+          pip install .
 
       - name: Build macOS app bundle
         working-directory: packaging
@@ -251,4 +306,3 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-

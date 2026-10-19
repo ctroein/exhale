@@ -9,6 +9,7 @@ from qtpy.QtCore import Qt
 
 from .. import appearance
 from ..data.projectdata import SegmentationParameters, SegmentationResult
+from ..data.source_refs import SourceUnavailableError
 from ..imaging.listwidgets import ElementListWidget
 from ..widgets import IconCheckDelegate
 from .analysis_settings_dialog import AnalysisSettingsDialog
@@ -323,9 +324,10 @@ class AnalysisController:
                 raise ValueError("The selected analysis channel is no longer available")
             asset = self.window.project_data.assets.get(ref.source_id)
             if asset is None or not asset.is_available:
-                raise RuntimeError(
-                    f"Channel {channel.name!r} is unavailable because {ref.source_id!r} is not open"
-                )
+                source = self.window.project_data.sources.get(ref.source_id)
+                if source is not None:
+                    raise SourceUnavailableError(source)
+                raise RuntimeError(f"Channel {channel.name!r} has no data file")
             settings.append(self.window.element_controller.ensure_settings(ref))
         return settings
 
@@ -398,6 +400,9 @@ class AnalysisController:
         try:
             nuclei_settings, tissue_settings = self.element_settings(selected_refs)
             element_settings = self.element_settings(element_refs)
+        except SourceUnavailableError as exc:
+            window.show_source_unavailable(exc.source_id)
+            return
         except (KeyError, RuntimeError, ValueError) as exc:
             window.show_error("Cannot start analysis", str(exc))
             return

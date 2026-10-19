@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""
-Created on Tue Apr 21 10:43:55 2026
-
-@author: carl
-"""
-#!/usr/bin/env python3
+"""Build Windows and macOS application icons from a 1024-pixel PNG."""
 
 import argparse
 import shutil
@@ -42,8 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Generate .icns and .ico files from a single 1024x1024 PNG. "
-            "Requires Pillow, plus either Apple's `iconutil` on macOS or "
-            "`png2icns` on Linux for the .icns step."
+            "Requires Pillow and icnsutil."
         )
     )
     parser.add_argument("input_png", type=Path, help="Source PNG, ideally 1024x1024 RGBA")
@@ -84,11 +78,11 @@ def build_ico(img: Image.Image, out_path: Path) -> None:
     img.save(out_path, format="ICO", sizes=ICO_SIZES)
 
 
-def build_icns(iconset_dir: Path, out_path: Path) -> str:
+def build_icns(iconset_dir: Path, out_path: Path) -> None:
     try:
         from icnsutil import IcnsFile
-    except ImportError as e:
-        raise RuntimeError("icnsutil is not installed. Run: pip install icnsutil") from e
+    except ImportError as error:
+        raise RuntimeError("icnsutil is not installed. Run: pip install icnsutil") from error
 
     icns = IcnsFile()
     for filename, _size in ICONSET_SPECS:

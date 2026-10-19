@@ -1,14 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-import sys
 import os
-from os.path import abspath, join, dirname, pardir
+import sys
+from os.path import abspath, dirname, join
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT, BUNDLE, Splash
 from PyInstaller.compat import is_linux
 from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 import subprocess
 
-ROOT = dirname(SPECPATH)
+PACKAGING_DIR = abspath(SPECPATH)
+ROOT = dirname(PACKAGING_DIR)
 
 def get_version():
     v = os.environ.get("EXHALE_VERSION")
@@ -28,37 +29,35 @@ exhale_version = get_version()
 print("Building Exhale", exhale_version)
 
 
-res = join(pardir, "exhale", "resources")
+res = join(ROOT, "exhale", "resources")
 datas = [
     (join(res, "models", "2D_versatile_fluo_copy", "*"),
         "exhale/resources/models/2D_versatile_fluo_copy"),
 ]
 
 if sys.platform == "darwin":
-#    datas.append((join(res, "icons", "xrf.icns"), "exhale/resources/icons"))
-    icon_file = join("icons", "xrf.icns")
+    icon_file = join(PACKAGING_DIR, "icons", "xrf.icns")
 else:
     datas.append((join(res, "icons", "xrf.png"), "exhale/resources/icons"))
     if sys.platform == "win32":
-        icon_file = join("icons", "xrf.ico")
+        icon_file = join(PACKAGING_DIR, "icons", "xrf.ico")
     else:
-        icon_file = join("icons", "xrf.png")
+        icon_file = join(res, "icons", "xrf.png")
 
 datas = datas + copy_metadata('imageio')
 
 import napari
-BUNDLE_ROOT = abspath(join(dirname(napari.__file__), pardir, 'bundle'))
+BUNDLE_ROOT = abspath(join(dirname(napari.__file__), os.pardir, 'bundle'))
 
 a = Analysis(
-    ['../run_exhale.py'],
+    [join(ROOT, "run_exhale.py")],
     pathex=[],
     binaries=[],
     hiddenimports=['pkg_resources.py2_warn', 'importlib', 'freetype', 'stardist'
         ] + collect_submodules("imageio"),
     runtime_hooks=[],
     datas=datas,
-    hookspath=[join(BUNDLE_ROOT, 'hooks'),
-        join(dirname(sys.argv[0]), 'hooks')],
+    hookspath=[join(BUNDLE_ROOT, 'hooks'), join(PACKAGING_DIR, 'hooks')],
     excludes=[
         'FixTk', 'Tkinter',
         'torch', 'nvidia', 'hdf5plugin',
@@ -78,7 +77,7 @@ strip = False
 strip = is_linux and strip
 
 if do_splash:
-    splash = Splash('exhale_splash.jpg',
+    splash = Splash(join(res, 'xrf_splash.jpg'),
                     binaries=a.binaries,
                     datas=a.datas,
                     text_pos=(15, 30),
