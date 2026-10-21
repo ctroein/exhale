@@ -12,6 +12,7 @@ from exhale.analysis.matrixplots import (
     CORRELATION_COLOR_STOPS,
     MATRIX_PALETTES,
     correlation_matrix_spec,
+    matrix_text_layout,
 )
 from exhale.data.plotsettings import MATRIX_PALETTE_KEYS
 
@@ -37,6 +38,30 @@ def test_correlation_matrix_plot_spec_preserves_data_and_presentation():
 
 def test_selectable_matrix_palettes_match_persisted_palette_keys():
     assert tuple(palette.key for palette in MATRIX_PALETTES) == MATRIX_PALETTE_KEYS
+    assert tuple(palette.name for palette in MATRIX_PALETTES) == (
+        "Blue–white–red",
+        "Purple–white–green",
+        "Brown–white–teal",
+        "Blue–black–red",
+    )
+
+
+def test_matrix_text_layout_derives_shared_cell_and_colorbar_spacing():
+    spec = correlation_matrix_spec(
+        np.eye(2),
+        ("Cu", "Manganese"),
+        show_values=True,
+        decimals=2,
+    )
+    measured = matrix_text_layout(spec, 12.0, lambda text: len(text) * 6.0)
+
+    assert measured.longest_label == 54.0
+    assert measured.value_width == 30.0
+    assert measured.minimum_cell == 33.0
+    assert measured.preferred_cell == 42.0
+    assert measured.row_label_width == 60.0
+    assert measured.color_bar_label_gap == 10.0
+    assert measured.color_bar_side_width == 64.2
 
 
 def test_density_grid_uses_regular_value_coordinates_and_bin_areas():

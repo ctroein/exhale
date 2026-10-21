@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Exhale
+GenericName=XRF image analysis
+Comment=Explore and compose X-ray fluorescence images
+Exec=@EXEC@
+Icon=io.github.ctroein.Exhale
+Terminal=false
+Categories=Science;
+Keywords=XRF;X-ray fluorescence;image analysis;
+StartupNotify=true

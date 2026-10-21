@@ -9,6 +9,7 @@ from qtpy import QtCore, QtGui, QtWidgets
 from ..data.constants import CONCENTRATION_UNITS
 from ..data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
 from ..data.source_refs import SourceUnavailableError
+from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
 from ..tooltips import IMAGE_SETTINGS_DIALOG, apply_tooltips
 from .image_settings_dialog import ImageSettingsDialog
 from .imagecomposer import ImageComposer
@@ -467,18 +468,17 @@ class ImageController:
         image = self.current_image
         if image is None:
             return
+        directory = self.window.project_manager.default_export_directory()
+        if directory is None:
+            return
         filters = ImageComposer.get_format_filters()
         filename = self.window.askFileName(
             title="Save composed image",
             filter=";;".join(filters),
-            settingname="ImageDir",
+            settingname=EXPORT_DIRECTORY_SETTING,
             save=True,
             defaultfilename=image.name + ".png",
-            directory=(
-                str(self.window.project_dir / "exports")
-                if self.window.project_dir is not None
-                else None
-            ),
+            directory=directory,
         )
         if filename is not None:
             self.composer.compose(image, filename)

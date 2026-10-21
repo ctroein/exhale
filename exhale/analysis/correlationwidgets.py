@@ -19,6 +19,7 @@ from .matrixplots import (
     ColorStop,
     MatrixPlotSpec,
     correlation_matrix_spec,
+    matrix_text_layout,
 )
 
 MatrixResult = CorrelationMatrix | SampleSimilarityMatrix
@@ -35,7 +36,19 @@ class _MatrixColorBarItem(pg.ColorBarItem):
 
     def __init__(self, *args, **kwargs):
         self._matrix_vertical_extent: tuple[float, float] | None = None
+        self._right_label_nudge = 0.0
         super().__init__(*args, **kwargs)
+
+    def set_right_label_nudge(self, nudge: float) -> None:
+        self._right_label_nudge = nudge
+        self._position_right_label()
+
+    def _position_right_label(self) -> None:
+        if "right" not in getattr(self, "axes", {}):
+            return
+        axis = self.getAxis("right")
+        axis.resizeEvent()
+        axis.label.setPos(axis.label.pos() - QtCore.QPointF(self._right_label_nudge, 0))
 
     def set_matrix_vertical_extent(self, top: float, bottom: float) -> None:
         self._matrix_vertical_extent = (top, bottom)
@@ -47,6 +60,7 @@ class _MatrixColorBarItem(pg.ColorBarItem):
             rect.setTop(self._matrix_vertical_extent[0])
             rect.setBottom(self._matrix_vertical_extent[1])
         super().setGeometry(rect)
+        self._position_right_label()
 
 
 class CorrelationPlotWidget(QtWidgets.QWidget):
@@ -62,7 +76,6 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         self._matrix_bounds = QtCore.QRectF()
         self._fit_pending = False
         self._reset_matrix_view = False
-        self._color_bar_spacing_initialized = False
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -106,9 +119,15 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         self.color_bar = _MatrixColorBarItem(
             values=(-1.0, 1.0),
             colorMap=self.color_map,
-            label="Pearson r",
             interactive=False,
         )
+        color_bar_metrics = QtGui.QFontMetrics(QtWidgets.QApplication.font())
+        digit_width = color_bar_metrics.horizontalAdvance("0")
+        self.color_bar.getAxis("right").setStyle(
+            showValues=True,
+            tickTextOffset=round(digit_width * 1.5),
+        )
+        self.color_bar.set_right_label_nudge(digit_width / 3.0)
         self.color_bar.setImageItem(self.image, insert_in=self.matrix_plot.getPlotItem())
         matrix_item.layout.setAlignment(self.color_bar, QtCore.Qt.AlignVCenter)
         self.reload_appearance()
@@ -137,7 +156,7 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
             self.color_bar.setColorMap(self.color_map)
             self.color_bar.setLevels(spec.levels)
             foreground = QtWidgets.QApplication.palette().color(QtGui.QPalette.Text)
-            self.color_bar.getAxis("left").setLabel(spec.color_bar_label, color=foreground.name())
+            self.color_bar.getAxis("right").setLabel(spec.color_bar_label, color=foreground.name())
             self.image.setImage(spec.values, autoLevels=False)
             size = len(spec.labels)
             matrix_rect = QtCore.QRectF(-0.5, -0.5, size, size)
@@ -201,8 +220,8 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
             column_label = pg.TextItem(
                 text,
                 color=foreground,
-                anchor=(0.0, 0.5),
-                angle=-45,
+                anchor=(1.0, 0.0),
+                angle=45,
             )
             column_label.setPos(index, size - 0.35)
             column_label.setZValue(10)
@@ -216,36 +235,23 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         spec = self._matrix_spec
         size = len(spec.labels)
         metrics = QtGui.QFontMetrics(QtWidgets.QApplication.font())
-        label_margin = metrics.height()
-        if not self._color_bar_spacing_initialized:
-            label_width = self.color_bar.getAxis("left").label.boundingRect().height()
-            self.matrix_plot.getPlotItem().layout.setColumnFixedWidth(
-                4, round(label_margin + label_width)
-            )
-            self.color_bar.getAxis("left").setWidth(label_margin)
-            self._color_bar_spacing_initialized = True
-            self.matrix_plot.getPlotItem().layout.activate()
-            QtCore.QTimer.singleShot(0, self._fit_matrix)
-            return
-        longest = max(metrics.horizontalAdvance(label) for label in spec.labels)
+        text = matrix_text_layout(spec, metrics.height(), metrics.horizontalAdvance)
+        self.matrix_plot.getPlotItem().layout.setColumnFixedWidth(
+            4, round(text.color_bar_matrix_gap)
+        )
         viewport = self.matrix_plot.viewport().size()
         if not self.matrix_plot.isVisible() or min(viewport.width(), viewport.height()) < 50:
             self.matrix_plot.setUpdatesEnabled(True)
             return
-        if spec.show_values:
-            widest_value = f"-{0:.{spec.decimals}f}"
-            preferred_cell = max(
-                metrics.height() + 2,
-                metrics.horizontalAdvance(widest_value) + 2 * metrics.horizontalAdvance("0"),
-            )
-        else:
-            preferred_cell = 2 * metrics.height()
-        fitted_cell = preferred_cell
-        top_margin = metrics.height() / (2 * fitted_cell) + 0.1
-        row_margin = max(0.35, longest / fitted_cell + 0.2)
+        fitted_cell = text.preferred_cell
+        column_label_y = size - 0.5 + text.column_label_gap / fitted_cell
+        for label in self._axis_labels[1::2]:
+            label.setPos(label.pos().x(), column_label_y)
+        top_margin = text.font_height / (2 * fitted_cell) + 0.1
+        row_margin = max(0.35, text.row_label_width / fitted_cell)
         column_margin = max(
             0.6,
-            (longest * 0.72 + metrics.height()) / fitted_cell + 0.3,
+            text.column_label_height / fitted_cell + 0.3,
         )
         content_bounds = QtCore.QRectF(
             -0.5 - row_margin,
@@ -263,8 +269,8 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         else:
             extra = self._matrix_bounds.width() / aspect - self._matrix_bounds.height()
             self._matrix_bounds.adjust(0, -extra / 2, 0, extra / 2)
-        preferred_view_width = view_rect.width() / preferred_cell
-        preferred_view_height = view_rect.height() / preferred_cell
+        preferred_view_width = view_rect.width() / text.preferred_cell
+        preferred_view_height = view_rect.height() / text.preferred_cell
         if (
             self._matrix_bounds.width() < preferred_view_width
             and self._matrix_bounds.height() < preferred_view_height
@@ -356,15 +362,6 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         self.color_bar.set_matrix_vertical_extent(
             visible_matrix_rect.top(), visible_matrix_rect.bottom()
         )
-        self._position_matrix_color_bar_label()
-
-    def _position_matrix_color_bar_label(self) -> None:
-        axis = self.color_bar.getAxis("left")
-        label = axis.label
-        margin = QtGui.QFontMetrics(QtWidgets.QApplication.font()).height()
-        label_right = label.sceneBoundingRect().right()
-        bar_left = self.color_bar.bar.sceneBoundingRect().left()
-        label.setPos(label.pos() + QtCore.QPointF(bar_left - margin - label_right, 0))
 
     def _matrix_view_range_changed(self, *_unused) -> None:
         QtCore.QTimer.singleShot(0, self._resize_matrix_color_bar)
@@ -475,7 +472,7 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
             axis.setPen(foreground)
             axis.setTextPen(foreground)
         color_bar_label = "" if self._matrix_spec is None else self._matrix_spec.color_bar_label
-        self.color_bar.getAxis("left").setLabel(color_bar_label, color=foreground.name())
+        self.color_bar.getAxis("right").setLabel(color_bar_label, color=foreground.name())
         for axis_name in ("left", "right", "top", "bottom"):
             axis = self.density_color_bar.getAxis(axis_name)
             axis.setPen(foreground)

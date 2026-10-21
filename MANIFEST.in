@@ -6,6 +6,7 @@ include run_exhale.py
 
 recursive-include exhale *.py
 recursive-include exhale/resources/icons *.png *.svg
+recursive-include exhale/resources/linux *.desktop
 include exhale/resources/*.jpg
 recursive-include exhale/resources/models *.json *.h5
 

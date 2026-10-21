@@ -10,6 +10,7 @@ from pyqtgraph.exporters import ImageExporter, SVGExporter
 from qtpy import QtCore, QtWidgets
 
 from ..data.plotsettings import ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES
+from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
 from ..tooltips import CORRELATION_MATRIX
 from .correlations import (
     CorrelationMatrix,
@@ -19,6 +20,9 @@ from .correlations import (
 )
 from .correlations import sample_similarity_matrix as calculate_sample_similarities
 from .correlationwidgets import CorrelationMatrixView, CorrelationPlotWidget
+from .matrix_export_dialog import MatrixExportDialog
+from .matrixpdf import export_matrix_pdf, export_matrix_png, export_matrix_svg
+from .matrixplots import correlation_matrix_spec
 
 
 @dataclass(frozen=True)
@@ -87,13 +91,23 @@ class CorrelationController:
         window.elementScatterBins.valueChanged.connect(self._update_scatter)
         window.sampleSimilaritySamples.itemSelectionChanged.connect(self._sample_selection_changed)
         window.saveElementCorrelationPlot.clicked.connect(
-            partial(self.save_plot, self.element_matrix.plot, "element-correlations.png")
+            partial(
+                self.export_matrix,
+                self.element_matrix,
+                ELEMENT_CORRELATIONS,
+                "element-correlations.pdf",
+            )
         )
         window.saveElementScatterPlot.clicked.connect(
             partial(self.save_plot, self.scatter_plot, "element-scatter.png")
         )
         window.saveSampleSimilarityPlot.clicked.connect(
-            partial(self.save_plot, self.similarity_matrix.plot, "sample-similarities.png")
+            partial(
+                self.export_matrix,
+                self.similarity_matrix,
+                SAMPLE_SIMILARITIES,
+                "sample-similarities.pdf",
+            )
         )
         self.element_matrix.pairActivated.connect(self._show_pair)
         window.channelsChanged.connect(self.refresh_samples)
@@ -458,13 +472,15 @@ class CorrelationController:
         self.window.correlationModes.setCurrentWidget(self.window.elementScatterTab)
 
     def save_plot(self, plot, default_filename: str) -> None:
-        project_dir = self.window.project_dir
+        directory = self.window.project_manager.default_export_directory()
+        if directory is None:
+            return
         filename = self.window.askFileName(
             "Save correlation plot",
             filter="PNG image (*.png);;SVG image (*.svg)",
-            settingname="correlations/export_directory",
+            settingname=EXPORT_DIRECTORY_SETTING,
             save=True,
-            directory=None if project_dir is None else str(project_dir),
+            directory=directory,
             defaultfilename=default_filename,
         )
         if filename is None:
@@ -474,6 +490,85 @@ class CorrelationController:
             exporter_class(plot.current_plot_item()).export(filename)
         except (OSError, RuntimeError, ValueError) as error:
             self._show_input_error(f"The plot could not be saved.\n\n{error}")
+
+    def export_matrix(self, matrix, settings_key: str, default_filename: str) -> None:
+        """Configure a matrix and export it through the renderer for its file type."""
+        if matrix.result is None:
+            self._show_input_error("There is no correlation matrix to export.")
+            return
+        project_data = self.window.project_data
+        settings = project_data.matrix_plot_settings[settings_key]
+        spec = correlation_matrix_spec(
+            matrix.result.values,
+            matrix.result.labels,
+            palette=settings.palette,
+            show_values=settings.show_values,
+            decimals=settings.decimals,
+        )
+        dialog = MatrixExportDialog(
+            project_data.matrix_publication_settings,
+            settings,
+            spec,
+            self.window,
+        )
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        matrix.reload_settings()
+        self.window.project_state_manager.project_changed()
+
+        directory = self.window.project_manager.default_export_directory()
+        if directory is None:
+            return
+        filename = self.window.askFileName(
+            "Export correlation matrix",
+            filter="PDF document (*.pdf);;PNG image (*.png);;SVG image (*.svg)",
+            settingname=EXPORT_DIRECTORY_SETTING,
+            save=True,
+            directory=directory,
+            defaultfilename=default_filename,
+        )
+        if filename is None:
+            return
+        spec = correlation_matrix_spec(
+            matrix.result.values,
+            matrix.result.labels,
+            palette=settings.palette,
+            show_values=settings.show_values,
+            decimals=settings.decimals,
+        )
+        try:
+            if filename.lower().endswith(".pdf"):
+                outcome = export_matrix_pdf(
+                    spec,
+                    project_data.matrix_publication_settings,
+                    settings,
+                    filename,
+                )
+            elif filename.lower().endswith(".svg"):
+                outcome = export_matrix_svg(
+                    spec,
+                    project_data.matrix_publication_settings,
+                    settings,
+                    filename,
+                )
+            else:
+                outcome = export_matrix_png(
+                    spec,
+                    project_data.matrix_publication_settings,
+                    settings,
+                    filename,
+                )
+        except (OSError, RuntimeError, ValueError) as error:
+            self._show_input_error(f"The matrix could not be exported.\n\n{error}")
+            return
+        adjustments = list(outcome.adjustments)
+        if adjustments:
+            QtWidgets.QMessageBox.information(
+                self.window,
+                "Matrix export adjusted",
+                "The matrix was exported with these temporary adjustments:\n\n"
+                + "\n".join(adjustments),
+            )
 
     def copy_table(self, mode=ELEMENT_MODE) -> None:
         matrix = self.element_matrix if mode == self.ELEMENT_MODE else self.similarity_matrix

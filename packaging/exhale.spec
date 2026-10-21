@@ -33,6 +33,7 @@ res = join(ROOT, "exhale", "resources")
 datas = [
     (join(res, "models", "2D_versatile_fluo_copy", "*"),
         "exhale/resources/models/2D_versatile_fluo_copy"),
+    (join(res, "linux", "*.desktop"), "exhale/resources/linux"),
 ]
 
 if sys.platform == "darwin":

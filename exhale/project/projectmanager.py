@@ -16,6 +16,7 @@ from .projectstatemanager import PROJECT_AUTOSAVE_FILENAME
 
 PROJECT_FILENAME = "project.xhp"
 PROJECT_DIRECTORY_SETTING = "ProjectDirectory"
+EXPORT_DIRECTORY_SETTING = "ExportDirectory"
 
 
 class ProjectManager:
@@ -31,6 +32,18 @@ class ProjectManager:
 
     def remember_directory(self, directory: str | Path) -> None:
         self.window.settings.setValue(PROJECT_DIRECTORY_SETTING, str(Path(directory)))
+
+    def default_export_directory(self) -> str | None:
+        """Return the current project's export directory or the remembered fallback."""
+        if self.window.project_dir is None:
+            return self.window.settings.value(EXPORT_DIRECTORY_SETTING, "")
+        directory = Path(self.window.project_dir) / "exports"
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._show_error("Creating the export directory failed", exc)
+            return None
+        return str(directory)
 
     def new_project(self) -> bool:
         w = self.window

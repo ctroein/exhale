@@ -11,6 +11,7 @@ from .. import appearance
 from ..data.projectdata import SegmentationParameters, SegmentationResult
 from ..data.source_refs import SourceUnavailableError
 from ..imaging.listwidgets import ElementListWidget
+from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
 from ..tooltips import ANALYSIS_SETTINGS_DIALOG, apply_tooltips
 from ..widgets import IconCheckDelegate
 from .analysis_settings_dialog import AnalysisSettingsDialog
@@ -477,16 +478,17 @@ class AnalysisController:
         if self.naparihelper is None or self.naparihelper.sample is None:
             return
         window = self.window
+        default_directory = window.project_manager.default_export_directory()
+        if default_directory is None:
+            return
         directory = QtWidgets.QFileDialog.getExistingDirectory(
             window,
             "Choose export directory",
-            str(window.project_dir / "exports")
-            if window.project_dir is not None
-            else window.settings.value("AnalysisExportDir", ""),
+            default_directory,
         )
         if not directory:
             return
-        window.settings.setValue("AnalysisExportDir", directory)
+        window.settings.setValue(EXPORT_DIRECTORY_SETTING, directory)
         try:
             output = self.naparihelper.sample.export_results(directory)
         except Exception as exc:
@@ -501,11 +503,15 @@ class AnalysisController:
         if self.naparihelper is None or self.naparihelper.sample is None:
             return
         window = self.window
+        directory = window.project_manager.default_export_directory()
+        if directory is None:
+            return
         filename = window.askFileName(
             "Save segmentation screenshot",
             filter="PNG image (*.png)",
-            settingname="AnalysisScreenshotDir",
+            settingname=EXPORT_DIRECTORY_SETTING,
             save=True,
+            directory=directory,
             defaultfilename="segmentation.png",
         )
         if filename is None:

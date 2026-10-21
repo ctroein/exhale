@@ -125,6 +125,13 @@ Element density views use regular bins spanning all paired finite values and
 retain source values as plot coordinates. Bin counts are divided by their
 value-space areas and interpolated in value space. The user can set the bin
 count or instead show a bounded-size ordinary scatter plot.
+Matrix plots share a renderer-independent specification between their
+interactive view and a publication renderer for PDF, PNG, and SVG. Text
+measurement, cell-size, label-extent, and colour-bar spacing rules are
+calculated centrally. Export typography is shared by the project's matrix
+plots, while dimensions and appearance belong to each matrix type. PDF and SVG
+use vector cells and text; PNG uses the same physical layout at the selected
+DPI.
 
 Completed analysis is represented by `SegmentationResult` in the project
 model. The large arrays and result tables are stored separately by

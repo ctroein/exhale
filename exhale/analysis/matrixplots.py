@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -39,10 +40,45 @@ class MatrixPalette:
     color_stops: tuple[ColorStop, ...]
 
 
+@dataclass(frozen=True)
+class MatrixTextLayout:
+    """Measured text and spacing shared by interactive and export renderers."""
+
+    font_height: float
+    digit_width: float
+    longest_label: float
+    value_width: float
+    minimum_cell: float
+    preferred_cell: float
+    page_padding: float
+    row_label_width: float
+    column_label_height: float
+    column_label_gap: float
+    color_bar_matrix_gap: float
+    color_bar_width: float
+    color_bar_tick_gap: float
+    color_bar_tick_width: float
+    color_bar_label_gap: float
+    color_bar_label_width: float
+
+    @property
+    def color_bar_side_width(self) -> float:
+        """Return all horizontal space occupied by a visible colorbar."""
+        return (
+            self.color_bar_matrix_gap
+            + self.color_bar_width
+            + self.color_bar_tick_gap
+            + max(
+                self.color_bar_tick_width,
+                self.digit_width + self.color_bar_label_gap + self.color_bar_label_width,
+            )
+        )
+
+
 MATRIX_PALETTES = (
     MatrixPalette(
         "blue-white-red",
-        "Blue – white – red",
+        "Blue–white–red",
         (
             ColorStop(0.0, (49, 54, 149, 255)),
             ColorStop(0.5, (255, 255, 255, 255)),
@@ -51,7 +87,7 @@ MATRIX_PALETTES = (
     ),
     MatrixPalette(
         "purple-white-green",
-        "Purple – white – green",
+        "Purple–white–green",
         (
             ColorStop(0.0, (118, 42, 131, 255)),
             ColorStop(0.5, (247, 247, 247, 255)),
@@ -60,7 +96,7 @@ MATRIX_PALETTES = (
     ),
     MatrixPalette(
         "brown-white-blue-green",
-        "Brown – white – teal",
+        "Brown–white–teal",
         (
             ColorStop(0.0, (140, 81, 10, 255)),
             ColorStop(0.5, (245, 245, 245, 255)),
@@ -69,7 +105,7 @@ MATRIX_PALETTES = (
     ),
     MatrixPalette(
         "blue-black-red",
-        "Blue – black – red",
+        "Blue–black–red",
         (
             ColorStop(0.0, (49, 54, 149, 255)),
             ColorStop(0.5, (0, 0, 0, 255)),
@@ -79,6 +115,41 @@ MATRIX_PALETTES = (
 )
 MATRIX_PALETTES_BY_KEY = {palette.key: palette for palette in MATRIX_PALETTES}
 CORRELATION_COLOR_STOPS = MATRIX_PALETTES_BY_KEY["blue-white-red"].color_stops
+
+
+def matrix_text_layout(
+    spec: MatrixPlotSpec,
+    font_height: float,
+    measure_text: Callable[[str], float],
+) -> MatrixTextLayout:
+    """Measure renderer-independent matrix text and derive standard spacing."""
+    digit_width = measure_text("0")
+    longest_label = max((measure_text(label) for label in spec.labels), default=0.0)
+    value_width = measure_text(f"-{0:.{spec.decimals}f}")
+    if spec.show_values:
+        minimum_cell = value_width + digit_width * 0.5
+        preferred_cell = max(font_height + 2.0, value_width + digit_width * 2.0)
+    else:
+        minimum_cell = font_height
+        preferred_cell = font_height * 2.0
+    return MatrixTextLayout(
+        font_height=font_height,
+        digit_width=digit_width,
+        longest_label=longest_label,
+        value_width=value_width,
+        minimum_cell=minimum_cell,
+        preferred_cell=preferred_cell,
+        page_padding=font_height * 2.0,
+        row_label_width=longest_label + font_height * 0.5,
+        column_label_height=(longest_label + font_height) / np.sqrt(2.0) + font_height * 0.5,
+        column_label_gap=font_height * 0.5,
+        color_bar_matrix_gap=font_height * 1.5,
+        color_bar_width=font_height * 0.6,
+        color_bar_tick_gap=digit_width * 1.5,
+        color_bar_tick_width=measure_text("-1.00"),
+        color_bar_label_gap=font_height - digit_width / 3.0,
+        color_bar_label_width=font_height,
+    )
 
 
 def correlation_matrix_spec(

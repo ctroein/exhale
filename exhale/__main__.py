@@ -7,10 +7,67 @@ Main entry point for the Exhale GUI.
 """
 
 import os
+import shutil
 import sys
 import traceback
+from pathlib import Path
 
 from . import application_description, application_name, application_title, resdir
+
+DESKTOP_ID = "io.github.ctroein.Exhale"
+
+
+def _desktop_exec_argument(value):
+    """Quote one argument according to the Desktop Entry Exec field rules."""
+    value = str(value)
+    for character in ("\\", '"', "`", "$"):
+        value = value.replace(character, "\\" + character)
+    return f'"{value.replace("%", "%%")}"'
+
+
+def _desktop_command():
+    """Return a command which starts this particular EXHALE installation."""
+    invoked = Path(sys.argv[0])
+    if invoked.name == "exhale":
+        if not invoked.is_absolute():
+            invoked = Path(shutil.which(str(invoked)) or invoked.absolute())
+        return (str(invoked),)
+    if invoked.name == "run_exhale.py":
+        return (sys.executable, str(invoked.resolve()))
+    return (sys.executable, "-m", "exhale")
+
+
+def _desktop_paths():
+    """Return the per-user desktop entry and icon paths."""
+    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")).expanduser()
+    if not data_home.is_absolute():
+        raise ValueError("XDG_DATA_HOME must be an absolute path")
+    return (
+        data_home / "applications" / f"{DESKTOP_ID}.desktop",
+        data_home / "icons" / "hicolor" / "512x512" / "apps" / f"{DESKTOP_ID}.png",
+    )
+
+
+def _install_desktop():
+    """Register this EXHALE installation with the current user's desktop."""
+    desktop_path, icon_path = _desktop_paths()
+    command = " ".join(_desktop_exec_argument(part) for part in _desktop_command())
+    template = resdir.joinpath("linux", f"{DESKTOP_ID}.desktop").read_text(encoding="utf-8")
+    desktop_entry = template.replace("@EXEC@", f"{command} %F")
+
+    desktop_path.parent.mkdir(parents=True, exist_ok=True)
+    icon_path.parent.mkdir(parents=True, exist_ok=True)
+    desktop_path.write_text(desktop_entry, encoding="utf-8")
+    icon_path.write_bytes(resdir.joinpath("icons", "xrf.png").read_bytes())
+    print(f"Installed desktop entry: {desktop_path}")
+
+
+def _remove_desktop():
+    """Remove EXHALE's per-user desktop registration, if present."""
+    desktop_path, icon_path = _desktop_paths()
+    desktop_path.unlink(missing_ok=True)
+    icon_path.unlink(missing_ok=True)
+    print(f"Removed desktop entry: {desktop_path}")
 
 
 def _recompile_ui(uipath, pypath):
@@ -76,6 +133,17 @@ def _run_application(pyi_splash=None):
     parser.add_argument(
         "-p", "--project", metavar="DIR", dest="project_dir", help="saved project directory to load"
     )
+    desktop_actions = parser.add_mutually_exclusive_group()
+    desktop_actions.add_argument(
+        "--install-desktop",
+        action="store_true",
+        help="register Exhale in the current user's desktop menu and exit",
+    )
+    desktop_actions.add_argument(
+        "--remove-desktop",
+        action="store_true",
+        help="remove Exhale from the current user's desktop menu and exit",
+    )
     parser.add_argument("files", metavar="file", nargs="*", help="initial input files to load")
     parameters = ["project_dir", "files"]
 
@@ -90,6 +158,15 @@ def _run_application(pyi_splash=None):
     # if selmp and args.mpmethod:
     #     multiprocessing.set_start_method(args.mpmethod)
 
+    if args.install_desktop or args.remove_desktop:
+        if not sys.platform.startswith("linux"):
+            parser.error("desktop registration is supported only on Linux")
+        if args.install_desktop:
+            _install_desktop()
+        else:
+            _remove_desktop()
+        return 0
+
     # Rebuild UI code on the fly; useful while developing
     if has_ui_files:
         package_dir = os.path.dirname(__file__)
@@ -97,6 +174,7 @@ def _run_application(pyi_splash=None):
             "main_window": package_dir,
             "image_settings_dialog": os.path.join(package_dir, "imaging"),
             "analysis_settings_dialog": os.path.join(package_dir, "analysis"),
+            "matrix_export_dialog": os.path.join(package_dir, "analysis"),
             "settings_dialog": package_dir,
         }
         for uif, output_dir in ui_files.items():
@@ -121,6 +199,8 @@ def _run_application(pyi_splash=None):
     if not app:
         #        QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True) # why?
         app = QtWidgets.QApplication(sys.argv)
+    if sys.platform.startswith("linux"):
+        app.setDesktopFileName(DESKTOP_ID)
 
     qt_splash = None
     if pyi_splash is None:
@@ -156,6 +236,7 @@ def _run_application(pyi_splash=None):
             app.processEvents()
 
     from . import appearance, icons
+
     appearance.initialize(QtCore.QSettings("CIPA", application_name))
     if sys.platform != "darwin":
         app.setWindowIcon(icons.icon(icons.IconName.LOGO))

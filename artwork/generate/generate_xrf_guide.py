@@ -8,10 +8,11 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 from scipy.interpolate import splev, splprep
-from scipy.ndimage import gaussian_filter, label
+from scipy.ndimage import binary_fill_holes, gaussian_filter, label
+from skimage.measure import find_contours
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_OUTPUT = HERE / "xrf_guide.png"
+DEFAULT_MASK_SOURCE = HERE / "16-masks.png"
 
 # GIMP palette indices in 16-masks.png: background, overlap, yellow, blue.
 # Convert them to bit 0 = yellow and bit 1 = blue before extracting masks.
@@ -50,10 +51,26 @@ def component_boundary(component: np.ndarray) -> np.ndarray:
     start = edges[0][0]
     boundary = [start]
     point = following[start]
-    while point != start:
+    while point != start and len(boundary) <= len(edges):
         boundary.append(point)
-        point = following[point]
-    return np.asarray(boundary, dtype=np.float64)
+        point = following.get(point)
+        if point is None:
+            break
+    if point == start:
+        return np.asarray(boundary, dtype=np.float64)
+
+    # Junctions created while bridging diagonal source pixels can give a grid
+    # vertex more than one outgoing edge.  The exact tracer above deliberately
+    # stays unchanged for ordinary icon components; use marching squares only
+    # for shapes whose edge graph is not a single loop.
+    padded = np.pad(component, 1)
+    contours = find_contours(padded, 0.5, fully_connected="high")
+    if not contours:
+        raise ValueError("could not trace a component boundary")
+    contour = max(contours, key=len)
+    if np.allclose(contour[0], contour[-1]):
+        contour = contour[:-1]
+    return np.column_stack((contour[:, 1] - 1, contour[:, 0] - 1))
 
 
 def resample_boundary(boundary: np.ndarray, count: int) -> np.ndarray:
@@ -127,12 +144,20 @@ def rasterize_contours(
     diagonal_bridges: list[tuple[tuple[float, float], tuple[float, float], float]],
     size: int,
     grid_size: int,
+    holes: list[list[np.ndarray]] | None = None,
 ) -> np.ndarray:
     canvas = Image.new("L", (size, size), 0)
-    draw = ImageDraw.Draw(canvas)
     scale = size / grid_size
-    for contour in contours:
-        draw.polygon([tuple(point * scale) for point in contour], fill=255)
+    if holes is None:
+        holes = [[] for _ in contours]
+    for contour, contour_holes in zip(contours, holes, strict=True):
+        layer = Image.new("L", (size, size), 0)
+        layer_draw = ImageDraw.Draw(layer)
+        layer_draw.polygon([tuple(point * scale) for point in contour], fill=255)
+        for hole in contour_holes:
+            layer_draw.polygon([tuple(point * scale) for point in hole], fill=0)
+        canvas = Image.fromarray(np.maximum(np.asarray(canvas), np.asarray(layer)))
+    draw = ImageDraw.Draw(canvas)
     for start, end, width in diagonal_bridges:
         midpoint = (
             (start[0] + end[0]) / 2.0 + (end[1] - start[1]) * 0.06,
@@ -155,10 +180,21 @@ def overlap_ratios(candidate: np.ndarray, target: np.ndarray) -> tuple[float, fl
     return outside, missed
 
 
+def rasterize_local_contour(
+    contour: np.ndarray,
+    shape: tuple[int, int],
+    scale: float,
+) -> np.ndarray:
+    """Rasterize a contour expressed in local source-grid coordinates."""
+    canvas = Image.new("L", (shape[1], shape[0]), 0)
+    ImageDraw.Draw(canvas).polygon([tuple(point * scale) for point in contour], fill=255)
+    return np.asarray(canvas) >= 128
+
+
 def contour_energy(
     controls: np.ndarray,
     target: np.ndarray,
-    grid_size: int,
+    raster_scale: float,
     maximum_spill: float,
     maximum_missed: float,
     length_coefficient: float,
@@ -169,9 +205,9 @@ def contour_energy(
     curve = spline_curve(controls)
     if not np.isfinite(curve).all() or polygon_self_intersects(curve[::4]):
         return np.inf, curve, np.inf, np.inf, np.inf
-    candidate = rasterize_contours([curve], [], target.shape[0], grid_size)
+    candidate = rasterize_local_contour(curve, target.shape, raster_scale)
     outside, missed = overlap_ratios(candidate, target)
-    mask_area = target.sum() / (target.shape[0] / grid_size) ** 2
+    mask_area = target.sum() / raster_scale**2
     length = contour_length(curve) / np.sqrt(max(mask_area, 1.0))
     spill_target_penalty = (outside - maximum_spill) ** 2
     spill_excess_penalty = max(0.0, outside - maximum_spill) ** 2
@@ -179,8 +215,8 @@ def contour_energy(
     energy = (
         length_coefficient * length
         + curvature_coefficient * curvature_cost(curve)
-        + 2500.0 * spill_target_penalty
-        + 50000.0 * spill_excess_penalty
+        + 1000.0 * spill_target_penalty
+        + 25000.0 * spill_excess_penalty
         + 80000.0 * missed_penalty
     )
     return energy, curve, outside, missed, length
@@ -195,13 +231,27 @@ def anneal_component(
     maximum_missed: float,
     length_coefficient: float,
     curvature_coefficient: float,
-    working_size: int = 128,
+    maximum_control_points: int,
+    raster_scale: int,
 ) -> tuple[np.ndarray, float, float, list[dict[str, float]]]:
     """Optimize one contour as a softly pulled, irregular rubber band."""
-    grid_size = component.shape[0]
-    scale = working_size / grid_size
-    target_image = Image.fromarray(component.astype(np.uint8) * 255).resize(
-        (working_size, working_size), Image.Resampling.NEAREST
+    occupied_rows, occupied_columns = np.nonzero(component)
+    padding = 2
+    row_origin = int(occupied_rows.min()) - padding
+    column_origin = int(occupied_columns.min()) - padding
+    row_stop = int(occupied_rows.max()) + padding + 1
+    column_stop = int(occupied_columns.max()) + padding + 1
+    local_component = np.zeros(
+        (row_stop - row_origin, column_stop - column_origin), dtype=bool
+    )
+    local_component[occupied_rows - row_origin, occupied_columns - column_origin] = True
+    filled_component = binary_fill_holes(local_component)
+    target_image = Image.fromarray(filled_component.astype(np.uint8) * 255).resize(
+        (
+            filled_component.shape[1] * raster_scale,
+            filled_component.shape[0] * raster_scale,
+        ),
+        Image.Resampling.NEAREST,
     )
     target = np.asarray(target_image) >= 128
 
@@ -210,22 +260,22 @@ def anneal_component(
     for first, second in connections:
         topology_draw.line(
             (
-                (first[1] + 0.5) * scale,
-                (first[0] + 0.5) * scale,
-                (second[1] + 0.5) * scale,
-                (second[0] + 0.5) * scale,
+                (first[1] - column_origin + 0.5) * raster_scale,
+                (first[0] - row_origin + 0.5) * raster_scale,
+                (second[1] - column_origin + 0.5) * raster_scale,
+                (second[0] - row_origin + 0.5) * raster_scale,
             ),
             fill=255,
-            width=max(2, round(scale * 0.12)),
+            width=max(2, round(raster_scale * 0.12)),
         )
     topology = np.asarray(topology_image) >= 128
-    boundary = component_boundary(topology) / scale
+    boundary = component_boundary(topology) / raster_scale
     perimeter = (
-        4 * int(component.sum())
-        - 2 * int((component[:, 1:] & component[:, :-1]).sum())
-        - 2 * int((component[1:, :] & component[:-1, :]).sum())
+        4 * int(filled_component.sum())
+        - 2 * int((filled_component[:, 1:] & filled_component[:, :-1]).sum())
+        - 2 * int((filled_component[1:, :] & filled_component[:-1, :]).sum())
     )
-    control_count = int(np.clip(round(perimeter * 1.6), 8, 28))
+    control_count = int(np.clip(round(perimeter * 0.65), 6, maximum_control_points))
     controls = resample_boundary(boundary, control_count)
 
     center = controls.mean(axis=0)
@@ -236,7 +286,7 @@ def anneal_component(
     current = contour_energy(
         controls,
         target,
-        grid_size,
+        raster_scale,
         maximum_spill,
         maximum_missed,
         length_coefficient,
@@ -271,12 +321,17 @@ def anneal_component(
         proposal[indices] += (
             normal[indices] * normal_move[:, None] + tangent[indices] * tangent_move[:, None]
         )
-        proposal = np.clip(proposal, -0.35, component.shape[0] + 0.35)
+        proposal[:, 0] = np.clip(
+            proposal[:, 0], -0.35, local_component.shape[1] + 0.35
+        )
+        proposal[:, 1] = np.clip(
+            proposal[:, 1], -0.35, local_component.shape[0] + 0.35
+        )
 
         proposed = contour_energy(
             proposal,
             target,
-            grid_size,
+            raster_scale,
             maximum_spill,
             maximum_missed,
             length_coefficient,
@@ -330,6 +385,7 @@ def anneal_component(
             uphill_sum = 0.0
             invalid_count = 0
 
+    best_controls += (column_origin, row_origin)
     return best_controls, best[2], best[3], diagnostics
 
 
@@ -342,15 +398,20 @@ def spline_mask(
     maximum_missed: float,
     length_coefficient: float,
     curvature_coefficient: float,
+    maximum_control_points: int = 28,
 ) -> tuple[np.ndarray, float, float, int, int, list[dict[str, float]]]:
     """Optimize smooth closed contours around the connected mask components."""
     small = np.asarray(mask, dtype=bool)
     if small.shape[0] != small.shape[1] or size % small.shape[0]:
         raise ValueError("the source must be square and divide the output size")
+    if maximum_control_points < 6:
+        raise ValueError("maximum_control_points must be at least 6")
     grid_size = small.shape[0]
+    raster_scale = size // grid_size
     components, component_count = label(
         small, structure=np.array(((0, 1, 0), (1, 1, 1), (0, 1, 0)))
     )
+    component_sizes = np.bincount(components.ravel(), minlength=component_count + 1)
     rng = np.random.default_rng(seed)
     diagonal_contacts = []
     for row, column in zip(*np.nonzero(small), strict=True):
@@ -361,9 +422,15 @@ def spline_mask(
             if small[other] and components[row, column] != components[other]:
                 diagonal_contacts.append(((row, column), other))
 
-    rng.shuffle(diagonal_contacts)
-    merge_target = round(len(diagonal_contacts) / 2)
-    selected_contacts = diagonal_contacts[:merge_target]
+    eligible_contacts = [
+        (first, second)
+        for first, second in diagonal_contacts
+        if component_sizes[int(components[first])] < 5
+        and component_sizes[int(components[second])] < 5
+    ]
+    rng.shuffle(eligible_contacts)
+    merge_target = round(len(eligible_contacts) / 2)
+    selected_contacts = eligible_contacts[:merge_target]
 
     parent = list(range(component_count + 1))
 
@@ -391,6 +458,7 @@ def spline_mask(
         connections[find(int(components[first]))].append((first, second))
 
     contours = []
+    contour_holes = []
     worst_spill = 0.0
     worst_missed = 0.0
     diagnostics = []
@@ -405,6 +473,8 @@ def spline_mask(
             maximum_missed,
             length_coefficient,
             curvature_coefficient,
+            maximum_control_points,
+            raster_scale,
         )
         for row in component_diagnostics:
             row["group"] = group_index
@@ -412,10 +482,26 @@ def spline_mask(
             row["diagonal_connections"] = len(connections[root])
         diagnostics.extend(component_diagnostics)
         contours.append(spline_curve(controls))
+        holes, hole_count = label(
+            binary_fill_holes(component) & ~component,
+            structure=np.array(((0, 1, 0), (1, 1, 1), (0, 1, 0))),
+        )
+        group_holes = []
+        for hole_number in range(1, hole_count + 1):
+            hole = holes == hole_number
+            boundary = component_boundary(hole)
+            perimeter = (
+                4 * int(hole.sum())
+                - 2 * int((hole[:, 1:] & hole[:, :-1]).sum())
+                - 2 * int((hole[1:, :] & hole[:-1, :]).sum())
+            )
+            control_count = int(np.clip(round(perimeter * 0.65), 6, maximum_control_points))
+            group_holes.append(spline_curve(resample_boundary(boundary, control_count)))
+        contour_holes.append(group_holes)
         worst_spill = max(worst_spill, spill)
         worst_missed = max(worst_missed, missed)
 
-    result = rasterize_contours(contours, [], size, grid_size)
+    result = rasterize_contours(contours, [], size, grid_size, contour_holes)
 
     return (
         result,
@@ -433,11 +519,12 @@ def generate_guide(
     size: int = 512,
     blur: float = 8.0,
     maximum_spill: float = 0.20,
-    maximum_missed: float = 0.05,
+    maximum_missed: float = 0.12,
     annealing_steps: int = 1200,
     seed: int = 1618,
     length_coefficient: float = 1.0,
     curvature_coefficient: float = 0.08,
+    maximum_control_points: int = 28,
     annealing_log: Path | None = None,
 ) -> tuple[tuple[float, float, int, int], tuple[float, float, int, int]]:
     yellow_mask, blue_mask = load_masks(mask_source)
@@ -457,6 +544,7 @@ def generate_guide(
         maximum_missed,
         length_coefficient,
         curvature_coefficient,
+        maximum_control_points,
     )
     (
         blue,
@@ -474,9 +562,10 @@ def generate_guide(
         maximum_missed,
         length_coefficient,
         curvature_coefficient,
+        maximum_control_points,
     )
 
-    background_rng = np.random.default_rng(9042)
+    background_rng = np.random.default_rng(seed + 7424)
     background_noise = gaussian_filter(background_rng.standard_normal((size, size)), blur * 2.25)
     background_noise /= max(float(background_noise.std()), 1e-9)
 
@@ -516,23 +605,30 @@ def generate_guide(
     )
 
 
+def default_output(mask_source: Path) -> Path:
+    """Return a variant-specific guide name beside the mask source."""
+    variant = mask_source.stem.removesuffix("-masks")
+    return mask_source.with_name(f"xrf_guide_{variant}.png")
+
+
 def parse_args() -> ArgumentParser:
-    parser = ArgumentParser(description="Generate a combined RGB XRF guide from the 16px masks.")
+    parser = ArgumentParser(description="Generate a combined RGB XRF guide from indexed masks.")
+    parser.add_argument("mask_source", type=Path, nargs="?", default=DEFAULT_MASK_SOURCE)
     parser.add_argument(
         "-o",
         "--output",
         type=Path,
-        default=DEFAULT_OUTPUT,
-        help=f"output PNG (default: {DEFAULT_OUTPUT})",
+        help="output PNG (default: xrf_guide_VARIANT.png beside the mask source)",
     )
     parser.add_argument("--size", type=int, default=512)
     parser.add_argument("--blur", type=float, default=8.0)
     parser.add_argument("--maximum-spill", type=float, default=0.20)
-    parser.add_argument("--maximum-missed", type=float, default=0.05)
+    parser.add_argument("--maximum-missed", type=float, default=0.12)
     parser.add_argument("--annealing-steps", type=int, default=1200)
     parser.add_argument("--seed", type=int, default=1618)
     parser.add_argument("--length-coefficient", type=float, default=1.0)
     parser.add_argument("--curvature-coefficient", type=float, default=0.08)
+    parser.add_argument("--maximum-control-points", type=int, default=28)
     parser.add_argument(
         "--annealing-log",
         type=Path,
@@ -543,9 +639,10 @@ def parse_args() -> ArgumentParser:
 
 def main() -> None:
     args = parse_args().parse_args()
+    output = args.output or default_output(args.mask_source)
     yellow_metrics, blue_metrics = generate_guide(
-        HERE / "16-masks.png",
-        args.output,
+        args.mask_source,
+        output,
         args.size,
         args.blur,
         args.maximum_spill,
@@ -554,9 +651,10 @@ def main() -> None:
         args.seed,
         args.length_coefficient,
         args.curvature_coefficient,
+        args.maximum_control_points,
         args.annealing_log,
     )
-    print(args.output)
+    print(output)
     print(
         f"yellow: worst component spill {yellow_metrics[0]:.3f}, "
         f"worst missed area {yellow_metrics[1]:.3f}, "

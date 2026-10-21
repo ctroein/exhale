@@ -33,6 +33,7 @@ from exhale.data.source_refs import open_source
 from exhale.imaging.listwidgets import ElementListWidget, SampleElementCheckDelegate
 from exhale.main_window import ACTIVE_TAB_SETTINGS_KEY, SPLITTER_SETTINGS_PREFIX, MainWindow
 from exhale.project import projectio
+from exhale.project.projectmanager import EXPORT_DIRECTORY_SETTING
 from exhale.project.projectstatemanager import PROJECT_SAVE_ON_EXIT_KEY
 from exhale.widgets import IconCheckDelegate
 
@@ -747,6 +748,36 @@ class SourceLifecycleTests(unittest.TestCase):
             canvas_only=True,
             flash=True,
         )
+
+    def test_project_output_choosers_default_to_export_directory(self):
+        project_dir = Path(self.temp.name) / "project"
+        project_dir.mkdir()
+        expected = str(project_dir / "exports")
+        self.win.project_dir = project_dir
+
+        self.win.image_controller.current_image = ImageSettings("composed")
+        with patch.object(self.win, "askFileName", return_value=None) as ask:
+            self.win.image_controller.export_image()
+        self.assertEqual(ask.call_args.kwargs["directory"], expected)
+        self.assertEqual(ask.call_args.kwargs["settingname"], EXPORT_DIRECTORY_SETTING)
+
+        with patch.object(self.win, "askFileName", return_value=None) as ask:
+            self.win.correlation_controller.save_plot(Mock(), "correlations.png")
+        self.assertEqual(ask.call_args.kwargs["directory"], expected)
+        self.assertEqual(ask.call_args.kwargs["settingname"], EXPORT_DIRECTORY_SETTING)
+
+        self.win.analysis_controller.naparihelper = SimpleNamespace(sample=object(), viewer=Mock())
+        with patch.object(self.win, "askFileName", return_value=None) as ask:
+            self.win.analysis_controller.save_screenshot()
+        self.assertEqual(ask.call_args.kwargs["directory"], expected)
+        self.assertEqual(ask.call_args.kwargs["settingname"], EXPORT_DIRECTORY_SETTING)
+
+        with patch.object(
+            QtWidgets.QFileDialog, "getExistingDirectory", return_value=""
+        ) as choose_directory:
+            self.win.analysis_controller.export_results()
+        self.assertEqual(choose_directory.call_args.args[2], expected)
+        self.assertTrue(Path(expected).is_dir())
 
     def test_analysis_requires_a_saved_project(self):
         self.assertIsNone(self.win.project_dir)

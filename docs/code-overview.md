@@ -70,8 +70,8 @@ validation, tolerant object loading, and atomic writes.
 ### `exhale/project/projectmanager.py`
 
 Owns project-directory selection and high-level new/open/save/save-as policy.
-It coordinates model persistence, post-load UI refresh, and dirty-state
-handling.
+It coordinates model persistence, post-load UI refresh, dirty-state handling,
+and the shared default location for exported project output.
 
 ### `exhale/project/sourcemanager.py`
 
@@ -247,12 +247,25 @@ heat-map/scatter plotting widgets used by the Correlations tab.
 ### `exhale/analysis/matrixplots.py`
 
 Defines renderer-independent matrix data, colour scales, value formatting,
-and correlation-plot defaults shared by interactive and export renderers.
+text measurements, and spacing rules shared by interactive and export
+renderers.
+
+### `exhale/analysis/matrix_export_dialog.py`
+
+Edits project-wide matrix typography and the physical dimensions and appearance
+settings belonging to one publication matrix plot.
+
+### `exhale/analysis/matrixpdf.py`
+
+Lays out and renders publication correlation matrices as vector PDF and SVG or
+as PNG at a selected DPI, with physical dimensions and project-owned
+typography.
 
 ### `exhale/data/plotsettings.py`
 
-Defines project-owned settings for matrix palettes, displayed values, and
-colour-bar placement, keyed so future matrix plot types can reuse them.
+Defines project-owned settings for matrix palettes, displayed values,
+dimensions, resolution, cell borders, and colour-bar placement, keyed so
+future matrix plot types can reuse them.
 
 ### `exhale/imaging/listwidgets.py`
 
@@ -293,6 +306,12 @@ modal widget; `ExceptionDialog` installs the top-level exception hook.
 
 ## Application information
 
+`exhale.__main__` also owns the Linux per-user desktop registration commands.
+The packaged desktop-entry template is filled with the current installation's
+launcher and installed together with the application icon under the user's XDG
+data directory. Registration remains explicit so pip and uv installations use
+the same mechanism.
+
 ### `exhale/data/constants.py`
 
 Holds shared fixed values, currently physical display-unit scales.
@@ -312,8 +331,9 @@ document generated modules directly.
 
 `exhale/resources/icons/` contains packaged SVG and raster artwork.
 `exhale/resources/models/` contains the bundled StarDist model data.
-`artwork/generate/` contains the indexed mask, appearance reference, deterministic
-guide and alpha-mask utilities, and ImageGen procedure for XRF artwork. `artwork/logos/`
+`artwork/generate/` contains the indexed icon and splash masks, deterministic
+mask-point and guide generators, appearance reference, alpha-mask utility, and
+ImageGen procedure for XRF artwork. `artwork/logos/`
 contains selected full-size logo sources and retained alternatives;
 `artwork/splash/` contains editable splash-screen sources; and
 `artwork/unused-icons/` retains interface icons which are not packaged or used

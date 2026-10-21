@@ -20,6 +20,28 @@ biomedical companies and clinical researchers.
 * Composing element maps into publication-ready figures.
 * Segmentation of cells and clustering of areas in element maps.
 
+## Installation
+
+EXHALE can be installed from PyPI in an isolated environment with
+[uv](https://docs.astral.sh/uv/):
+
+```bash
+uv tool install --python 3.12 exhale-lung
+```
+
+On Linux, desktop-menu registration is explicit and applies only to the current user:
+
+```bash
+exhale --install-desktop
+```
+
+Before uninstalling EXHALE, remove that registration with:
+
+```bash
+exhale --remove-desktop
+uv tool uninstall exhale-lung
+```
+
 ## Developer documentation
 
 Architecture, the file-by-file code overview, and development conventions are

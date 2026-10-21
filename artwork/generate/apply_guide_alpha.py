@@ -14,6 +14,7 @@ GUIDE_FOREGROUND_COLORS = np.array(((218, 151, 18), (16, 91, 198)), dtype=np.uin
 RUNTIME_LOGO = ROOT / "exhale" / "resources" / "icons" / "xrf.png"
 RUNTIME_SPLASH = ROOT / "exhale" / "resources" / "xrf_splash.jpg"
 PACKAGING_LOGO_SOURCE = ROOT / "artwork" / "logos" / "xrf_cells_1024.png"
+SPLASH_SIZE = 627
 
 
 def guide_foreground(guide: Image.Image, size: int) -> np.ndarray:
@@ -135,7 +136,7 @@ def apply_guide_alpha(
     result.save(output)
 
 
-def install_assets(
+def install_icon_assets(
     input_logo: Path,
     guide_path: Path,
     candidate: Path,
@@ -148,12 +149,9 @@ def install_assets(
     background_opaque_percentile: float,
     edge_fade_radius: float,
 ) -> None:
-    """Install an inspected candidate as runtime, splash, and packaging sources."""
+    """Install an inspected candidate as runtime and packaging icon sources."""
     with Image.open(candidate) as source:
         runtime_logo = source.copy()
-
-    with Image.open(input_logo) as source:
-        splash = source.convert("RGB").resize((512, 512), Image.Resampling.LANCZOS)
 
     scale = 1024 / size
     packaging_logo = compose_guide_alpha(
@@ -167,11 +165,20 @@ def install_assets(
         background_opaque_percentile=background_opaque_percentile,
         edge_fade_radius=edge_fade_radius * scale,
     )
-    for destination in (RUNTIME_LOGO, RUNTIME_SPLASH, PACKAGING_LOGO_SOURCE):
+    for destination in (RUNTIME_LOGO, PACKAGING_LOGO_SOURCE):
         destination.parent.mkdir(parents=True, exist_ok=True)
     runtime_logo.save(RUNTIME_LOGO)
-    splash.save(RUNTIME_SPLASH, quality=95)
     packaging_logo.save(PACKAGING_LOGO_SOURCE)
+
+
+def install_splash(input_artwork: Path) -> None:
+    """Install RGB artwork at the application's fixed splash size."""
+    with Image.open(input_artwork) as source:
+        splash = source.convert("RGB").resize(
+            (SPLASH_SIZE, SPLASH_SIZE), Image.Resampling.LANCZOS
+        )
+    RUNTIME_SPLASH.parent.mkdir(parents=True, exist_ok=True)
+    splash.save(RUNTIME_SPLASH, quality=95)
 
 
 def parse_args():
@@ -193,19 +200,26 @@ def parse_args():
     parser.add_argument("--background-alpha-maximum", type=float, default=0.8)
     parser.add_argument("--background-opaque-percentile", type=float, default=95.0)
     parser.add_argument("--edge-fade-radius", type=float, default=5.0)
-    parser.add_argument(
-        "--install",
+    install = parser.add_mutually_exclusive_group()
+    install.add_argument(
+        "--install-icons",
         action="store_true",
-        help=(
-            "after writing the inspection candidate, replace the runtime logo and "
-            "splash plus the 1024px packaging source"
-        ),
+        help="replace the runtime logo and 1024px packaging icon source",
+    )
+    install.add_argument(
+        "--install-splash",
+        action="store_true",
+        help=f"replace only the splash with a {SPLASH_SIZE}px copy of the input artwork",
     )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.install_splash:
+        install_splash(args.input_logo)
+        print(RUNTIME_SPLASH)
+        return
     output = args.output or args.input_logo.with_name(f"{args.input_logo.stem}_masked.png")
     apply_guide_alpha(
         args.input_logo,
@@ -220,8 +234,8 @@ def main() -> None:
         edge_fade_radius=args.edge_fade_radius,
     )
     print(output)
-    if args.install:
-        install_assets(
+    if args.install_icons:
+        install_icon_assets(
             args.input_logo,
             args.guide,
             output,
@@ -234,7 +248,6 @@ def main() -> None:
             edge_fade_radius=args.edge_fade_radius,
         )
         print(RUNTIME_LOGO)
-        print(RUNTIME_SPLASH)
         print(PACKAGING_LOGO_SOURCE)
 
 

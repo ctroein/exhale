@@ -172,9 +172,7 @@ class ComposedImageMappingTests(unittest.TestCase):
                     if isinstance(primitive, TextPrimitive)
                 ]
 
-                self.assertEqual(
-                    tuple(label.text for label in panel_labels[:-1]), element_letters
-                )
+                self.assertEqual(tuple(label.text for label in panel_labels[:-1]), element_letters)
                 self.assertEqual(panel_labels[-1].text, merged_letter)
 
     def test_element_panel_regions_identify_slots(self):

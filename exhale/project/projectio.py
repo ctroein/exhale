@@ -336,6 +336,7 @@ def export_project_state(
             key: settings.to_json()
             for key, settings in sorted(project_data.matrix_plot_settings.items())
         },
+        "matrix_publication": project_data.matrix_publication_settings.to_json(),
     }
 
 
@@ -428,6 +429,15 @@ def load_project_state(
         except (TypeError, ValueError) as exc:
             settings.reset()
             issues.append(f"{key.replace('_', ' ').title()} settings were reset: {exc}")
+    project_data.matrix_publication_settings.reset()
+    try:
+        publication_state = state.get("matrix_publication", {})
+        if not isinstance(publication_state, dict):
+            raise TypeError("expected an object")
+        project_data.matrix_publication_settings.apply_json(publication_state)
+    except (TypeError, ValueError) as exc:
+        project_data.matrix_publication_settings.reset()
+        issues.append(f"Matrix publication settings were reset: {exc}")
 
     # Samples and assets
     external_data_root = state.get("external_data_root")
