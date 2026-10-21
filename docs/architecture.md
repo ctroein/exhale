@@ -157,6 +157,11 @@ and are saved only after they have been initialized. A saved layout containing
 a completely collapsed pane is discarded in favor of the default proportions
 so application state cannot make a panel effectively disappear on restart.
 
+Static tooltip text is kept in `exhale.tooltips`, independently of Designer
+XML and generated modules. The catalogue uses stable Qt object names and is
+applied with strict lookup so UI renaming cannot silently drop help text.
+Tooltips whose text changes with widget state remain with that behavior.
+
 ## Ownership rules
 
 Mutable semantic state has one owner. Widgets display or edit it but must not

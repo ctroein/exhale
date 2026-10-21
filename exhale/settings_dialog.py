@@ -5,6 +5,7 @@ from qtpy import QtCore, QtWidgets
 from . import appearance
 from .project.projectstatemanager import PROJECT_AUTOSAVE_KEY, PROJECT_SAVE_ON_EXIT_KEY
 from .settings_dialog_ui import Ui_SettingsDialog
+from .tooltips import SETTINGS_DIALOG, apply_tooltips
 
 
 class SettingsDialog(QtWidgets.QDialog, Ui_SettingsDialog):
@@ -24,6 +25,7 @@ class SettingsDialog(QtWidgets.QDialog, Ui_SettingsDialog):
         self.saveProjectOnExitCheckBox.setChecked(
             settings.value(PROJECT_SAVE_ON_EXIT_KEY, True, type=bool)
         )
+        apply_tooltips(self, SETTINGS_DIALOG)
 
     def accept(self):
         scheme = appearance.COLOR_SCHEMES[self.colourSchemeComboBox.currentIndex()]

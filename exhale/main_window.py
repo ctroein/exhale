@@ -25,6 +25,13 @@ from .project.projectstatemanager import ProjectStateManager
 from .project.sourcemanager import SourceManager
 from .runtimeinfo import runtime_environment_html
 from .settings_dialog import SettingsDialog
+from .tooltips import (
+    CORRELATION_TABS,
+    MAIN_WINDOW,
+    MAIN_WINDOW_TABS,
+    apply_tab_tooltips,
+    apply_tooltips,
+)
 from .widgets import IconToolButton, initialize_splitter_on_show
 
 ACTIVE_TAB_SETTINGS_KEY = "window/active_tab"
@@ -54,6 +61,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         # QApplication.instance().installEventFilter(self) # needed why?
         self.setupUi(self)
         self.setWindowTitle(application_title)
+        self._configure_tooltips()
 
         self._exception_dialog = ExceptionDetailsDialog(self)
 
@@ -102,6 +110,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.setWindowTitle(f"{application_title} — {project_name}[*]")
         dirty = getattr(self, "project_state_manager", None)
         self.setWindowModified(dirty is not None and dirty.is_dirty)
+
+    def _configure_tooltips(self) -> None:
+        """Describe controls whose scope or consequences are not obvious."""
+        apply_tab_tooltips(self, self.tabWidget, MAIN_WINDOW_TABS)
+        apply_tab_tooltips(self, self.correlationModes, CORRELATION_TABS)
+        apply_tooltips(self, MAIN_WINDOW)
 
     def closeEvent(self, ev):
         skip_confirmation = self._skip_next_quit_confirmation
@@ -185,12 +199,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.actionSettings.setIcon(icons.icon(icons.IconName.SETTINGS))
         self.actionAbout.setIcon(icons.icon(icons.IconName.INFO))
         self.actionQuit.setIcon(icons.icon(icons.IconName.QUIT))
-        self.addProjectFilesButton.setIcon(icons.icon(icons.IconName.OPEN))
+        self.addProjectFilesButton.setIcon(icons.icon(icons.IconName.FILE_DATA))
+        self.addSampleFilesButton.setIcon(icons.icon(icons.IconName.FILE))
+        self.removeButton.setIcon(icons.icon(icons.IconName.DELETE))
         self.refreshChannelsButton.setIcon(icons.icon(icons.IconName.REFRESH))
         self.addImageButton.set_icon_name(icons.IconName.ADD_IMAGE)
-        self.addImageButton.setToolTip("Add image")
         self.deleteImageButton.set_icon_name(icons.IconName.DELETE)
-        self.deleteImageButton.setToolTip("Delete image")
         self.showSingleElementButton.set_icon_name(icons.IconName.ELEMENT)
         self.composeSave.setIcon(icons.icon(icons.IconName.IMAGE))
         self.copyElementCorrelationTable.setIcon(icons.icon(icons.IconName.COPY))

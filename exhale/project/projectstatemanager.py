@@ -78,6 +78,12 @@ class ProjectStateManager(QtCore.QObject):
             image.panel_label_color.colorChanged,
             w.imageHeaderBox.border.valueChanged,
             w.imageHeaderBox.colorChanged,
+            w.showElementCorrelationValues.toggled,
+            w.elementCorrelationDecimals.valueChanged,
+            w.elementCorrelationPalette.currentIndexChanged,
+            w.showSampleSimilarityValues.toggled,
+            w.sampleSimilarityDecimals.valueChanged,
+            w.sampleSimilarityPalette.currentIndexChanged,
         ]
         for box in w.imageElementBoxes:
             signals.extend((box.combo.currentIndexChanged, box.colorChanged))
@@ -94,11 +100,14 @@ class ProjectStateManager(QtCore.QObject):
         self._comparison_pending = False
         if self._notifications_suspended:
             return self._dirty
+        was_dirty = self._dirty
         self._set_dirty(self._snapshot() != self._baseline)
         if self._dirty and self.autosave_enabled():
             self._autosave_timer.start()
         else:
             self._autosave_timer.stop()
+            if was_dirty and not self._dirty:
+                self.discard_autosave()
         return self._dirty
 
     def _compare_with_baseline(self) -> None:

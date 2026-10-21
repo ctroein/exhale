@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name="exhale-lung"
 dynamic = ["version"]
 authors=[
-    {name="Carl Troein", email="carl.troein@cec.lu.se"},
+    {name="Carl Troein", email="carl.troein@mgeo.lu.se"},
     {name="Tom Delaire"},
     {name="Emanuel Larsson"},
     {name="Bryan Falcones"},

@@ -157,6 +157,12 @@ This recompiles every UI Python module and exits without starting the applicatio
 The regeneration code in `exhale.__main__._recompile_ui` rewrites generated
 binding-specific imports to use `qtpy`.
 
+Keep static tooltip text in `exhale/tooltips.py`, grouped by its owning window
+or dialog. Do not put tooltip text in Designer XML. Apply catalogue entries by
+stable Qt object name so stale names fail during setup. Tooltips which depend on
+runtime state may remain beside the behavior which updates them, while their
+static text variants should still be defined in the catalogue.
+
 ## Data model invariants
 
 `ElementRef` is the stable identity for selectable source data. New code must

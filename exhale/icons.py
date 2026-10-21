@@ -33,7 +33,7 @@ class IconName(str, Enum):
     IMAGE = "squares-composed.svg"
     ADD_IMAGE = "squares-composed-plus.svg"
     ELEMENT = "atom.svg"
-    # FILE = "file-dots.svg"
+    FILE = "file-dots.svg"
     FILE_DATA = "stack-2.svg"
     FILE_SINGLECHANNEL_IMAGE = "atom.svg"
     FILE_MULTICHANNEL_IMAGE = "layers-atom.svg"

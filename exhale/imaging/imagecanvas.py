@@ -7,6 +7,7 @@ import pyqtgraph as pg
 from qtpy import QtCore, QtGui, QtWidgets
 
 from .. import icons
+from ..tooltips import IMAGE_CANVAS_FIT
 from ..widgets import IconToolButton
 from .imagecomposer import (
     ColoredRasterPrimitive,
@@ -175,6 +176,7 @@ class ImageCanvas(pg.GraphicsLayoutWidget):
     """
 
     pixelHovered = QtCore.Signal(object)
+    pixelClicked = QtCore.Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -190,9 +192,10 @@ class ImageCanvas(pg.GraphicsLayoutWidget):
         self.composition_description = None
         self.view_box.disableAutoRange()
         self.scene().sigMouseMoved.connect(self._mouse_moved)
+        self.scene().sigMouseClicked.connect(self._mouse_clicked)
 
         self.fit_button = IconToolButton(icons.IconName.MAXIMIZE, self)
-        self.fit_button.setToolTip("Fit the full image (Home)")
+        self.fit_button.setToolTip(IMAGE_CANVAS_FIT)
         self.fit_button.setAutoRaise(True)
         self.fit_button.clicked.connect(self.fit_image)
         self._place_fit_button()
@@ -450,6 +453,10 @@ class ImageCanvas(pg.GraphicsLayoutWidget):
 
     def _mouse_moved(self, scene_position):
         self.pixelHovered.emit(self.pixel_at_scene(scene_position))
+
+    def _mouse_clicked(self, event):
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self.pixelClicked.emit(self.pixel_at_scene(event.scenePos()))
 
     def leaveEvent(self, event):
         self.pixelHovered.emit(None)

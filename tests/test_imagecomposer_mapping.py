@@ -154,6 +154,59 @@ class ComposedImageMappingTests(unittest.TestCase):
             any(isinstance(primitive, TextPrimitive) for primitive in description.primitives)
         )
 
+    def test_panel_letters_follow_visual_panel_order(self):
+        expected = {
+            Layouts.IL: (("A", "B"), "C"),
+            Layouts.IR: (("B", "C"), "A"),
+            Layouts.IA: (("A", "B"), "C"),
+            Layouts.IB: (("B", "C"), "A"),
+        }
+        for layout, (element_letters, merged_letter) in expected.items():
+            with self.subTest(layout=layout):
+                image = self.make_image(layout)
+                image.panelLabels = True
+                description = ImageComposer().describe(image)
+                panel_labels = [
+                    primitive
+                    for primitive in description.primitives
+                    if isinstance(primitive, TextPrimitive)
+                ]
+
+                self.assertEqual(
+                    tuple(label.text for label in panel_labels[:-1]), element_letters
+                )
+                self.assertEqual(panel_labels[-1].text, merged_letter)
+
+    def test_element_panel_regions_identify_slots(self):
+        description = ImageComposer().describe(self.make_image(Layouts.IL))
+
+        for slot, x, y, width, height in description.element_regions:
+            self.assertEqual(description.element_at(x, y), slot)
+            self.assertEqual(description.element_at(x + width - 1, y + height - 1), slot)
+        self.assertIsNone(description.element_at(description.mapping.x, description.mapping.y))
+
+    def test_merged_only_annotations_compensate_for_fitted_scale(self):
+        image = self.make_image(Layouts.MERGED)
+        image.scalebar = Scalebars.LL
+        image.resolution = (1.0, "nm")
+        merged_description = ImageComposer().describe(image)
+
+        image.layout = Layouts.IL
+        strip_description = ImageComposer().describe(image)
+
+        merged_text = next(
+            primitive
+            for primitive in merged_description.primitives
+            if isinstance(primitive, TextPrimitive)
+        )
+        strip_text = next(
+            primitive
+            for primitive in strip_description.primitives
+            if isinstance(primitive, TextPrimitive) and "nm" in primitive.text
+        )
+        expected_scale = (5 + 3 + image.borderWidth) / 5
+        self.assertAlmostEqual(strip_text.font_size / merged_text.font_size, expected_scale)
+
     def test_additive_description_uses_native_scalar_layers(self):
         image = self.make_image(Layouts.IL)
 

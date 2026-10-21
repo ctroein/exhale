@@ -54,15 +54,15 @@
          <widget class="QWidget" name="samplesPane"><layout class="QVBoxLayout" name="samplesLayout" stretch="0,1,0,0">
           <item><layout class="QHBoxLayout" name="samplesHeaderLayout"><item><widget class="QLabel" name="samplesLabel"><property name="text"><string>Samples and files</string></property></widget></item><item><spacer name="samplesHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item></layout></item>
           <item><widget class="QTreeWidget" name="sampleTree"><column><property name="text"><string>Name</string></property></column><column><property name="text"><string>Element map(s)</string></property></column></widget></item>
-          <item><widget class="QLabel" name="selectedSampleLabel"><property name="text"><string>Selected sample</string></property></widget></item>
-          <item><layout class="QHBoxLayout" name="sampleButtonsLayout"><item><widget class="QToolButton" name="addProjectFilesButton"><property name="text"><string>Add sample(s)…</string></property><property name="toolButtonStyle"><enum>Qt::ToolButtonTextBesideIcon</enum></property></widget></item><item><widget class="QPushButton" name="addSampleFilesButton"><property name="text"><string>Add files to sample…</string></property></widget></item><item><spacer name="sampleButtonsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="removeButton"><property name="text"><string>Remove selected</string></property></widget></item></layout></item>
+          <item><layout class="QHBoxLayout" name="selectedSampleLayout"><item><widget class="QLabel" name="selectedSampleLabel"><property name="text"><string>Selected sample</string></property></widget></item><item><widget class="QLabel" name="selectedSampleValue"><property name="text"><string>—</string></property></widget></item><item><spacer name="selectedSampleSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QLabel" name="sampleSizeLabel"><property name="text"><string>Size</string></property></widget></item><item><widget class="QLabel" name="sampleSizeValue"><property name="text"><string>—</string></property></widget></item></layout></item>
+          <item><layout class="QHBoxLayout" name="sampleButtonsLayout"><item><widget class="QToolButton" name="addProjectFilesButton"><property name="text"><string>Add sample(s)…</string></property><property name="toolButtonStyle"><enum>Qt::ToolButtonTextBesideIcon</enum></property></widget></item><item><widget class="QPushButton" name="addSampleFilesButton"><property name="text"><string>Add files to sample…</string></property></widget></item><item><spacer name="sampleButtonsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="removeButton"><property name="text"><string>Remove selected item</string></property></widget></item></layout></item>
          </layout></widget>
          <widget class="QWidget" name="mapsPane"><layout class="QVBoxLayout" name="mapsLayout" stretch="0,1">
           <item><widget class="QLabel" name="mapsLabel"><property name="text"><string>Sample elements</string></property></widget></item>
           <item><widget class="ElementListWidget" name="elementMapList"/></item>
          </layout></widget>
          <widget class="QWidget" name="channelsPane"><layout class="QVBoxLayout" name="channelsLayout" stretch="0,1">
-          <item><layout class="QHBoxLayout" name="channelsHeaderLayout"><item><widget class="QLabel" name="channelsLabel"><property name="text"><string>Project elements</string></property></widget></item><item><spacer name="channelsHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QToolButton" name="refreshChannelsButton"><property name="toolTip"><string>Sort selected elements first</string></property></widget></item></layout></item>
+          <item><layout class="QHBoxLayout" name="channelsHeaderLayout"><item><widget class="QLabel" name="channelsLabel"><property name="text"><string>Project elements</string></property></widget></item><item><spacer name="channelsHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QToolButton" name="refreshChannelsButton"/></item></layout></item>
           <item><widget class="QListWidget" name="channelList"/></item>
          </layout></widget>
         </widget></item>
@@ -232,7 +232,6 @@
               </item>
               <item>
                <widget class="IconToolButton" name="showSingleElementButton">
-                <property name="toolTip"><string>Show only the adjusted element</string></property>
                 <property name="checkable"><bool>true</bool></property>
                </widget>
               </item>
@@ -469,17 +468,11 @@
                 </widget>
                </item>
                <item>
-                <widget class="IconToolButton" name="analysisScreenshot">
-                 <property name="toolTip">
-                  <string>Save screenshot</string>
-                 </property>
+               <widget class="IconToolButton" name="analysisScreenshot">
                 </widget>
                </item>
                <item>
-                <widget class="IconToolButton" name="analysisFit">
-                 <property name="toolTip">
-                  <string>Fit image to view</string>
-                 </property>
+               <widget class="IconToolButton" name="analysisFit">
                 </widget>
                </item>
               </layout>
@@ -627,10 +620,24 @@
                        </property>
                       </widget>
                      </item>
-                    </layout>
-                   </item>
-                   <item>
-                    <layout class="QHBoxLayout" name="elementCorrelationActions">
+                   </layout>
+                  </item>
+                  <item>
+                   <layout class="QHBoxLayout" name="elementCorrelationPaletteLayout">
+                    <item>
+                     <widget class="QLabel" name="elementCorrelationPaletteLabel">
+                      <property name="text">
+                       <string>Palette</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QComboBox" name="elementCorrelationPalette" />
+                    </item>
+                   </layout>
+                  </item>
+                  <item>
+                   <layout class="QHBoxLayout" name="elementCorrelationActions">
                      <item>
                       <widget class="QPushButton" name="copyElementCorrelationTable">
                        <property name="text">
@@ -829,16 +836,16 @@
                      <item>
                       <widget class="QSpinBox" name="elementScatterBins">
                        <property name="minimum">
-                        <number>10</number>
+                        <number>50</number>
                        </property>
                        <property name="maximum">
-                        <number>200</number>
+                        <number>500</number>
                        </property>
                        <property name="singleStep">
-                        <number>10</number>
+                        <number>50</number>
                        </property>
                        <property name="value">
-                        <number>60</number>
+                        <number>50</number>
                        </property>
                       </widget>
                      </item>
@@ -870,6 +877,25 @@
                       </spacer>
                      </item>
                     </layout>
+                   </item>
+                   <item>
+                    <widget class="QLabel" name="elementScatterSamplingWarning">
+                     <property name="sizePolicy">
+                      <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                       <horstretch>0</horstretch>
+                       <verstretch>0</verstretch>
+                      </sizepolicy>
+                     </property>
+                     <property name="styleSheet">
+                      <string notr="true">color: #d02020;</string>
+                     </property>
+                     <property name="text">
+                      <string>Scatter plots show at most 100,000 sampled pixels and may omit small groups.</string>
+                     </property>
+                     <property name="wordWrap">
+                      <bool>true</bool>
+                     </property>
+                    </widget>
                    </item>
                   </layout>
                  </widget>
@@ -1042,10 +1068,24 @@
                     </property>
                    </widget>
                   </item>
-                 </layout>
-                </item>
-                <item>
-                 <layout class="QHBoxLayout" name="sampleSimilarityActions">
+                </layout>
+               </item>
+               <item>
+                <layout class="QHBoxLayout" name="sampleSimilarityPaletteLayout">
+                 <item>
+                  <widget class="QLabel" name="sampleSimilarityPaletteLabel">
+                   <property name="text">
+                    <string>Palette</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QComboBox" name="sampleSimilarityPalette" />
+                 </item>
+                </layout>
+               </item>
+               <item>
+                <layout class="QHBoxLayout" name="sampleSimilarityActions">
                   <item>
                    <widget class="QPushButton" name="copySampleSimilarityTable">
                     <property name="text">
@@ -1141,16 +1181,10 @@
    <property name="text">
     <string>&amp;Settings…</string>
    </property>
-   <property name="toolTip">
-    <string>Application settings</string>
-   </property>
   </action>
   <action name="actionAbout">
    <property name="text">
     <string>&amp;About…</string>
-   </property>
-   <property name="toolTip">
-    <string>About Exhale</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+A</string>
@@ -1165,9 +1199,6 @@
    <property name="text">
     <string>&amp;Load project…</string>
    </property>
-   <property name="toolTip">
-    <string>Load an Exhale project directory</string>
-   </property>
    <property name="shortcut">
     <string>Ctrl+L</string>
    </property>
@@ -1175,9 +1206,6 @@
   <action name="actionSaveProject">
    <property name="text">
     <string>&amp;Save project</string>
-   </property>
-   <property name="toolTip">
-    <string>Save Exhale project</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+S</string>
@@ -1187,9 +1215,6 @@
    <property name="text">
     <string>Save project &amp;as…</string>
    </property>
-   <property name="toolTip">
-    <string>Save the project in another directory</string>
-   </property>
    <property name="shortcut">
     <string>Ctrl+Shift+S</string>
    </property>
@@ -1197,9 +1222,6 @@
   <action name="actionOpenFile">
    <property name="text">
     <string>&amp;Add sample(s)…</string>
-   </property>
-   <property name="toolTip">
-    <string>Add one or more samples from HDF5 or TIFF files</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+O</string>

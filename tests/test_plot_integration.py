@@ -206,6 +206,13 @@ class PlotIntegrationTests(unittest.TestCase):
             [id(item) for item in self.window.elementPlot._composition_items], scene_item_ids
         )
 
+        description = self.window.elementPlot.composition_description
+        _slot, x, y, width, height = description.element_regions[0]
+        self.window.imageHeaderBox.edit.click()
+        self.window.elementPlot.pixelClicked.emit((x + width // 2, y + height // 2))
+        self.assertTrue(self.window.imageElementBoxes[0].edit.isChecked())
+        self.assertIs(self.window.element_controller.current_element, image.elements[0])
+
         self.window.showSingleElementButton.click()
         self.assertEqual(self.window.elementPlot.image_item.image.ndim, 2)
         self.assertIs(self.window.image_controller.current_image, image)

@@ -11,6 +11,7 @@ from .. import appearance
 from ..data.projectdata import SegmentationParameters, SegmentationResult
 from ..data.source_refs import SourceUnavailableError
 from ..imaging.listwidgets import ElementListWidget
+from ..tooltips import ANALYSIS_SETTINGS_DIALOG, apply_tooltips
 from ..widgets import IconCheckDelegate
 from .analysis_settings_dialog import AnalysisSettingsDialog
 from .analysisworker import AnalysisWorker
@@ -42,9 +43,9 @@ class AnalysisController:
         self.settings_dialog = dialog
         self.cluster_min_k = dialog.clusterMinK
         self.cluster_max_k = dialog.clusterMaxK
-        self.cluster_n_init = dialog.clusterNInit
         self.nuclei_expansion = dialog.nucleiExpansion
         self.nuclei_min_area = dialog.nucleiMinArea
+        apply_tooltips(dialog, ANALYSIS_SETTINGS_DIALOG)
         window.analysisOptions.clicked.connect(dialog.show)
         window.analysisOptions.clicked.connect(dialog.raise_)
         dialog.buttonBox.clicked.connect(dialog.hide)
@@ -177,7 +178,6 @@ class AnalysisController:
             nuclei_min_area=self.nuclei_min_area.value(),
             cluster_min_k=self.cluster_min_k.value(),
             cluster_max_k=self.cluster_max_k.value(),
-            cluster_n_init=self.cluster_n_init.value(),
         )
 
     def _set_segmentation_parameters(self, parameters: SegmentationParameters) -> None:
@@ -186,7 +186,6 @@ class AnalysisController:
             (self.nuclei_min_area, parameters.nuclei_min_area),
             (self.cluster_min_k, parameters.cluster_min_k),
             (self.cluster_max_k, parameters.cluster_max_k),
-            (self.cluster_n_init, parameters.cluster_n_init),
         )
         blockers = [QtCore.QSignalBlocker(control) for control, _value in controls]
         for control, value in controls:
@@ -345,7 +344,6 @@ class AnalysisController:
             window.analysisOptions,
             self.cluster_min_k,
             self.cluster_max_k,
-            self.cluster_n_init,
             self.nuclei_expansion,
             self.nuclei_min_area,
         ):
@@ -417,7 +415,6 @@ class AnalysisController:
             nuclei_min_area=parameters.nuclei_min_area,
             cluster_min_k=parameters.cluster_min_k,
             cluster_max_k=parameters.cluster_max_k,
-            cluster_n_init=parameters.cluster_n_init,
         )
         worker.moveToThread(thread)
         worker.progress.connect(self._append_status)

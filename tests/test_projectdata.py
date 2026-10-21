@@ -75,7 +75,7 @@ class ProjectDataTests(unittest.TestCase):
     def test_segmentation_result_is_removed_with_its_sample(self):
         project = ProjectData()
         project.samples["scan"] = self.sample
-        parameters = SegmentationParameters(5, 10, 2, 4, 3)
+        parameters = SegmentationParameters(5, 10, 2, 4)
         project.segmentation_results["scan"] = SegmentationResult(
             "scan",
             self.fe_ref,

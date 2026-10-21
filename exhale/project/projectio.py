@@ -310,7 +310,6 @@ def export_project_state(
                 "nuclei_min_area": result.parameters.nuclei_min_area,
                 "cluster_min_k": result.parameters.cluster_min_k,
                 "cluster_max_k": result.parameters.cluster_max_k,
-                "cluster_n_init": result.parameters.cluster_n_init,
             },
             "sidecar": str(result_relative_path(result.sample_id)),
         }
@@ -333,6 +332,10 @@ def export_project_state(
         "element_settings": element_settings,
         "images": images,
         "segmentation_results": segmentation_results,
+        "matrix_plots": {
+            key: settings.to_json()
+            for key, settings in sorted(project_data.matrix_plot_settings.items())
+        },
     }
 
 
@@ -411,6 +414,20 @@ def load_project_state(
     except (KeyError, TypeError, ValueError) as exc:
         project_data.image_defaults = ImageSettings("")
         issues.append(f"Image defaults were reset: {exc}")
+    matrix_plots = state.get("matrix_plots", {})
+    if not isinstance(matrix_plots, dict):
+        matrix_plots = {}
+        issues.append("Matrix plot settings were reset: expected an object")
+    for key, settings in project_data.matrix_plot_settings.items():
+        settings.reset()
+        try:
+            plot_state = matrix_plots.get(key, {})
+            if not isinstance(plot_state, dict):
+                raise TypeError("expected an object")
+            settings.apply_json(plot_state)
+        except (TypeError, ValueError) as exc:
+            settings.reset()
+            issues.append(f"{key.replace('_', ' ').title()} settings were reset: {exc}")
 
     # Samples and assets
     external_data_root = state.get("external_data_root")
@@ -538,7 +555,13 @@ def load_project_state(
                 sample_refs = {channel.ref for channel in sample.channels.values()}
                 if not {nuclei_ref, tissue_ref, *element_refs} <= sample_refs:
                     raise ValueError("input element maps no longer belong to the sample")
-                parameters = SegmentationParameters(**result_obj["parameters"])
+                parameter_values = result_obj["parameters"]
+                parameters = SegmentationParameters(
+                    nuclei_expansion=parameter_values["nuclei_expansion"],
+                    nuclei_min_area=parameter_values["nuclei_min_area"],
+                    cluster_min_k=parameter_values["cluster_min_k"],
+                    cluster_max_k=parameter_values["cluster_max_k"],
+                )
                 sidecar = Path(project_dir) / result_obj["sidecar"]
                 project_data.segmentation_results[sample_id] = SegmentationResult(
                     sample_id,

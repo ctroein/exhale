@@ -58,6 +58,8 @@ class ProjectTab(QtCore.QObject):
             "resolutionValue",
             "sampleTree",
             "selectedSampleLabel",
+            "selectedSampleValue",
+            "sampleSizeValue",
         ):
             setattr(self, name, getattr(window, name))
         self.widget.installEventFilter(self)
@@ -70,7 +72,9 @@ class ProjectTab(QtCore.QObject):
         self.channelList.setItemDelegate(IconCheckDelegate(self.channelList))
         self.elementMapList.use_sample_check_delegate()
         self.refreshChannelsButton.setIcon(icons.icon(icons.IconName.REFRESH))
-        self.addProjectFilesButton.setIcon(icons.icon(icons.IconName.OPEN))
+        self.addProjectFilesButton.setIcon(icons.icon(icons.IconName.FILE_DATA))
+        self.addSampleFilesButton.setIcon(icons.icon(icons.IconName.FILE))
+        self.removeButton.setIcon(icons.icon(icons.IconName.DELETE))
         self.sampleTree.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.sampleTree.setItemDelegate(_SampleTreeDelegate(self))
         for column in range(2):
@@ -341,7 +345,9 @@ class ProjectTab(QtCore.QObject):
 
     def reload_icons(self):
         """Reload palette-dependent icons used by the project-data controls."""
-        self.addProjectFilesButton.setIcon(icons.icon(icons.IconName.OPEN))
+        self.addProjectFilesButton.setIcon(icons.icon(icons.IconName.FILE_DATA))
+        self.addSampleFilesButton.setIcon(icons.icon(icons.IconName.FILE))
+        self.removeButton.setIcon(icons.icon(icons.IconName.DELETE))
         self.refreshChannelsButton.setIcon(icons.icon(icons.IconName.REFRESH))
         self.channelList.viewport().update()
         self.elementMapList.viewport().update()
@@ -361,8 +367,11 @@ class ProjectTab(QtCore.QObject):
         sample_id = self.selected_sample_id()
         sample = self.project.samples.get(sample_id)
         item = self.sampleTree.currentItem()
-        self.selectedSampleLabel.setText(
-            f"Selected sample: {sample.name}" if sample is not None else "Selected sample"
+        self.selectedSampleValue.setText(sample.name if sample is not None else "—")
+        self.sampleSizeValue.setText(
+            f"{sample.shape[1]} × {sample.shape[0]} px"
+            if sample is not None and sample.shape is not None
+            else "—"
         )
         self.addSampleFilesButton.setEnabled(sample is not None)
         self.removeButton.setEnabled(sample is not None and item is not None)

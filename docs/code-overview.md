@@ -244,6 +244,16 @@ viewer layers.
 Provides independent reusable correlation-matrix views and the pyqtgraph
 heat-map/scatter plotting widgets used by the Correlations tab.
 
+### `exhale/analysis/matrixplots.py`
+
+Defines renderer-independent matrix data, colour scales, value formatting,
+and correlation-plot defaults shared by interactive and export renderers.
+
+### `exhale/data/plotsettings.py`
+
+Defines project-owned settings for matrix palettes, displayed values, and
+colour-bar placement, keyed so future matrix plot types can reuse them.
+
 ### `exhale/imaging/listwidgets.py`
 
 Contains the element and image list widgets, colour button, and compact image
@@ -253,6 +263,12 @@ channel/header control rows used by the main window.
 
 Contains small general Qt helpers: square icon buttons and deferred splitter
 initialization for pages which are hidden during initial layout.
+
+### `exhale/tooltips.py`
+
+Contains the authoritative catalogue of static interface tooltips and strict
+helpers which apply them to generated or programmatically constructed widgets.
+State-dependent tooltips remain beside the behavior which changes them.
 
 ### `exhale/appearance.py`
 

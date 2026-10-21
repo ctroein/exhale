@@ -8,6 +8,35 @@ from exhale.analysis.correlations import (
     interpolated_density,
     sample_similarity_matrix,
 )
+from exhale.analysis.matrixplots import (
+    CORRELATION_COLOR_STOPS,
+    MATRIX_PALETTES,
+    correlation_matrix_spec,
+)
+from exhale.data.plotsettings import MATRIX_PALETTE_KEYS
+
+
+def test_correlation_matrix_plot_spec_preserves_data_and_presentation():
+    values = np.asarray(((1.0, -0.25), (-0.25, 1.0)))
+
+    spec = correlation_matrix_spec(
+        values,
+        ("First", "Second"),
+        show_values=False,
+        decimals=4,
+    )
+
+    assert spec.values is values
+    assert spec.labels == ("First", "Second")
+    assert spec.levels == (-1.0, 1.0)
+    assert spec.color_stops == CORRELATION_COLOR_STOPS
+    assert spec.color_bar_label == "Pearson r"
+    assert not spec.show_values
+    assert spec.decimals == 4
+
+
+def test_selectable_matrix_palettes_match_persisted_palette_keys():
+    assert tuple(palette.key for palette in MATRIX_PALETTES) == MATRIX_PALETTE_KEYS
 
 
 def test_density_grid_uses_regular_value_coordinates_and_bin_areas():

@@ -3,6 +3,16 @@
 from qtpy import QtCore, QtGui, QtWidgets
 
 from .. import icons
+from ..tooltips import (
+    LAYER_ADDITIVE,
+    LAYER_CATEGORICAL,
+    LAYER_COLOR,
+    LAYER_DRAG,
+    LAYER_GAIN,
+    LAYER_MONOCHROME,
+    LAYER_OPACITY,
+    LAYER_VISIBLE,
+)
 from ..widgets import IconToolButton
 
 
@@ -107,7 +117,7 @@ class _DragHandle(QtWidgets.QLabel):
         super().__init__("≡", row)
         self.row = row
         self.setCursor(QtCore.Qt.OpenHandCursor)
-        self.setToolTip("Drag to reorder")
+        self.setToolTip(LAYER_DRAG)
 
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.LeftButton:
@@ -151,7 +161,7 @@ class LayerRowWidget(QtWidgets.QWidget):
         layout.addWidget(self.drag_handle)
         self.visible = QtWidgets.QCheckBox()
         self.visible.setChecked(layer.visible)
-        self.visible.setToolTip("Show layer")
+        self.visible.setToolTip(LAYER_VISIBLE)
         self.visible.toggled.connect(self._set_visible)
         layout.addWidget(self.visible)
         self.name_label = QtWidgets.QLabel(layer.name)
@@ -178,7 +188,7 @@ class LayerRowWidget(QtWidgets.QWidget):
         self.opacity.setSuffix("%")
         self.opacity.setValue(round(layer.opacity * 100))
         self.opacity.setFocusPolicy(QtCore.Qt.ClickFocus)
-        self.opacity.setToolTip("Opacity")
+        self.opacity.setToolTip(LAYER_OPACITY)
         self.opacity.setFixedWidth(layer_list.opacity_width)
         self.opacity.valueChanged.connect(self._set_opacity)
         layout.addWidget(self.opacity)
@@ -186,7 +196,7 @@ class LayerRowWidget(QtWidgets.QWidget):
         self.additive = IconToolButton()
         self.additive.setCheckable(True)
         self.additive.setChecked(layer.blending == self.helper.BLENDING_ADD)
-        self.additive.setToolTip("Additive blending")
+        self.additive.setToolTip(LAYER_ADDITIVE)
         self.additive.setFixedWidth(layer_list.blend_width)
         self.additive.toggled.connect(self._set_blending)
         self._update_blending_icon()
@@ -204,6 +214,7 @@ class LayerRowWidget(QtWidgets.QWidget):
         self.gain.setDecimals(1)
         self.gain.setSuffix("×")
         self.gain.setFocusPolicy(QtCore.Qt.ClickFocus)
+        self.gain.setToolTip(LAYER_GAIN)
         self.gain.setValue(
             self.helper.layer_gain(layer) if self.helper.layer_has_gain(layer) else 1.0
         )
@@ -300,7 +311,7 @@ class LayerRowWidget(QtWidgets.QWidget):
             self.color_button.set_colors(
                 [QtGui.QColor.fromRgbF(*self.helper.image_color(self.layer))]
             )
-            self.color_button.setToolTip("Choose monochrome color")
+            self.color_button.setToolTip(LAYER_MONOCHROME)
             return
 
         mode, rgba = self.helper.label_display_mode(self.layer)
@@ -316,7 +327,7 @@ class LayerRowWidget(QtWidgets.QWidget):
         }
         self.color_button.set_colors(previews[mode])
         self.color_button.setToolTip(
-            "Cycle categorical palette" if mode == self.helper.LABEL_CATEGORICAL else "Choose color"
+            LAYER_CATEGORICAL if mode == self.helper.LABEL_CATEGORICAL else LAYER_COLOR
         )
         self.color_button.set_mode_options(
             (

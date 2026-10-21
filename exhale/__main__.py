@@ -79,9 +79,8 @@ def _run_application(pyi_splash=None):
     parser.add_argument("files", metavar="file", nargs="*", help="initial input files to load")
     parameters = ["project_dir", "files"]
 
-    progver = application_title
     windowparams = {}
-    parser.add_argument("--version", action="version", version=progver)
+    parser.add_argument("--version", action="version", version=application_title)
     # selmp = multiprocessing.get_start_method(
     #     allow_none=True) is None
     # if selmp:
@@ -122,16 +121,19 @@ def _run_application(pyi_splash=None):
     if not app:
         #        QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True) # why?
         app = QtWidgets.QApplication(sys.argv)
-    from . import appearance, icons
 
     qt_splash = None
     if pyi_splash is None:
+        splash_color = QtGui.QColor("#e0c000")
         pixmap = QtGui.QPixmap(str(resdir.joinpath("xrf_splash.jpg")))
         qt_splash = QtWidgets.QSplashScreen(pixmap)
+        splash_font = qt_splash.font()
+        splash_font.setBold(True)
+        qt_splash.setFont(splash_font)
         qt_splash.showMessage(
             f"Initializing {application_title}",
             QtCore.Qt.AlignRight | QtCore.Qt.AlignBottom,
-            QtGui.QColor("#e0c000"),
+            splash_color,
         )
         qt_splash.show()
         exposure_deadline = QtCore.QDeadlineTimer(1000)
@@ -142,13 +144,27 @@ def _run_application(pyi_splash=None):
                 break
             QtCore.QThread.msleep(1)
 
+    def update_splash(message):
+        if pyi_splash is not None:
+            pyi_splash.update_text(message)
+        elif qt_splash is not None:
+            qt_splash.showMessage(
+                message,
+                QtCore.Qt.AlignRight | QtCore.Qt.AlignBottom,
+                splash_color,
+            )
+            app.processEvents()
+
+    from . import appearance, icons
     appearance.initialize(QtCore.QSettings("CIPA", application_name))
     if sys.platform != "darwin":
         app.setWindowIcon(icons.icon(icons.IconName.LOGO))
 
     from .main_window import MainWindow
 
+    update_splash(f"Creating UI for {application_title}")
     window = MainWindow()
+    update_splash(f"Opening {application_title}")
     window.show()
     window.post_setup(**windowparams)
 

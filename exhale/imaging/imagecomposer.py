@@ -202,6 +202,14 @@ class CompositionDescription:
         ...,
     ]
     mapping: ComposedImageMapping
+    element_regions: tuple[tuple[int, int, int, int, int], ...]
+
+    def element_at(self, x: int, y: int) -> int | None:
+        """Return the image slot whose element panel contains a canvas pixel."""
+        for slot, panel_x, panel_y, width, height in self.element_regions:
+            if panel_x <= x < panel_x + width and panel_y <= y < panel_y + height:
+                return slot
+        return None
 
 
 class ImageComposer:
@@ -380,9 +388,9 @@ class ImageComposer:
 
         bar_width = int(round((physical_length / resolution) * geometry.merged_scale))
         bar_width = max(8, min(bar_width, int(0.8 * geometry.merged_width)))
-        line_width = max(2, int(round(font_size * 0.18)))
-        padding = max(4, int(round(font_size * 0.7)))
-        text_gap = max(2, int(round(font_size * 0.25)))
+        line_width = max(1, int(round(font_size * 0.18)))
+        padding = max(1, int(round(font_size * 0.7)))
+        text_gap = max(1, int(round(font_size * 0.25)))
         label = _format_length(physical_length, units)
         font = _font(font_size)
         measure = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
@@ -529,11 +537,21 @@ class ImageComposer:
             (merged_height, merged_width),
         )
         font_size = image.fontsize * image.dpi / 72
+        if image.layout == Layouts.MERGED:
+            # Fitting a merged-only composition magnifies it relative to a
+            # composition with the element strip beside it.  Keep annotations
+            # at a comparable on-screen size in both layouts.
+            side_strip_height = element_shapes[:, 0].sum() + int(image.borderWidth) * (
+                len(element_shapes) - 1
+            )
+            font_size /= max(1.0, side_strip_height / merged_height)
         label_dx = int(round(0.012 * geometry.width))
         label_dy = int(round(0.016 * geometry.height))
         image_colors = image.colorscheme.colors()
         foreground_color = image.panelLabelColor
         primitives = []
+        element_regions = []
+        merged_first = image.layout in (Layouts.IR, Layouts.IB)
 
         if image.layout != Layouts.MERGED:
             border_width = int(image.borderWidth)
@@ -543,6 +561,7 @@ class ImageComposer:
             ):
                 layer = layers[slot]
                 height, width = layer.shape
+                element_regions.append((slot, x, y, width, height))
                 primitives.append(
                     RasterPrimitive(
                         layer,
@@ -567,7 +586,7 @@ class ImageComposer:
                     primitives.append(
                         TextPrimitive(
                             (x + label_dx, y + label_dy),
-                            chr(ord("A") + index),
+                            chr(ord("A") + index + int(merged_first)),
                             font_size * 1.2,
                             _rgb255(foreground_color),
                             "la",
@@ -630,7 +649,7 @@ class ImageComposer:
             primitives.append(
                 TextPrimitive(
                     (geometry.merged_x + label_dx, geometry.merged_y + label_dy),
-                    chr(ord("A") + len(elements)),
+                    "A" if merged_first else chr(ord("A") + len(elements)),
                     font_size * 1.2,
                     _rgb255(foreground_color),
                     "la",
@@ -652,6 +671,7 @@ class ImageComposer:
             background=_rgb255(image.borderColor),
             primitives=tuple(primitives),
             mapping=mapping,
+            element_regions=tuple(element_regions),
         )
 
     def compose(self, image: ImageSettings, savename=None):

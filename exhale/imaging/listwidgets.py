@@ -8,6 +8,12 @@ from qtpy.QtCore import Qt
 from .. import icons
 from ..data.imagesettings import ImageSettings
 from ..data.source_refs import ElementRef
+from ..tooltips import (
+    IMAGE_BORDER_COLOR,
+    IMAGE_ELEMENT_ADJUST,
+    IMAGE_ELEMENT_COLOR,
+    IMAGE_SHOW_COMPOSED,
+)
 from ..widgets import IconCheckDelegate
 
 _GROUP_DIVIDER_ROLE = Qt.UserRole + 13
@@ -321,6 +327,7 @@ class ImageElementBoxBase(QtWidgets.QHBoxLayout):
         self.colorButton = ColorButton()
         self.colorButton.colorChanged.connect(self.colorChanged.emit)
         self.edit = QtWidgets.QPushButton("Adjust")
+        self.edit.setToolTip(IMAGE_ELEMENT_ADJUST)
         self.edit.setCheckable(True)
         self.setColor(rgb)
 
@@ -346,6 +353,7 @@ class ImageHeaderBox(ImageElementBoxBase):
         if rgb is None:
             rgb = np.zeros(3)
         super().__init__(rgb)
+        self.colorButton.setToolTip(IMAGE_BORDER_COLOR)
         self.border = QtWidgets.QSpinBox()
         self.border.setRange(0, 30)
         self.addWidget(self.colorButton, 0)
@@ -354,6 +362,7 @@ class ImageHeaderBox(ImageElementBoxBase):
         self.addWidget(QtWidgets.QLabel("px"), 0)
         self.addStretch(10)
         self.edit.setText("Show image")
+        self.edit.setToolTip(IMAGE_SHOW_COMPOSED)
 
     def setWidgetsEnabled(self, enabled: bool):
         super().setWidgetsEnabled(enabled)
@@ -365,6 +374,7 @@ class ImageElementBox(ImageElementBoxBase):
 
     def __init__(self, rgb):
         super().__init__(rgb)
+        self.colorButton.setToolTip(IMAGE_ELEMENT_COLOR)
         self.combo = QtWidgets.QComboBox()
         self.combo.addItem("(none)", userData=None)
         self.addWidget(self.colorButton, 0)

@@ -9,6 +9,8 @@ import numpy as np
 from pyqtgraph.exporters import ImageExporter, SVGExporter
 from qtpy import QtCore, QtWidgets
 
+from ..data.plotsettings import ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES
+from ..tooltips import CORRELATION_MATRIX
 from .correlations import (
     CorrelationMatrix,
     SampleSimilarityMatrix,
@@ -43,7 +45,10 @@ class CorrelationController:
             window.elementCorrelationDecimals,
             window.elementCorrelationDecimalsLabel,
             window.copyElementCorrelationTable,
+            window.elementCorrelationPalette,
+            window.project_data.matrix_plot_settings[ELEMENT_CORRELATIONS],
         )
+        self.element_matrix.plot.matrix_plot.setToolTip(CORRELATION_MATRIX)
         self.scatter_plot = self._install_plot(window.elementScatterPlotHost)
         self.similarity_matrix = CorrelationMatrixView(
             window.sampleSimilarityPlotHost,
@@ -51,6 +56,8 @@ class CorrelationController:
             window.sampleSimilarityDecimals,
             window.sampleSimilarityDecimalsLabel,
             window.copySampleSimilarityTable,
+            window.sampleSimilarityPalette,
+            window.project_data.matrix_plot_settings[SAMPLE_SIMILARITIES],
         )
 
         excluded_header = window.sampleSimilarityExcluded.header()
@@ -98,6 +105,8 @@ class CorrelationController:
         self._similarity_cache.clear()
         self.element_matrix.set_result(None)
         self.similarity_matrix.set_result(None)
+        self.element_matrix.reload_settings()
+        self.similarity_matrix.reload_settings()
         self.scatter_plot.clear_scatter()
         self.window.elementCorrelationStatus.clear()
         self.window.elementScatterStatus.clear()
@@ -112,6 +121,8 @@ class CorrelationController:
     def refresh_samples(self) -> None:
         """Refresh each analysis' sample choices without coupling their selections."""
         window = self.window
+        self.element_matrix.reload_settings()
+        self.similarity_matrix.reload_settings()
         selected_element_sample = window.elementCorrelationSample.currentData()
         selected_scatter_sample = window.elementScatterSample.currentData()
         selected_similarity_ids = {
@@ -181,6 +192,7 @@ class CorrelationController:
         density = self.window.elementScatterPresentation.currentIndex() == 1
         self.window.elementScatterBins.setEnabled(density)
         self.window.elementScatterBinsLabel.setEnabled(density)
+        self.window.elementScatterSamplingWarning.setVisible(not density)
         if update:
             self._update_scatter()
 

@@ -692,7 +692,6 @@ class SourceLifecycleTests(unittest.TestCase):
             self.win.analysisOptions,
             self.win.analysis_controller.cluster_min_k,
             self.win.analysis_controller.cluster_max_k,
-            self.win.analysis_controller.cluster_n_init,
             self.win.analysis_controller.nuclei_expansion,
             self.win.analysis_controller.nuclei_min_area,
         ):
@@ -777,7 +776,7 @@ class SourceLifecycleTests(unittest.TestCase):
         sample = self.win.project_data.samples[first_id]
         fe_ref = sample.channels["Fe"].ref
         zn_ref = sample.channels["Zn"].ref
-        parameters = SegmentationParameters(7, 19, 3, 8, 6)
+        parameters = SegmentationParameters(7, 19, 3, 8)
         xrf_sample = SimpleNamespace(elements={"Zn": object()})
         self.win.project_data.segmentation_results[first_id] = SegmentationResult(
             first_id,
@@ -857,7 +856,7 @@ class SourceLifecycleTests(unittest.TestCase):
             self.win.project_data.add_project_channel_from_sample(sample.sample_id, key)
         fe_ref = sample.channels["Fe"].ref
         zn_ref = sample.channels["Zn"].ref
-        parameters = SegmentationParameters(6, 18, 3, 7, 5)
+        parameters = SegmentationParameters(6, 18, 3, 7)
         xrf_sample = XRFSample(sample.name)
         xrf_sample.nuclei = NucleiChannel(self.data)
         xrf_sample.nuclei.nuclei_labels = np.ones_like(self.data)
@@ -1426,6 +1425,24 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertTrue(self.win.project_manager.save_project())
         self.assertFalse(autosave.exists())
         self.assertFalse(manager.is_dirty)
+
+    def test_returning_to_saved_state_removes_obsolete_autosave(self):
+        project_dir = Path(self.temp.name) / "autosave"
+        project_dir.mkdir()
+        self.win.project_dir = project_dir
+        manager = self.win.project_state_manager
+        manager.mark_saved()
+        saved_layout = self.win.project_data.image_defaults.layout
+        changed_layout = next(layout for layout in Layouts if layout != saved_layout)
+
+        self.win.project_data.image_defaults.layout = changed_layout
+        self.assertTrue(manager.compare_now())
+        autosave = manager.write_autosave()
+        self.assertTrue(autosave.is_file())
+
+        self.win.project_data.image_defaults.layout = saved_layout
+        self.assertFalse(manager.compare_now())
+        self.assertFalse(autosave.exists())
 
     def test_loading_project_can_recover_autosaved_state(self):
         project_dir = Path(self.temp.name) / "recovery"

@@ -9,6 +9,7 @@ from qtpy import QtCore, QtGui, QtWidgets
 from ..data.constants import CONCENTRATION_UNITS
 from ..data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
 from ..data.source_refs import SourceUnavailableError
+from ..tooltips import IMAGE_SETTINGS_DIALOG, apply_tooltips
 from .image_settings_dialog import ImageSettingsDialog
 from .imagecomposer import ImageComposer
 from .listwidgets import ElementListWidget, ImageElementBox, ImageHeaderBox, ImageListWidget
@@ -37,6 +38,7 @@ class ImageController:
         self.panel_label_color = dialog.composePanelLabelColor
         self.apply_project_defaults_button = dialog.applyProjectDefaults
         self.use_as_project_defaults_button = dialog.useAsProjectDefaults
+        apply_tooltips(dialog, IMAGE_SETTINGS_DIALOG)
 
         window.composeSettings.clicked.connect(dialog.show)
         window.composeSettings.clicked.connect(dialog.raise_)
@@ -108,6 +110,7 @@ class ImageController:
             signal.connect(self._presentation_changed)
 
         window.elementPlot.pixelHovered.connect(self._mouse_over_plot)
+        window.elementPlot.pixelClicked.connect(self._plot_clicked)
         window.composeSave.clicked.connect(self.export_image)
         window.elementList.model().dataChanged.connect(self.sync_element_choices)
         window.channelsChanged.connect(self.sync_element_choices)
@@ -451,6 +454,14 @@ class ImageController:
             if y < element.data.shape[0] and x < element.data.shape[1]
         )
         QtWidgets.QToolTip.showText(QtGui.QCursor.pos(), info, self.window.elementPlot)
+
+    def _plot_clicked(self, canvas_pixel) -> None:
+        description = self.window.elementPlot.composition_description
+        if canvas_pixel is None or description is None:
+            return
+        slot = description.element_at(*canvas_pixel)
+        if slot is not None:
+            self.window.imageElementBoxes[slot].edit.click()
 
     def export_image(self) -> None:
         image = self.current_image
