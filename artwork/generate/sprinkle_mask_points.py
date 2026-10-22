@@ -33,6 +33,7 @@ def sprinkle_mask_points(
     magenta_spot_count: int,
     maximum_length: int,
     seed: int,
+    excluded_bottom_rows: int = 3,
 ) -> list[tuple[int, list[tuple[int, int]]]]:
     """Add random-walk spots and thin green from RG interiors."""
     if blue_spot_count < 0 or magenta_spot_count < 0:
@@ -52,6 +53,8 @@ def sprinkle_mask_points(
     mask_bits = indices
     rng = np.random.default_rng(seed)
     rows, columns = mask_bits.shape
+    if not 0 <= excluded_bottom_rows < rows:
+        raise ValueError("excluded bottom rows must be between zero and the mask height")
     directions = ((-1, 0), (0, 1), (1, 0), (0, -1))
     walks = []
     for bits, spot_count, color_name, stop_on_collision in (
@@ -68,6 +71,8 @@ def sprinkle_mask_points(
                     for dc in range(3)
                 ]
             )
+            if excluded_bottom_rows:
+                unavailable[-excluded_bottom_rows:] = True
             candidates = np.flatnonzero(~unavailable)
             if not len(candidates):
                 raise ValueError(f"cannot place all {spot_count} {color_name} spots")
@@ -108,10 +113,16 @@ def parse_args() -> ArgumentParser:
     parser = ArgumentParser(description="Add deterministic color spots to an indexed XRF mask.")
     parser.add_argument("source", type=Path, nargs="?", default=DEFAULT_SOURCE)
     parser.add_argument("-o", "--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--blue-spot-count", type=int, default=75)
+    parser.add_argument("--blue-spot-count", type=int, default=95)
     parser.add_argument("--magenta-spot-count", type=int, default=10)
     parser.add_argument("--maximum-length", type=int, default=6)
     parser.add_argument("--seed", type=int, default=5700)
+    parser.add_argument(
+        "--excluded-bottom-rows",
+        type=int,
+        default=3,
+        help="number of bottom mask rows excluded from random-walk starting points",
+    )
     return parser
 
 
@@ -124,6 +135,7 @@ def main() -> None:
         args.magenta_spot_count,
         args.maximum_length,
         args.seed,
+        args.excluded_bottom_rows,
     )
     print(args.output)
 

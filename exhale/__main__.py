@@ -17,6 +17,10 @@ from . import application_description, application_name, application_title, resd
 DESKTOP_ID = "io.github.ctroein.Exhale"
 
 
+def _splash_text(status):
+    return f"{application_title} – {status}"
+
+
 def _desktop_exec_argument(value):
     """Quote one argument according to the Desktop Entry Exec field rules."""
     value = str(value)
@@ -211,8 +215,8 @@ def _run_application(pyi_splash=None):
         splash_font.setBold(True)
         qt_splash.setFont(splash_font)
         qt_splash.showMessage(
-            f"Initializing {application_title}",
-            QtCore.Qt.AlignRight | QtCore.Qt.AlignBottom,
+            _splash_text("Initializing"),
+            QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom,
             splash_color,
         )
         qt_splash.show()
@@ -224,13 +228,14 @@ def _run_application(pyi_splash=None):
                 break
             QtCore.QThread.msleep(1)
 
-    def update_splash(message):
+    def update_splash(status):
+        message = _splash_text(status)
         if pyi_splash is not None:
             pyi_splash.update_text(message)
         elif qt_splash is not None:
             qt_splash.showMessage(
                 message,
-                QtCore.Qt.AlignRight | QtCore.Qt.AlignBottom,
+                QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom,
                 splash_color,
             )
             app.processEvents()
@@ -243,9 +248,9 @@ def _run_application(pyi_splash=None):
 
     from .main_window import MainWindow
 
-    update_splash(f"Creating UI for {application_title}")
+    update_splash("Creating user interface")
     window = MainWindow()
-    update_splash(f"Opening {application_title}")
+    update_splash("Opening")
     window.show()
     window.post_setup(**windowparams)
 
@@ -278,7 +283,7 @@ def main():
             # print("startup: imported pyi_splash")
             # print("startup: is_alive =", pyi_splash.is_alive())
             if pyi_splash.is_alive():
-                pyi_splash.update_text(f"Initializing {application_title}")
+                pyi_splash.update_text(_splash_text("Initializing"))
             else:
                 pyi_splash = None
         except Exception as e:

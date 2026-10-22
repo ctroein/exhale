@@ -29,20 +29,29 @@ EXHALE can be installed from PyPI in an isolated environment with
 uv tool install --python 3.12 exhale-lung
 ```
 
-On Linux, desktop-menu registration is explicit and applies only to the current user:
+Windows and macOS users who prefer a packaged application over uv or pip can
+download it from the [GitHub releases page](https://github.com/ctroein/exhale/releases).
+Developers can also install EXHALE from a Git checkout.
+
+On Linux, run the following command to add EXHALE to the current user's desktop
+environment and application menu:
 
 ```bash
 exhale --install-desktop
 ```
 
-Before uninstalling EXHALE, remove that registration with:
+To remove the desktop and menu entry, run:
 
 ```bash
 exhale --remove-desktop
+```
+
+To uninstall an EXHALE installation managed by uv, run:
+
+```bash
 uv tool uninstall exhale-lung
 ```
 
 ## Developer documentation
 
-Architecture, the file-by-file code overview, and development conventions are
-indexed in [`docs/README.md`](docs/README.md).
+Developer documentation is located in [`docs/`](docs/README.md).

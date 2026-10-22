@@ -60,6 +60,7 @@ def test_sprinkling_adds_only_blue_random_walks(tmp_path):
     occupied = source != 0
     for channel_bits, walk in walks:
         start_row, start_column = walk[0]
+        assert start_row < source.shape[0] - 3
         assert not occupied[
             max(0, start_row - 1) : start_row + 2,
             max(0, start_column - 1) : start_column + 2,
@@ -115,10 +116,10 @@ def test_spot_colors_are_fixed_per_connected_region():
     assert assigned[-1] == (96, 112, 176)
 
 
-def test_x_icon_extraction_uses_the_shaped_source_component():
+def test_x_icon_extraction_uses_only_pixels_in_the_clean_source_rectangle():
     icon = _load_script("extract_xrf_icon")
     source = np.zeros((57, 57), dtype=np.uint8)
-    source[9:24, 11:21] = 0b011
+    source[6:21, 11:21] = 0b011
     source[9:24, 22:26] = 0b011
     guide = np.zeros((114, 114, 3), dtype=np.uint8)
     guide[18:48, 22:42] = (218, 151, 18)
@@ -152,3 +153,17 @@ def test_x_icon_crop_is_fixed_and_contains_the_mask():
     mask[30:70, 35:65] = True
 
     assert icon.square_crop_bounds(mask, 60) == (20, 20, 80, 80)
+
+
+def test_splash_status_area_is_dark_with_smooth_transition():
+    splash = _load_script("install_xrf_splash")
+    image = Image.new("RGB", (240, 80), (200, 100, 50))
+
+    result = np.asarray(splash.darken_status_area(image))
+
+    assert result[-1, 0].max() <= splash.STATUS_MAXIMUM_BRIGHTNESS
+    assert result[-splash.STATUS_HEIGHT, -1].max() <= splash.STATUS_MAXIMUM_BRIGHTNESS
+    assert result[-1, -1].max() <= splash.STATUS_MAXIMUM_BRIGHTNESS
+    assert splash.STATUS_MAXIMUM_BRIGHTNESS < result[-splash.STATUS_HEIGHT - 1, 0].max() < 200
+    assert np.array_equal(result[-1, 0], (64, 32, 16))
+    assert np.array_equal(result[0, 0], (200, 100, 50))

@@ -11,24 +11,21 @@ from scipy.ndimage import distance_transform_edt, label
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 
-SOURCE_X_RECT = (11, 9, 20, 23)  # Inclusive x1, y1, x2, y2 in the 57-pixel mask.
+SOURCE_X_RECT = (11, 6, 20, 20)  # Inclusive x1, y1, x2, y2 in the 57-pixel mask.
 GUIDE_RG_COLORS = ((230, 35, 0), (0, 190, 0), (218, 151, 18))
 DARK_GREEN = (7, 31, 16)
 RUNTIME_ICON = ROOT / "exhale" / "resources" / "icons" / "xrf.png"
 
 
 def source_x_mask(source: np.ndarray) -> np.ndarray:
-    """Return the red-or-green source component identified by the clean X rectangle."""
+    """Return red-or-green X pixels from its clean source rectangle."""
     red_or_green = (source & 0b011) != 0
-    components, _ = label(red_or_green, structure=np.ones((3, 3), dtype=np.uint8))
     x1, y1, x2, y2 = SOURCE_X_RECT
-    component_ids = np.unique(components[y1 : y2 + 1, x1 : x2 + 1])
-    component_ids = component_ids[component_ids != 0]
-    if len(component_ids) != 1:
-        raise ValueError(
-            f"expected one source X component in {SOURCE_X_RECT}, found {len(component_ids)}"
-        )
-    return components == component_ids[0]
+    mask = np.zeros_like(red_or_green)
+    mask[y1 : y2 + 1, x1 : x2 + 1] = red_or_green[y1 : y2 + 1, x1 : x2 + 1]
+    if not mask.any():
+        raise ValueError(f"no source X pixels found in {SOURCE_X_RECT}")
+    return mask
 
 
 def fitted_x_mask(source: np.ndarray, guide: np.ndarray) -> np.ndarray:

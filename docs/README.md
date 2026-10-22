@@ -10,4 +10,4 @@ The developer documentation is split by purpose:
   compatibility, and release conventions.
 
 Keep these documents descriptive of the current code. Plans and temporary
-implementation notes do not belong here.
+implementation notes are tracked in the relevant issue or pull request.

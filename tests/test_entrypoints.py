@@ -13,6 +13,12 @@ from exhale import exhale_version
 
 
 class EntrypointTests(unittest.TestCase):
+    def test_splash_status_includes_name_and_version(self):
+        self.assertEqual(
+            exhale_main._splash_text("Opening"),
+            f"Exhale {exhale_version} – Opening",
+        )
+
     def run_launchers(self, argument):
         root = Path(__file__).resolve().parents[1]
         commands = (

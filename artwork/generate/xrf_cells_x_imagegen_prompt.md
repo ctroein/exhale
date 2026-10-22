@@ -15,11 +15,11 @@ cells spell “Exhale”, and its initial X also starts the smaller vertical “
 The indexed mask uses an eight-colour palette whose index bits represent red,
 green, and blue respectively from least to most significant bit. Thus yellow
 is index 3, blue is index 4, and three-channel overlap is index 7.
-Add 75 blue and 10 magenta random-walk spots of up to six pixels each with:
+Add 95 blue and 10 magenta random-walk spots of up to six pixels each with:
 
 ```sh
 python artwork/generate/sprinkle_mask_points.py \
-    --blue-spot-count 75 \
+    --blue-spot-count 95 \
     --magenta-spot-count 10 \
     --maximum-length 6 \
     --seed 5703
@@ -33,7 +33,10 @@ through self-collisions; magenta walks stop there. Other colors are combined by
 setting the new bits. Blue spots are placed first, followed by magenta spots
 under the same starting-clearance rule. Finally, RG pixels with at least three
 four-neighbour RG pixels lose their green bit. No yellow points are generated.
-Change `--seed` to obtain another deterministic sprinkling.
+The bottom three mask rows are excluded from starting positions, keeping new
+spots out of at least the bottom 33 pixels of the 627-pixel splash. Walks may
+enter those rows after starting. Change `--seed` to obtain another deterministic
+sprinkling.
 
 ## 2. Generate the geometry guide
 
@@ -79,14 +82,15 @@ Asset type: square artwork source for an XRF image tool
 Pipeline stage: This is the single and only generative transformation. Image 1 is a deterministic mask-derived guide. Image 2 is the original XRF appearance reference. Do not use or imitate any previously generated image.
 Geometry: Treat Image 1 as authoritative. Preserve every colored region's position, approximate footprint, shape, count, overlap, and merged/separate connectivity. Do not add, remove, relocate, split, merge, expand, or contract regions.
 Overall appearance: Reproduce Image 2 as a noisy three-channel elemental map, but with restrained noise. Avoid the appearance of fluorescence microscopy, cutout objects, or a polished illustration.
-Background: medium-dark green, not nearly black and not brighter than the colored signal. Make cells around the teal cells, and background cells between them, with structures like nuclei and such. Keep the background mellow and mildly swirly, with the cells looking like those in the appearance reference image.
-Yellow regions: Fill most of each yellow footprint with uneven muted yellow, gold, and modest orange signal, with a little reddish-orange variation. Only some cells may contain small irregular greenish patches; do not make cells hollow or fill their interiors mostly with background green. Keep a few partial peripheral concentrations without turning every cell into a ring.
-Moss-green regions: Use these regions as locations and approximate extents for plausible cells. Build cellular forms around them, including subdued internal structures resembling nuclei where appropriate. Let the moss-green signal vary naturally across each cell instead of preserving it as a flat fill. Keep the approximate footprints and avoid neon glow.
-Blue-gray and pink-gray regions: Use these regions as locations and approximate extents for additional plausible cells. Their guide colors distinguish signal groups; they are not finished fills that must remain unchanged. Build cellular forms around them, with subdued blue-gray or dull pink-gray signal and restrained internal variation. Avoid bright saturated pink.
-Granules: Keep large bright granules rare. Place a few irregular local concentrations in a minority of cells only. Most colored regions should use broad mottled intensity variation. The background should have almost no distinct granules.
+Background: medium-dark green, not nearly black and not brighter than the colored signal. Fill it with numerous subdued cellular forms and related fine tissue structures, softly interwoven and mildly swirly like the appearance reference. Keep them lower-contrast and less prominent than the guide-defined colored regions, while still making the background recognizably cellular rather than empty or uniformly cloudy.
+Colored-region structure: Each colored cell-shaped region represents a nucleus-like object in its entirety. Fill its interior with continuous fine-scale swirly, grainy, frothy, or softly mottled XRF texture. Keep every internal feature small relative to the region and distribute variation across the whole footprint, so the region reads as one coherent textured body.
+Yellow regions: Fill most of each yellow footprint with uneven muted yellow, gold, and modest orange signal, with a little reddish-orange variation. Use small irregular greenish variations in a minority of regions and retain broad signal through their interiors. Keep a few partial peripheral concentrations while preserving a coherent filled body.
+Moss-green regions: Use these regions as locations and approximate extents for plausible textured nucleus-like bodies. Let moss-green signal vary naturally at fine scale throughout each region instead of preserving it as a flat fill. Keep the approximate footprints and avoid neon glow.
+Blue-gray and pink-gray regions: Use these regions as locations and approximate extents for additional textured nucleus-like bodies. Their guide colors distinguish signal groups rather than finished fills. Use subdued blue-gray or dull pink-gray signal with restrained fine-scale variation distributed throughout each region.
+Texture scale: Use fine grain, soft froth, and small diffuse concentrations. Let broad intensity variation emerge from these small-scale textures rather than from distinct internal objects. Keep the background quieter and less granular than the colored regions.
 Channel overlap: where guide colors represent overlapping channels, use both channel contours to shape one coherent cell and show local mixed multichannel signal without an opaque layer or hard boundary.
-Edges: softly fading and irregular like an imperfect acquisition, while remaining faithful to the guide footprints.
-Avoid: dark cell outlines, bright halos, widespread speckle, repeated circular granules, branching fibrous networks, invented bright objects, scale bar, border, watermark.
+Edges: clearly localized and moderately crisp while retaining slight natural irregularity and a short soft transition like an imperfect acquisition. Keep the colored regions faithful to the guide footprints without broad diffuse halos.
+Avoid: dark cell outlines, bright halos, widespread speckle, repeated circular granules, organelle-like bodies inside the colored regions, branching fibrous networks, invented bright objects, scale bar, border, watermark.
 ```
 
 Add:
@@ -107,7 +111,9 @@ python artwork/generate/install_xrf_splash.py \
 ```
 
 This writes `exhale/resources/xrf_splash.jpg` at 627×627. The complete generated
-artwork remains the splash and retained source rather than a small UI logo.
+artwork remains the splash and retained source rather than a small UI logo. The
+installer limits the bottom 28-pixel strip to 25% HSB brightness and blends
+that adjustment smoothly through an eight-pixel transition above it.
 
 ## 5. Build platform icons
 

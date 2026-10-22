@@ -33,7 +33,6 @@ res = join(ROOT, "exhale", "resources")
 datas = [
     (join(res, "models", "2D_versatile_fluo_copy", "*"),
         "exhale/resources/models/2D_versatile_fluo_copy"),
-    (join(res, "linux", "*.desktop"), "exhale/resources/linux"),
 ]
 
 if sys.platform == "darwin":
@@ -81,10 +80,10 @@ if do_splash:
     splash = Splash(join(res, 'xrf_splash.jpg'),
                     binaries=a.binaries,
                     datas=a.datas,
-                    text_pos=(15, 30),
+                    text_pos=(15, 612),
                     text_size=11,
-                    text_color='#a070ff',
-                    text_default=f"Loading Exhale {exhale_version}")
+                    text_color='#e0c000',
+                    text_default=f"Exhale {exhale_version} – Starting")
 
     toexec = ([a.scripts, a.binaries, a.datas, splash, splash.binaries]
               if onefile else [splash, a.scripts])
