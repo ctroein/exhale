@@ -62,15 +62,19 @@ class MatrixTextLayout:
     color_bar_label_width: float
 
     @property
+    def color_bar_label_offset(self) -> float:
+        """Return the distance from the bar edge to the title's near edge."""
+        return self.color_bar_tick_gap + self.digit_width + self.color_bar_label_gap
+
+    @property
     def color_bar_side_width(self) -> float:
         """Return all horizontal space occupied by a visible colorbar."""
         return (
             self.color_bar_matrix_gap
             + self.color_bar_width
-            + self.color_bar_tick_gap
             + max(
-                self.color_bar_tick_width,
-                self.digit_width + self.color_bar_label_gap + self.color_bar_label_width,
+                self.color_bar_tick_gap + self.color_bar_tick_width,
+                self.color_bar_label_offset + self.color_bar_label_width,
             )
         )
 
@@ -121,8 +125,11 @@ def matrix_text_layout(
     spec: MatrixPlotSpec,
     font_height: float,
     measure_text: Callable[[str], float],
+    em_size: float | None = None,
 ) -> MatrixTextLayout:
     """Measure renderer-independent matrix text and derive standard spacing."""
+    if em_size is None:
+        em_size = font_height
     digit_width = measure_text("0")
     longest_label = max((measure_text(label) for label in spec.labels), default=0.0)
     value_width = measure_text(f"-{0:.{spec.decimals}f}")
@@ -139,15 +146,15 @@ def matrix_text_layout(
         value_width=value_width,
         minimum_cell=minimum_cell,
         preferred_cell=preferred_cell,
-        page_padding=font_height * 2.0,
+        page_padding=em_size * 2.0,
         row_label_width=longest_label + font_height * 0.5,
-        column_label_height=(longest_label + font_height) / np.sqrt(2.0) + font_height * 0.5,
-        column_label_gap=font_height * 0.5,
+        column_label_height=(longest_label + font_height) / np.sqrt(2.0) + font_height * 0.3,
+        column_label_gap=font_height * 0.3,
         color_bar_matrix_gap=font_height * 1.5,
         color_bar_width=font_height * 0.6,
         color_bar_tick_gap=digit_width * 1.5,
         color_bar_tick_width=measure_text("-1.00"),
-        color_bar_label_gap=font_height - digit_width / 3.0,
+        color_bar_label_gap=font_height - digit_width * 5.0 / 6.0,
         color_bar_label_width=font_height,
     )
 

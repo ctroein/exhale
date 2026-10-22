@@ -239,7 +239,7 @@ def _run_application(pyi_splash=None):
 
     appearance.initialize(QtCore.QSettings("CIPA", application_name))
     if sys.platform != "darwin":
-        app.setWindowIcon(icons.icon(icons.IconName.LOGO))
+        app.setWindowIcon(icons.icon(icons.IconName.APPLICATION))
 
     from .main_window import MainWindow
 

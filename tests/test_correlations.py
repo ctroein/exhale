@@ -3,6 +3,7 @@
 import numpy as np
 
 from exhale.analysis.correlations import (
+    DensityGrid,
     correlation_matrix,
     density_grid,
     interpolated_density,
@@ -60,7 +61,7 @@ def test_matrix_text_layout_derives_shared_cell_and_colorbar_spacing():
     assert measured.minimum_cell == 33.0
     assert measured.preferred_cell == 42.0
     assert measured.row_label_width == 60.0
-    assert measured.color_bar_label_gap == 10.0
+    assert measured.color_bar_label_gap == 7.0
     assert measured.color_bar_side_width == 64.2
 
 
@@ -103,6 +104,26 @@ def test_interpolated_density_preserves_requested_shape_and_range():
     assert np.isfinite(image).all()
     assert image.min() >= 0
     assert image.max() > image.min()
+
+
+def test_interpolated_density_does_not_miss_bins_finer_than_display_grid():
+    edges = np.linspace(0.0, 1.0, 1001)
+    density = np.zeros((1000, 1000))
+    density[500, 500] = 1.0
+    grid = DensityGrid(edges, edges, density, count=1)
+
+    image = interpolated_density(grid, size=256)
+
+    assert image.max() > 0
+
+
+def test_default_density_image_preserves_fine_grid_resolution():
+    values = np.linspace(0.0, 1.0, 1000)
+    grid = density_grid(values, values, bins=300)
+
+    image = interpolated_density(grid)
+
+    assert image.shape == (300, 300)
 
 
 def test_element_correlations_remove_nonfinite_pixels_pairwise():

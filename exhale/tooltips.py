@@ -78,7 +78,10 @@ MAIN_WINDOW = {
     "elementScatterPresentation": (
         "Scatter samples up to 100,000 pixels; Density bins all finite pixel pairs."
     ),
-    "elementScatterBins": ("Number of bins along each axis before interpolating the density plot."),
+    "elementScatterBins": (
+        "Number of bins along each axis; the two-dimensional grid contains this number squared "
+        "of cells. Higher values refine the smoothed density estimate."
+    ),
     "saveElementScatterPlot": "Save the current plot as a PNG or SVG image.",
     "sampleSimilaritySamples": (
         "Select at least two samples. Only active elements common to every selection are compared."

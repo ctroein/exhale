@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build Windows and macOS application icons from a 1024-pixel PNG."""
+"""Build Windows and macOS application icons from square PNG sources."""
 
 import argparse
 import shutil
@@ -36,11 +36,16 @@ ICO_SIZES: list[tuple[int, int]] = [
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Generate .icns and .ico files from a single 1024x1024 PNG. "
+            "Generate .icns and .ico files from one or two square PNGs. "
             "Requires Pillow and icnsutil."
         )
     )
-    parser.add_argument("input_png", type=Path, help="Source PNG, ideally 1024x1024 RGBA")
+    parser.add_argument("input_png", type=Path, help="square source PNG for the Windows icon")
+    parser.add_argument(
+        "--icns-input",
+        type=Path,
+        help="optional separate square source PNG for the macOS icon",
+    )
     parser.add_argument(
         "-o",
         "--output-base",
@@ -56,14 +61,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def require_square_1024(img: Image.Image, path: Path) -> None:
-    if img.size != (1024, 1024):
-        raise ValueError(f"Expected a 1024x1024 PNG, got {img.size[0]}x{img.size[1]} for {path}")
+def require_square(img: Image.Image, path: Path) -> None:
+    if img.width != img.height:
+        raise ValueError(f"Expected a square PNG, got {img.width}x{img.height} for {path}")
 
 
 def load_rgba(path: Path) -> Image.Image:
     img = Image.open(path)
-    require_square_1024(img, path)
+    require_square(img, path)
     return img.convert("RGBA")
 
 
@@ -102,6 +107,7 @@ def main() -> int:
     out_base.parent.mkdir(parents=True, exist_ok=True)
 
     img = load_rgba(input_png)
+    icns_img = load_rgba(args.icns_input.resolve()) if args.icns_input else img
 
     ico_path = out_base.with_suffix(".ico")
     icns_path = out_base.with_suffix(".icns")
@@ -109,7 +115,7 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="iconset-") as tmpdir:
         tmp_iconset = Path(tmpdir) / iconset_dir.name
-        save_iconset(img, tmp_iconset)
+        save_iconset(icns_img, tmp_iconset)
         build_ico(img, ico_path)
         build_icns(tmp_iconset, icns_path)
 

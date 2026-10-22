@@ -285,7 +285,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         heading = QtWidgets.QHBoxLayout()
         logo_height = round(self.fontMetrics().height() * 4)
-        pixmap = icons.icon_pixmap(icons.IconName.LOGO, logo_height)
+        pixmap = icons.icon_pixmap(icons.IconName.APPLICATION, logo_height)
         logo = QtWidgets.QLabel(dialog)
         logo.setPixmap(pixmap)
         logo.setFixedSize(pixmap.size())

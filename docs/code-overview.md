@@ -331,11 +331,9 @@ document generated modules directly.
 
 `exhale/resources/icons/` contains packaged SVG and raster artwork.
 `exhale/resources/models/` contains the bundled StarDist model data.
-`artwork/generate/` contains the indexed icon and splash masks, deterministic
-mask-point and guide generators, appearance reference, alpha-mask utility, and
-ImageGen procedure for XRF artwork. `artwork/logos/`
-contains selected full-size logo sources and retained alternatives;
-`artwork/splash/` contains editable splash-screen sources; and
+`artwork/generate/` contains the indexed splash mask, deterministic mask-point,
+guide and icon-source generators, appearance reference, splash installer, and
+ImageGen procedure for XRF artwork; and
 `artwork/unused-icons/` retains interface icons which are not packaged or used
 at runtime.
 

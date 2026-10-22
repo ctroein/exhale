@@ -16,7 +16,7 @@ from .appearance import is_dark
 class IconName(str, Enum):
     """Canonical names of icons packaged with Exhale."""
 
-    LOGO = "xrf.png"
+    APPLICATION = "xrf.png"
     OPEN = "open.svg"
     # FOLDER = "folder-open.svg"
     PROJECT = "folder-open.svg"

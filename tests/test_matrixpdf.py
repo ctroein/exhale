@@ -32,9 +32,11 @@ def _spec():
 
 
 def test_automatic_dimensions_fit_the_matrix_and_color_bar():
-    layout = matrix_pdf_layout(_spec(), MatrixPublicationSettings(), MatrixPlotSettings())
+    publication = MatrixPublicationSettings(font_size=9.0)
+    layout = matrix_pdf_layout(_spec(), publication, MatrixPlotSettings())
 
     assert _APP is not None
+    assert layout.text.page_padding == 0.0
     assert layout.matrix.width() == pytest.approx(2 * layout.cell_size)
     assert layout.color_bar is not None
     assert layout.color_bar.top() == pytest.approx(layout.matrix.top())

@@ -56,8 +56,17 @@ def _font(settings: MatrixPublicationSettings) -> QtGui.QFont:
 
 
 def _measured_text(spec: MatrixPlotSpec, publication: MatrixPublicationSettings):
-    metrics = QtGui.QFontMetricsF(_font(publication))
-    return matrix_text_layout(spec, metrics.height(), metrics.horizontalAdvance)
+    font = _font(publication)
+    metrics = QtGui.QFontMetricsF(font)
+    return replace(
+        matrix_text_layout(
+            spec,
+            metrics.height(),
+            metrics.horizontalAdvance,
+            em_size=font.pixelSize(),
+        ),
+        page_padding=0.0,
+    )
 
 
 def minimum_matrix_dimensions_mm(
@@ -70,7 +79,8 @@ def minimum_matrix_dimensions_mm(
     color_bar_side = text.color_bar_side_width if settings.color_bar_position != "hidden" else 0.0
     count = len(spec.labels)
     width = 2 * text.page_padding + text.row_label_width + color_bar_side
-    height = 2 * text.page_padding + text.column_label_height
+    top_text = text.font_height / 2 if settings.color_bar_position != "hidden" else 0.0
+    height = 2 * text.page_padding + top_text + text.column_label_height
     return (
         (width + count * text.minimum_cell) / POINTS_PER_MM,
         (height + count * text.minimum_cell) / POINTS_PER_MM,
@@ -89,7 +99,8 @@ def matrix_pdf_layout(
     color_bar_side = text.color_bar_side_width if settings.color_bar_position != "hidden" else 0.0
     count = len(spec.labels)
     static_width = 2 * text.page_padding + text.row_label_width + color_bar_side
-    static_height = 2 * text.page_padding + text.column_label_height
+    top_text = text.font_height / 2 if settings.color_bar_position != "hidden" else 0.0
+    static_height = 2 * text.page_padding + top_text + text.column_label_height
     fixed_width = None if settings.width_mm is None else settings.width_mm * POINTS_PER_MM
     fixed_height = None if settings.height_mm is None else settings.height_mm * POINTS_PER_MM
     width_cell = None if fixed_width is None else (fixed_width - static_width) / count
@@ -114,10 +125,10 @@ def matrix_pdf_layout(
         matrix_left = content_x + text.page_padding + text.row_label_width
         bar_left = matrix_left + count * cell_size + text.color_bar_matrix_gap
     tick_x = bar_left + text.color_bar_width + text.color_bar_tick_gap
-    label_x = tick_x + text.digit_width + text.color_bar_label_gap
+    label_x = bar_left + text.color_bar_width + text.color_bar_label_offset
     matrix = QtCore.QRectF(
         matrix_left,
-        content_y + text.page_padding,
+        content_y + text.page_padding + top_text,
         count * cell_size,
         count * cell_size,
     )

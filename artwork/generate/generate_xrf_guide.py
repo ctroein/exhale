@@ -12,25 +12,22 @@ from scipy.ndimage import binary_fill_holes, gaussian_filter, label
 from skimage.measure import find_contours
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_MASK_SOURCE = HERE / "16-masks.png"
+DEFAULT_MASK_SOURCE = HERE / "57-masks.png"
 
-# GIMP palette indices in 16-masks.png: background, overlap, yellow, blue.
-# Convert them to bit 0 = yellow and bit 1 = blue before extracting masks.
-_PALETTE_INDEX_TO_MASK_BITS = np.array((0b00, 0b11, 0b01, 0b10), dtype=np.uint8)
+# Palette indices are RGB bit fields: bit 0 = red, bit 1 = green, bit 2 = blue.
 
 
-def load_masks(source: Path) -> tuple[np.ndarray, np.ndarray]:
-    """Load the indexed four-colour source as yellow and blue Boolean masks."""
+def load_masks(source: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Load red, green, and blue masks from RGB-bit-field indices."""
     with Image.open(source) as image:
         if image.mode != "P":
             raise ValueError(f"the combined mask must be indexed, not {image.mode}")
         indices = np.asarray(image).copy()
     if indices.ndim != 2 or indices.shape[0] != indices.shape[1]:
         raise ValueError("the combined mask must be a square image")
-    if indices.size == 0 or int(indices.max()) >= len(_PALETTE_INDEX_TO_MASK_BITS):
-        raise ValueError("the combined mask must use only palette indices 0 through 3")
-    mask_bits = _PALETTE_INDEX_TO_MASK_BITS[indices]
-    return (mask_bits & 0b01) != 0, (mask_bits & 0b10) != 0
+    if indices.size == 0 or int(indices.max()) > 0b111:
+        raise ValueError("the combined mask must use only palette indices 0 through 7")
+    return tuple((indices & bit) != 0 for bit in (0b001, 0b010, 0b100))
 
 
 def component_boundary(component: np.ndarray) -> np.ndarray:
@@ -180,6 +177,32 @@ def overlap_ratios(candidate: np.ndarray, target: np.ndarray) -> tuple[float, fl
     return outside, missed
 
 
+def categorical_spot_colors(
+    guide_bits: np.ndarray,
+    colors: np.ndarray,
+    seed: int,
+) -> np.ndarray:
+    """Assign moss-green and spatially mixed subdued RB display colors."""
+    result = colors[guide_bits]
+    result[guide_bits == 0b100] = (107, 125, 58)
+    magenta_regions, region_count = label(
+        guide_bits == 0b101,
+        structure=np.array(((0, 1, 0), (1, 1, 1), (0, 1, 0))),
+    )
+    blue_region_count = min(7, region_count)
+    blue_regions = set(
+        np.random.default_rng(seed).choice(
+            np.arange(1, region_count + 1),
+            size=blue_region_count,
+            replace=False,
+        )
+    )
+    for region_number in range(1, region_count + 1):
+        color = (96, 112, 176) if region_number in blue_regions else (145, 105, 125)
+        result[magenta_regions == region_number] = color
+    return result
+
+
 def rasterize_local_contour(
     contour: np.ndarray,
     shape: tuple[int, int],
@@ -241,9 +264,7 @@ def anneal_component(
     column_origin = int(occupied_columns.min()) - padding
     row_stop = int(occupied_rows.max()) + padding + 1
     column_stop = int(occupied_columns.max()) + padding + 1
-    local_component = np.zeros(
-        (row_stop - row_origin, column_stop - column_origin), dtype=bool
-    )
+    local_component = np.zeros((row_stop - row_origin, column_stop - column_origin), dtype=bool)
     local_component[occupied_rows - row_origin, occupied_columns - column_origin] = True
     filled_component = binary_fill_holes(local_component)
     target_image = Image.fromarray(filled_component.astype(np.uint8) * 255).resize(
@@ -321,12 +342,8 @@ def anneal_component(
         proposal[indices] += (
             normal[indices] * normal_move[:, None] + tangent[indices] * tangent_move[:, None]
         )
-        proposal[:, 0] = np.clip(
-            proposal[:, 0], -0.35, local_component.shape[1] + 0.35
-        )
-        proposal[:, 1] = np.clip(
-            proposal[:, 1], -0.35, local_component.shape[0] + 0.35
-        )
+        proposal[:, 0] = np.clip(proposal[:, 0], -0.35, local_component.shape[1] + 0.35)
+        proposal[:, 1] = np.clip(proposal[:, 1], -0.35, local_component.shape[0] + 0.35)
 
         proposed = contour_energy(
             proposal,
@@ -526,44 +543,25 @@ def generate_guide(
     curvature_coefficient: float = 0.08,
     maximum_control_points: int = 28,
     annealing_log: Path | None = None,
-) -> tuple[tuple[float, float, int, int], tuple[float, float, int, int]]:
-    yellow_mask, blue_mask = load_masks(mask_source)
-    (
-        yellow,
-        yellow_spill,
-        yellow_missed,
-        yellow_merged,
-        yellow_contacts,
-        yellow_diagnostics,
-    ) = spline_mask(
-        yellow_mask,
-        size,
-        seed,
-        annealing_steps,
-        maximum_spill,
-        maximum_missed,
-        length_coefficient,
-        curvature_coefficient,
-        maximum_control_points,
-    )
-    (
-        blue,
-        blue_spill,
-        blue_missed,
-        blue_merged,
-        blue_contacts,
-        blue_diagnostics,
-    ) = spline_mask(
-        blue_mask,
-        size,
-        seed + 1100,
-        annealing_steps,
-        maximum_spill,
-        maximum_missed,
-        length_coefficient,
-        curvature_coefficient,
-        maximum_control_points,
-    )
+) -> tuple[tuple[float, float, int, int], ...]:
+    channel_masks = load_masks(mask_source)
+    channel_results = []
+    for channel_mask, channel_seed in zip(
+        channel_masks, (seed, seed + 1100, seed + 2200), strict=True
+    ):
+        channel_results.append(
+            spline_mask(
+                channel_mask,
+                size,
+                channel_seed,
+                annealing_steps,
+                maximum_spill,
+                maximum_missed,
+                length_coefficient,
+                curvature_coefficient,
+                maximum_control_points,
+            )
+        )
 
     background_rng = np.random.default_rng(seed + 7424)
     background_noise = gaussian_filter(background_rng.standard_normal((size, size)), blur * 2.25)
@@ -577,19 +575,39 @@ def generate_guide(
         255,
     ).astype(np.uint8)
 
-    yellow_color = np.array((218, 151, 18), dtype=np.float32)
-    blue_color = np.array((16, 91, 198), dtype=np.float32)
-    guide[yellow] = yellow_color
-    guide[blue] = blue_color
+    guide_bits = np.zeros((size, size), dtype=np.uint8)
+    for bit, result in zip((0b001, 0b010, 0b100), channel_results, strict=True):
+        guide_bits |= result[0].astype(np.uint8) * bit
+    guide_colors = np.array(
+        (
+            (7, 48, 24),
+            (230, 35, 0),
+            (0, 190, 0),
+            (218, 151, 18),
+            (16, 91, 198),
+            (210, 30, 230),
+            (0, 200, 220),
+            (180, 235, 150),
+        ),
+        dtype=np.uint8,
+    )
+    foreground = guide_bits != 0
+    if mask_source.name.startswith("57-"):
+        signal_colors = categorical_spot_colors(
+            guide_bits,
+            guide_colors,
+            seed + 4319,
+        )
+        guide[foreground] = signal_colors[foreground]
+    else:
+        guide[foreground] = guide_colors[guide_bits[foreground]]
 
     output.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(guide, "RGB").save(output)
     if annealing_log is not None:
         rows = []
-        for color, color_rows in (
-            ("yellow", yellow_diagnostics),
-            ("blue", blue_diagnostics),
-        ):
+        for color, result in zip(("red", "green", "blue"), channel_results, strict=True):
+            color_rows = result[5]
             for row in color_rows:
                 rows.append({"color": color, **row})
         annealing_log.parent.mkdir(parents=True, exist_ok=True)
@@ -597,12 +615,7 @@ def generate_guide(
             writer = csv.DictWriter(stream, fieldnames=rows[0].keys())
             writer.writeheader()
             writer.writerows(rows)
-    return (yellow_spill, yellow_missed, yellow_merged, yellow_contacts), (
-        blue_spill,
-        blue_missed,
-        blue_merged,
-        blue_contacts,
-    )
+    return tuple((result[1], result[2], result[3], result[4]) for result in channel_results)
 
 
 def default_output(mask_source: Path) -> Path:
@@ -640,7 +653,7 @@ def parse_args() -> ArgumentParser:
 def main() -> None:
     args = parse_args().parse_args()
     output = args.output or default_output(args.mask_source)
-    yellow_metrics, blue_metrics = generate_guide(
+    channel_metrics = generate_guide(
         args.mask_source,
         output,
         args.size,
@@ -655,16 +668,12 @@ def main() -> None:
         args.annealing_log,
     )
     print(output)
-    print(
-        f"yellow: worst component spill {yellow_metrics[0]:.3f}, "
-        f"worst missed area {yellow_metrics[1]:.3f}, "
-        f"merged diagonals {yellow_metrics[2]}/{yellow_metrics[3]}"
-    )
-    print(
-        f"blue: worst component spill {blue_metrics[0]:.3f}, "
-        f"worst missed area {blue_metrics[1]:.3f}, "
-        f"merged diagonals {blue_metrics[2]}/{blue_metrics[3]}"
-    )
+    for color, metrics in zip(("red", "green", "blue"), channel_metrics, strict=True):
+        print(
+            f"{color}: worst component spill {metrics[0]:.3f}, "
+            f"worst missed area {metrics[1]:.3f}, "
+            f"merged diagonals {metrics[2]}/{metrics[3]}"
+        )
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.interpolate import RegularGridInterpolator
+from scipy.ndimage import gaussian_filter
 
 
 @dataclass(frozen=True)
@@ -77,22 +77,41 @@ def density_grid(first: np.ndarray, second: np.ndarray, *, bins: int = 60) -> De
     return DensityGrid(x_edges=x_edges, y_edges=y_edges, density=density, count=int(inside.sum()))
 
 
-def interpolated_density(grid: DensityGrid, size: int = 256) -> np.ndarray:
-    """Interpolate log density onto a regular value-positioned image grid."""
+def _area_average_axis(values, source_edges, target_edges, axis):
+    """Area-average a piecewise-constant array along one axis."""
+    values = np.moveaxis(values, axis, 0)
+    source_widths = np.diff(source_edges)
+    weighted = values * source_widths.reshape((-1,) + (1,) * (values.ndim - 1))
+    cumulative = np.concatenate(
+        (np.zeros((1,) + values.shape[1:], dtype=np.float64), np.cumsum(weighted, axis=0))
+    )
+    indices = np.searchsorted(source_edges, target_edges, side="right") - 1
+    indices = np.clip(indices, 0, len(source_widths) - 1)
+    integrals = np.take(cumulative, indices, axis=0)
+    offsets = target_edges - source_edges[indices]
+    integrals += np.take(values, indices, axis=0) * offsets.reshape(
+        (-1,) + (1,) * (values.ndim - 1)
+    )
+    target_widths = np.diff(target_edges)
+    averaged = np.diff(integrals, axis=0) / target_widths.reshape((-1,) + (1,) * (values.ndim - 1))
+    return np.moveaxis(averaged, 0, axis)
+
+
+def interpolated_density(grid: DensityGrid, size: int | None = None) -> np.ndarray:
+    """Conservatively resample and smooth density for stable display."""
+    if size is None:
+        size = max(256, *grid.density.shape)
     if size < 2:
         raise ValueError("The interpolated density size must be at least two")
-    x_centres = (grid.x_edges[:-1] + grid.x_edges[1:]) / 2
-    y_centres = (grid.y_edges[:-1] + grid.y_edges[1:]) / 2
-    values = np.pad(np.log1p(grid.density), 1, mode="edge")
-    x_points = np.concatenate(([grid.x_edges[0]], x_centres, [grid.x_edges[-1]]))
-    y_points = np.concatenate(([grid.y_edges[0]], y_centres, [grid.y_edges[-1]]))
-    interpolator = RegularGridInterpolator(
-        (x_points, y_points), values, bounds_error=False, fill_value=0.0
-    )
-    x = np.linspace(grid.x_edges[0], grid.x_edges[-1], size)
-    y = np.linspace(grid.y_edges[0], grid.y_edges[-1], size)
-    coordinates = np.stack(np.meshgrid(x, y, indexing="ij"), axis=-1)
-    return interpolator(coordinates).T
+    x_edges = np.linspace(grid.x_edges[0], grid.x_edges[-1], size + 1)
+    y_edges = np.linspace(grid.y_edges[0], grid.y_edges[-1], size + 1)
+    density = grid.density
+    if density.shape[0] != size:
+        density = _area_average_axis(density, grid.x_edges, x_edges, 0)
+    if density.shape[1] != size:
+        density = _area_average_axis(density, grid.y_edges, y_edges, 1)
+    sigma = max(1.0, size / 256.0)
+    return np.log1p(gaussian_filter(density, sigma=sigma, mode="reflect")).T
 
 
 def _pearson_pair(first: np.ndarray, second: np.ndarray) -> tuple[float, int]:
