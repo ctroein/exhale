@@ -1,6 +1,6 @@
 # Exhale code overview
 
-This is the file-by-file guide to Exhale's hand-written Python. Generated Qt
+This is the file-by-file guide to Exhale's maintained Python source. Generated Qt
 modules are listed as a group because their source is the corresponding
 Designer file, not the generated Python.
 

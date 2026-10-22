@@ -300,12 +300,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         information = QtWidgets.QLabel(
             f"""
-<p>{application_name} ({application_description}) is part of the<br>
-{application_name} project at Lund University and MAX IV,<br>
+<p>{application_name} ({application_description}) was created for the<br>
+{application_name} project at Lund University and MAX IV,
 <a href="https://www.vr.se/english/swecris.html?project=2023-02821_Vinnova#/">
 funded by Vinnova</a>.</p>
-<p>Copyright © 2023–2026 Carl Troein, Tom Delaire,<br>
-Bryan Falcones, Emanuel Larsson and Karina Thånell<br>
+<p>© 2023–2026 Carl Troein, Tom Delaire, Bryan Falcones &amp; Emanuel Larsson.<br>
 Licensed under the MIT License.</p>
 <b>Runtime environment</b>{runtime_environment_html()}
 """,

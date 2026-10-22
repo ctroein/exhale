@@ -56,9 +56,9 @@ python -m ruff format --check .
 python -m ruff check .
 ```
 
-Both commands must pass before handing off a code change. They operate on all
-hand-written Python in the repository; generated `*_ui.py` modules are excluded
-by `.ruff.toml`.
+Both commands must pass before handing off a code change. They operate on the
+maintained Python source in the repository; generated `*_ui.py` modules are
+excluded by `.ruff.toml`.
 
 To apply formatting after reviewing its scope, run `python -m ruff format .`.
 Ruff can apply individually reviewed lint fixes with `python -m ruff check
@@ -79,13 +79,13 @@ generated-file exclusions, and selected rules consistent with this document.
 ## Documentation
 
 [`architecture.md`](architecture.md) describes durable component boundaries
-and ownership. [`code-overview.md`](code-overview.md) lists every hand-written
+and ownership. [`code-overview.md`](code-overview.md) lists every maintained
 source module and its responsibility. Update both documents in the same change
 when modules are added, removed, renamed, or given substantially different
 responsibilities.
 
-Every hand-written Python module needs a module docstring which states its
-role. Major models,
+Every maintained Python module needs a module docstring which states its role.
+Major models,
 controllers, workers, reusable widgets, and public functions need concise
 docstrings describing their contract. Document private helpers when their
 state changes, constraints, error behavior, or relationship to another
