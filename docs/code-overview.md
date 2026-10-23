@@ -69,7 +69,7 @@ validation, tolerant object loading, and atomic writes.
 
 ### `exhale/project/projectmanager.py`
 
-Owns project-directory selection and high-level new/open/save/save-as policy.
+Owns project-directory selection and high-level new/open/save policy.
 It coordinates model persistence, post-load UI refresh, dirty-state handling,
 and the shared default location for exported project output.
 
@@ -186,14 +186,19 @@ generated widgets and application-level services but owns no analysis state.
 
 ### `exhale/analysis/correlation_controller.py`
 
-Owns the three independent Correlations subtabs, their sample and element
-selection, disposable session caches, calculation requests, and result views.
+Owns the independent Relationships subtabs, their sample and element selection,
+disposable session caches, calculation requests, and result views.
 
 ### `exhale/analysis/correlations.py`
 
 Computes element Pearson-correlation matrices with pairwise finite-value
 filtering, between-sample similarities from aligned correlation fingerprints,
 and value-positioned density grids for element scatter views.
+
+### `exhale/analysis/cluster_distances.py`
+
+Computes directed mean nearest-centroid distances between the segmented
+clusters of each pair of elements in physical project units.
 
 ### `exhale/analysis/analysisworker.py`
 

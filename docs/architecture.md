@@ -23,8 +23,8 @@ source-file import, closure, removal, and relocation, and `ProjectStateManager`
 owns dirty-state, autosave, and recovery policy.
 `AnalysisController` owns Segmentation-tab selection, execution, result
 display, and export, including its worker and Napari state.
-`CorrelationController` owns the three independent Correlations subtabs,
-their disposable numerical results, session caching, and result presentation.
+`CorrelationController` owns the independent Relationships subtabs, their
+disposable numerical results, session caching, and result presentation.
 `ElementController` owns Element maps selection, effective channel
 presentation, transformation controls, and single-map display.
 `ImageController` owns composed-image selection, slot and override editing,
@@ -119,8 +119,10 @@ per-element clustering, and combined sample tables.
 Element correlations use the effective selected channels of one sample and
 their untransformed source arrays. Between-sample similarities use only channel
 keys selected and available in every included sample, so every fingerprint has
-the same ordered features. These derived matrices are disposable session state
-and are not part of the saved project.
+the same ordered features. Cluster-distance matrices use the centroids retained
+in a sample's segmentation result and the project's XRF resolution to calculate
+directed mean nearest-neighbour distances in physical units. These derived
+matrices are disposable session state and are not part of the saved project.
 Element density views use regular bins spanning all paired finite values and
 retain source values as plot coordinates. Bin counts are divided by their
 value-space areas and interpolated in value space. The user can set the bin

@@ -22,7 +22,7 @@ class IconName(str, Enum):
     PROJECT = "folder-open.svg"
     # CLEAR_FILES = "rays.svg"
     SAVE = "floppy.svg"
-    SAVE_AS = "floppy-pen.svg"
+    # SAVE_AS = "floppy-pen.svg"
     SETTINGS = "settings.svg"
     INFO = "info-circle.svg"
     QUIT = "x-mark.svg"

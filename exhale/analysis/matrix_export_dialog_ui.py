@@ -125,7 +125,7 @@ class Ui_MatrixExportDialog(object):
 
     def retranslateUi(self, MatrixExportDialog):
         _translate = QtCore.QCoreApplication.translate
-        MatrixExportDialog.setWindowTitle(_translate("MatrixExportDialog", "Export correlation matrix"))
+        MatrixExportDialog.setWindowTitle(_translate("MatrixExportDialog", "Export matrix"))
         self.sizeGroup.setTitle(_translate("MatrixExportDialog", "Figure size"))
         self.widthLabel.setText(_translate("MatrixExportDialog", "Width"))
         self.widthMm.setSuffix(_translate("MatrixExportDialog", " mm"))

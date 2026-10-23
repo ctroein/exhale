@@ -7,8 +7,7 @@ MAIN_WINDOW_TABS = {
     "dataTab": "Adjust element-map presentation and compose 3-channel images.",
     "analysisTab": "Segmentation and clustering of cells and elements.",
     "correlationsTab": (
-        "Explore relationships between elements within samples and correlation patterns "
-        "between samples."
+        "Explore correlations, intensity relationships and distances between segmented clusters."
     ),
 }
 
@@ -17,6 +16,9 @@ CORRELATION_TABS = {
     "elementScatterTab": "Compare intensities between two elements in a sample.",
     "sampleSimilarityTab": (
         "Compare samples using their within-sample element-correlation patterns."
+    ),
+    "clusterDistanceTab": (
+        "Compare mean nearest-centroid distances between segmented element clusters."
     ),
 }
 
@@ -94,11 +96,14 @@ MAIN_WINDOW = {
     "sampleSimilarityPalette": "Choose the color scale used for correlation values.",
     "copySampleSimilarityTable": "Copy the correlation matrix as tab-separated text.",
     "saveSampleSimilarityPlot": "Save the current plot as a PNG or SVG image.",
+    "showClusterDistanceValues": "Show physical distances inside matrix cells.",
+    "clusterDistancePalette": "Choose the sequential color scale used for distances.",
+    "copyClusterDistanceTable": "Copy the directed distance matrix as tab-separated text.",
+    "saveClusterDistancePlot": "Save the current matrix as PDF, PNG or SVG.",
     "actionSettings": "Application settings",
     "actionAbout": "About Exhale",
     "actionOpenProject": "Load an Exhale project directory",
     "actionSaveProject": "Save Exhale project",
-    "actionSaveProjectAs": "Save the project in another directory",
     "actionOpenFile": "Add one or more samples from HDF5 or TIFF files",
 }
 
@@ -135,9 +140,6 @@ IMAGE_ELEMENT_ADJUST = "Edit this element's presentation while keeping the compo
 IMAGE_BORDER_COLOR = "Choose the border color for the composed image."
 IMAGE_SHOW_COMPOSED = "Show the composed image and hide the element histogram and settings."
 IMAGE_ELEMENT_COLOR = "Choose color for this element in the composed image."
-CORRELATION_MATRIX = (
-    "Double-click an off-diagonal cell to open that element pair in Element scatter."
-)
 LAYER_DRAG = "Drag to reorder"
 LAYER_VISIBLE = "Show layer"
 LAYER_OPACITY = "Opacity"

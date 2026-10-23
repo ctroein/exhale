@@ -17,7 +17,7 @@ from exhale.analysis.matrixpdf import (
     matrix_pdf_layout,
     prepare_matrix_export,
 )
-from exhale.analysis.matrixplots import correlation_matrix_spec
+from exhale.analysis.matrixplots import correlation_matrix_spec, distance_matrix_spec
 from exhale.data.plotsettings import MatrixPlotSettings, MatrixPublicationSettings
 
 _APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -36,13 +36,32 @@ def test_automatic_dimensions_fit_the_matrix_and_color_bar():
     layout = matrix_pdf_layout(_spec(), publication, MatrixPlotSettings())
 
     assert _APP is not None
-    assert layout.text.page_padding == 0.0
+    assert layout.text.page_padding > 0.0
     assert layout.matrix.width() == pytest.approx(2 * layout.cell_size)
     assert layout.color_bar is not None
     assert layout.color_bar.top() == pytest.approx(layout.matrix.top())
     assert layout.color_bar.bottom() == pytest.approx(layout.matrix.bottom())
+    assert layout.color_bar.height() >= layout.text.color_bar_min_height
     assert layout.page_width > layout.matrix.right()
     assert layout.page_height > layout.matrix.bottom()
+    assert layout.color_bar_label_x + layout.text.color_bar_label_width < layout.page_width
+    assert (
+        layout.matrix.bottom() + layout.text.column_label_height
+        <= layout.page_height - layout.text.page_padding
+    )
+
+
+def test_long_color_bar_title_expands_automatic_matrix_height():
+    spec = distance_matrix_spec(
+        np.asarray(((10.0, 2000.0), (30.0, 40.0))),
+        ("A", "B"),
+        units="nanometres",
+    )
+    layout = matrix_pdf_layout(spec, MatrixPublicationSettings(), MatrixPlotSettings())
+
+    assert layout.color_bar is not None
+    assert layout.color_bar.height() >= layout.text.color_bar_min_height
+    assert layout.color_bar_label_x + layout.text.color_bar_label_width < layout.page_width
 
 
 def test_one_fixed_dimension_drives_cell_size_and_other_dimension_is_automatic():

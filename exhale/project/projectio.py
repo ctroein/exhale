@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from ..analysis.segmentationio import load_xrf_sample, result_relative_path, save_xrf_sample
+from ..analysis.segmentationio import load_xrf_sample, result_relative_path
 from ..data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from ..data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
 from ..data.projectdata import (
@@ -359,10 +359,8 @@ def validate_project_state(state: dict[str, Any]) -> None:
 
 
 def save_project(project_data: ProjectData, filename: str | Path) -> None:
-    """Save a complete project model and its derived-result sidecars."""
+    """Save the project model; derived-result sidecars are written when produced."""
     filename = Path(filename)
-    for result in project_data.segmentation_results.values():
-        save_xrf_sample(result.xrf_sample, filename.parent / result_relative_path(result.sample_id))
     save_project_state(export_project_state(project_data, filename.parent), filename)
 
 

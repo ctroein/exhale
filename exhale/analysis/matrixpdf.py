@@ -10,7 +10,14 @@ import numpy as np
 from qtpy import QtCore, QtGui, QtSvg
 
 from ..data.plotsettings import MatrixPlotSettings, MatrixPublicationSettings
-from .matrixplots import MatrixPlotSpec, MatrixTextLayout, matrix_text_layout
+from .matrixplots import (
+    MatrixPlotSpec,
+    MatrixTextLayout,
+    matrix_cell_text,
+    matrix_color_bar_ticks,
+    matrix_text_layout,
+    use_dark_text,
+)
 
 POINTS_PER_MM = 72.0 / 25.4
 
@@ -58,14 +65,11 @@ def _font(settings: MatrixPublicationSettings) -> QtGui.QFont:
 def _measured_text(spec: MatrixPlotSpec, publication: MatrixPublicationSettings):
     font = _font(publication)
     metrics = QtGui.QFontMetricsF(font)
-    return replace(
-        matrix_text_layout(
-            spec,
-            metrics.height(),
-            metrics.horizontalAdvance,
-            em_size=font.pixelSize(),
-        ),
-        page_padding=0.0,
+    return matrix_text_layout(
+        spec,
+        metrics.height(),
+        metrics.horizontalAdvance,
+        em_size=font.pixelSize(),
     )
 
 
@@ -78,12 +82,16 @@ def minimum_matrix_dimensions_mm(
     text = _measured_text(spec, publication)
     color_bar_side = text.color_bar_side_width if settings.color_bar_position != "hidden" else 0.0
     count = len(spec.labels)
+    matrix_extent = max(
+        count * text.minimum_cell,
+        text.color_bar_min_height if settings.color_bar_position != "hidden" else 0.0,
+    )
     width = 2 * text.page_padding + text.row_label_width + color_bar_side
     top_text = text.font_height / 2 if settings.color_bar_position != "hidden" else 0.0
     height = 2 * text.page_padding + top_text + text.column_label_height
     return (
-        (width + count * text.minimum_cell) / POINTS_PER_MM,
-        (height + count * text.minimum_cell) / POINTS_PER_MM,
+        (width + matrix_extent) / POINTS_PER_MM,
+        (height + matrix_extent) / POINTS_PER_MM,
     )
 
 
@@ -106,8 +114,12 @@ def matrix_pdf_layout(
     width_cell = None if fixed_width is None else (fixed_width - static_width) / count
     height_cell = None if fixed_height is None else (fixed_height - static_height) / count
     candidates = [value for value in (width_cell, height_cell) if value is not None]
-    cell_size = min(candidates) if candidates else text.preferred_cell
-    if cell_size < text.minimum_cell:
+    required_cell = max(
+        text.minimum_cell,
+        (text.color_bar_min_height / count if settings.color_bar_position != "hidden" else 0.0),
+    )
+    cell_size = min(candidates) if candidates else max(text.preferred_cell, required_cell)
+    if cell_size < required_cell:
         raise ValueError(
             "The figure size is too small for the matrix contents at the current font size."
         )
@@ -217,11 +229,26 @@ def _interpolated_color(spec: MatrixPlotSpec, value: float) -> QtGui.QColor:
 
 
 def _contrasting_text(background: QtGui.QColor) -> QtGui.QColor:
-    return QtGui.QColor("black" if background.lightnessF() > 0.55 else "white")
+    return QtGui.QColor(
+        "black"
+        if use_dark_text(background.red(), background.green(), background.blue())
+        else "white"
+    )
 
 
 def _draw_centered_text(painter, rect: QtCore.QRectF, text: str) -> None:
-    painter.drawText(rect, QtCore.Qt.AlignmentFlag.AlignCenter, text)
+    lines = text.splitlines()
+    if not lines:
+        return
+    metrics = painter.fontMetrics()
+    widths = [metrics.horizontalAdvance(line) for line in lines]
+    line_height = metrics.height()
+    block_width = max(widths)
+    top = rect.center().y() - len(lines) * line_height / 2
+    right = rect.center().x() + block_width / 2
+    for index, (line, width) in enumerate(zip(lines, widths, strict=True)):
+        baseline = top + index * line_height + metrics.ascent()
+        painter.drawText(QtCore.QPointF(right - width, baseline), line)
 
 
 def _draw_color_bar(painter, spec: MatrixPlotSpec, layout: MatrixPdfLayout):
@@ -236,13 +263,13 @@ def _draw_color_bar(painter, spec: MatrixPlotSpec, layout: MatrixPdfLayout):
     painter.setPen(QtGui.QPen(QtGui.QColor("black"), 0.5))
     painter.drawRect(rect)
 
-    lower, upper = spec.levels
     tick_x = layout.color_bar_ticks_x
     assert tick_x is not None
-    for position in np.linspace(0.0, 1.0, 21):
-        value = lower + position * (upper - lower)
+    lower, upper = spec.levels
+    span = upper - lower
+    for value, label, major in matrix_color_bar_ticks(spec.levels, spec.decimals):
+        position = 0.5 if span == 0 else (value - lower) / span
         y = rect.bottom() - position * rect.height()
-        major = abs(value - lower) < 1e-9 or abs(value - upper) < 1e-9 or abs(value) < 1e-9
         tick_length = text.font_height * (0.3 if major else 0.15)
         painter.drawLine(
             QtCore.QPointF(rect.right(), y), QtCore.QPointF(rect.right() + tick_length, y)
@@ -258,7 +285,7 @@ def _draw_color_bar(painter, spec: MatrixPlotSpec, layout: MatrixPdfLayout):
         painter.drawText(
             text_rect,
             QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter,
-            f"{value:g}",
+            label,
         )
 
     label_x = layout.color_bar_label_x
@@ -318,7 +345,7 @@ def _paint_matrix(
             if spec.show_values and np.isfinite(value):
                 color = _interpolated_color(spec, float(value))
                 painter.setPen(_contrasting_text(color))
-                _draw_centered_text(painter, rect, f"{value:.{spec.decimals}f}")
+                _draw_centered_text(painter, rect, matrix_cell_text(spec, row, column))
 
     painter.setPen(QtGui.QPen(QtGui.QColor("black"), 0.5))
     if settings.cell_borders:

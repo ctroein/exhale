@@ -10,6 +10,7 @@ import numpy as np
 from qtpy import QtWidgets
 
 from exhale.analysis.correlation_controller import CorrelationController
+from exhale.analysis.matrixplots import MATRIX_PALETTES, correlation_matrix_spec
 from exhale.data.plotsettings import ELEMENT_CORRELATIONS
 from exhale.data.projectdata import ProjectData
 
@@ -42,6 +43,14 @@ def _controller(filename):
     matrix = SimpleNamespace(
         result=result,
         reload_settings=Mock(),
+        make_spec=Mock(
+            side_effect=lambda: correlation_matrix_spec(
+                result.values,
+                result.labels,
+                palette=project_data.matrix_plot_settings[ELEMENT_CORRELATIONS].palette,
+            )
+        ),
+        palettes=MATRIX_PALETTES,
         plot=SimpleNamespace(current_plot_item=Mock(return_value=plot_item)),
     )
     return controller, matrix, plot_item

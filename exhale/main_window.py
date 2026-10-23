@@ -72,7 +72,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.actionNewProject.triggered.connect(self.project_manager.new_project)
         self.actionOpenProject.triggered.connect(self.project_manager.open_project)
         self.actionSaveProject.triggered.connect(self.project_manager.save_project)
-        self.actionSaveProjectAs.triggered.connect(self.project_manager.save_project_as)
         self.actionSettings.triggered.connect(self.show_settings)
         self.actionAbout.triggered.connect(self.showAbout)
         self.actionQuit.triggered.connect(self.close)
@@ -156,6 +155,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
                 self.sampleSimilarityTab,
                 (1, 3),
             ),
+            "cluster_distances": (
+                self.clusterDistanceSplitter,
+                self.clusterDistanceTab,
+                (1, 3),
+            ),
         }
         self._splitter_initializers = {
             name: initialize_splitter_on_show(
@@ -195,7 +199,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.actionOpenFile.setIcon(icons.icon(icons.IconName.OPEN))
         self.actionOpenProject.setIcon(icons.icon(icons.IconName.PROJECT))
         self.actionSaveProject.setIcon(icons.icon(icons.IconName.SAVE))
-        self.actionSaveProjectAs.setIcon(icons.icon(icons.IconName.SAVE_AS))
         self.actionSettings.setIcon(icons.icon(icons.IconName.SETTINGS))
         self.actionAbout.setIcon(icons.icon(icons.IconName.INFO))
         self.actionQuit.setIcon(icons.icon(icons.IconName.QUIT))
@@ -209,7 +212,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.composeSave.setIcon(icons.icon(icons.IconName.IMAGE))
         self.copyElementCorrelationTable.setIcon(icons.icon(icons.IconName.COPY))
         self.copySampleSimilarityTable.setIcon(icons.icon(icons.IconName.COPY))
+        self.copyClusterDistanceTable.setIcon(icons.icon(icons.IconName.COPY))
         self.saveElementCorrelationPlot.setIcon(icons.icon(icons.IconName.SCREENSHOT))
+        self.saveClusterDistancePlot.setIcon(icons.icon(icons.IconName.SCREENSHOT))
         self.saveElementScatterPlot.setIcon(icons.icon(icons.IconName.SCREENSHOT))
         self.saveSampleSimilarityPlot.setIcon(icons.icon(icons.IconName.SCREENSHOT))
         self.analysisScreenshot.set_icon_name(icons.IconName.SCREENSHOT)

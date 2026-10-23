@@ -32,7 +32,7 @@ def test_matrix_export_dialog_commits_fixed_and_automatic_dimensions():
     dialog.widthMm.setValue(125.5)
     dialog.automaticHeight.setChecked(True)
     dialog.fontSize.setValue(9.5)
-    dialog.palette.setCurrentIndex(dialog.palette.findData("purple-white-green"))
+    dialog.palette.setCurrentIndex(dialog.palette.findData("linnaea"))
     dialog.colorBarPosition.setCurrentIndex(dialog.colorBarPosition.findData("left"))
     dialog.showValues.setChecked(False)
     dialog.cellBorders.setChecked(True)
@@ -43,7 +43,7 @@ def test_matrix_export_dialog_commits_fixed_and_automatic_dimensions():
     assert publication.font_size == 9.5
     assert plot.width_mm == 125.5
     assert plot.height_mm is None
-    assert plot.palette == "purple-white-green"
+    assert plot.palette == "linnaea"
     assert plot.color_bar_position == "left"
     assert not plot.show_values
     assert plot.cell_borders

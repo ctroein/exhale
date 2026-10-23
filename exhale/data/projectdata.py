@@ -11,7 +11,12 @@ from uuid import uuid4
 
 from .elementsettings import ElementSettingsDefaults
 from .imagesettings import ImageSettings
-from .plotsettings import MATRIX_PLOT_KEYS, MatrixPlotSettings, MatrixPublicationSettings
+from .plotsettings import (
+    CLUSTER_DISTANCES,
+    MATRIX_PLOT_KEYS,
+    MatrixPlotSettings,
+    MatrixPublicationSettings,
+)
 from .source_refs import ElementRef, LoadedSource
 from .tiffimport import infer_tiff_import
 
@@ -268,6 +273,9 @@ class ProjectData:
         self.images: dict[int, ImageSettings] = {}
         self.segmentation_results: dict[str, SegmentationResult] = {}
         self.matrix_plot_settings = {key: MatrixPlotSettings() for key in MATRIX_PLOT_KEYS}
+        self.matrix_plot_settings[CLUSTER_DISTANCES] = MatrixPlotSettings(
+            palette="viridis", default_palette="viridis"
+        )
         self.matrix_publication_settings = MatrixPublicationSettings()
         self.external_data_root: str | None = None
 

@@ -40,6 +40,7 @@ class EntrypointTests(unittest.TestCase):
             self.assertIn("--recompile", output)
             self.assertIn("--recompile-only", output)
             self.assertIn("--project", output)
+            self.assertIn("--startup-check", output)
             self.assertIn("--install-desktop", output)
             self.assertIn("--remove-desktop", output)
             self.assertIn("--version", output)

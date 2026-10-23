@@ -22,6 +22,8 @@ class MatrixExportDialog(QtWidgets.QDialog, Ui_MatrixExportDialog):
         plot_settings: MatrixPlotSettings,
         spec: MatrixPlotSpec,
         parent=None,
+        *,
+        palettes=MATRIX_PALETTES,
     ):
         super().__init__(parent)
         self.setupUi(self)
@@ -29,7 +31,7 @@ class MatrixExportDialog(QtWidgets.QDialog, Ui_MatrixExportDialog):
         self._plot_settings = plot_settings
         self._spec = spec
 
-        for palette in MATRIX_PALETTES:
+        for palette in palettes:
             self.palette.addItem(palette.name, palette.key)
         for name, key in (("Right", "right"), ("Left", "left"), ("Hidden", "hidden")):
             self.colorBarPosition.addItem(name, key)
@@ -44,6 +46,8 @@ class MatrixExportDialog(QtWidgets.QDialog, Ui_MatrixExportDialog):
             self.colorBarPosition.findData(plot_settings.color_bar_position)
         )
         self.showValues.setChecked(plot_settings.show_values)
+        if spec.secondary_values is not None:
+            self.decimals.setMinimum(0)
         self.decimals.setValue(plot_settings.decimals)
         self.cellBorders.setChecked(plot_settings.cell_borders)
         self.dpi.setValue(plot_settings.dpi)

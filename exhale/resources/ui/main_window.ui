@@ -515,7 +515,7 @@
       </widget>
       <widget class="QWidget" name="correlationsTab">
        <attribute name="title">
-        <string>Correlations</string>
+        <string>Relationships</string>
        </attribute>
        <layout class="QVBoxLayout" name="correlationsTabLayout">
         <item>
@@ -666,6 +666,16 @@
                    <enum>QSizePolicy::Expanding</enum>
                   </property>
                  </spacer>
+                </item>
+                <item>
+                 <widget class="QLabel" name="elementCorrelationHelp">
+                  <property name="text">
+                   <string>Double-click an off-diagonal cell to open that element pair in Element scatter.</string>
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
                 </item>
                 <item>
                  <widget class="QLabel" name="elementCorrelationStatus">
@@ -1131,6 +1141,220 @@
             </item>
            </layout>
           </widget>
+          <widget class="QWidget" name="clusterDistanceTab">
+           <attribute name="title">
+            <string>Cluster distances</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="clusterDistanceTabLayout">
+            <item>
+             <widget class="QSplitter" name="clusterDistanceSplitter">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="handleWidth">
+               <number>8</number>
+              </property>
+              <widget class="QWidget" name="clusterDistanceControls">
+               <layout class="QVBoxLayout" name="clusterDistanceControlsLayout" stretch="0,1,0">
+                <item>
+                 <widget class="QWidget" name="clusterDistanceTop">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <layout class="QVBoxLayout" name="clusterDistanceTopLayout">
+                   <property name="leftMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="rightMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="bottomMargin">
+                    <number>0</number>
+                   </property>
+                   <item>
+                    <widget class="QLabel" name="clusterDistanceSampleLabel">
+                     <property name="sizePolicy">
+                      <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                       <horstretch>0</horstretch>
+                       <verstretch>0</verstretch>
+                      </sizepolicy>
+                     </property>
+                     <property name="text">
+                      <string>Sample</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QComboBox" name="clusterDistanceSample" />
+                   </item>
+                   <item>
+                    <layout class="QHBoxLayout" name="clusterDistanceMinimumLayout">
+                     <item>
+                      <widget class="QLabel" name="clusterDistanceMinimumLabel">
+                       <property name="text">
+                        <string>Minimum clusters</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <widget class="QSpinBox" name="clusterDistanceMinimum">
+                       <property name="minimum">
+                        <number>0</number>
+                       </property>
+                       <property name="maximum">
+                        <number>1000000</number>
+                       </property>
+                      </widget>
+                     </item>
+                    </layout>
+                   </item>
+                   <item>
+                    <layout class="QHBoxLayout" name="clusterDistanceDecimalsLayout">
+                     <item>
+                      <widget class="QCheckBox" name="showClusterDistanceValues">
+                       <property name="text">
+                        <string>Show values</string>
+                       </property>
+                       <property name="checked">
+                        <bool>true</bool>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <spacer name="clusterDistanceDecimalsSpacer">
+                       <property name="orientation">
+                        <enum>Qt::Horizontal</enum>
+                       </property>
+                       <property name="sizeType">
+                        <enum>QSizePolicy::Expanding</enum>
+                       </property>
+                      </spacer>
+                     </item>
+                     <item>
+                      <widget class="QLabel" name="clusterDistanceDecimalsLabel">
+                       <property name="sizePolicy">
+                        <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                         <horstretch>0</horstretch>
+                         <verstretch>0</verstretch>
+                        </sizepolicy>
+                       </property>
+                       <property name="text">
+                        <string>Decimals</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <widget class="QSpinBox" name="clusterDistanceDecimals">
+                       <property name="minimum">
+                        <number>0</number>
+                       </property>
+                       <property name="maximum">
+                        <number>6</number>
+                       </property>
+                       <property name="value">
+                        <number>2</number>
+                       </property>
+                      </widget>
+                     </item>
+                   </layout>
+                  </item>
+                  <item>
+                   <widget class="QCheckBox" name="showClusterDistanceStandardDeviation">
+                    <property name="text">
+                     <string>Show standard deviation</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <layout class="QHBoxLayout" name="clusterDistancePaletteLayout">
+                    <item>
+                     <widget class="QLabel" name="clusterDistancePaletteLabel">
+                      <property name="text">
+                       <string>Palette</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QComboBox" name="clusterDistancePalette" />
+                    </item>
+                   </layout>
+                  </item>
+                  <item>
+                   <layout class="QHBoxLayout" name="clusterDistanceActions">
+                     <item>
+                      <widget class="QPushButton" name="copyClusterDistanceTable">
+                       <property name="text">
+                        <string>Copy table</string>
+                       </property>
+                      </widget>
+                     </item>
+                     <item>
+                      <widget class="QPushButton" name="saveClusterDistancePlot">
+                       <property name="text">
+                        <string>Save plot…</string>
+                       </property>
+                      </widget>
+                     </item>
+                    </layout>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item stretch="1">
+                 <spacer name="clusterDistanceSpacer">
+                  <property name="orientation">
+                   <enum>Qt::Vertical</enum>
+                  </property>
+                  <property name="sizeType">
+                   <enum>QSizePolicy::Expanding</enum>
+                  </property>
+                 </spacer>
+                </item>
+                <item>
+                 <widget class="QLabel" name="clusterDistanceHelp">
+                  <property name="text">
+                   <string>Rows are source clusters and columns are target elements. Each value is the mean distance to the nearest target cluster. Diagonal cells use the nearest other cluster of the same element. Standard deviation uses the sample estimate (n−1).</string>
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="clusterDistanceStatus">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="text">
+                   <string />
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+              <widget class="QWidget" name="clusterDistanceResults">
+               <layout class="QVBoxLayout" name="clusterDistanceResultsLayout">
+                <item>
+                 <widget class="QWidget" name="clusterDistancePlotHost" />
+                </item>
+               </layout>
+              </widget>
+             </widget>
+            </item>
+           </layout>
+          </widget>
          </widget>
         </item>
        </layout>
@@ -1157,7 +1381,6 @@
     <addaction name="actionNewProject"/>
     <addaction name="actionOpenProject"/>
     <addaction name="actionSaveProject"/>
-    <addaction name="actionSaveProjectAs"/>
     <addaction name="separator"/>
     <addaction name="actionQuit"/>
    </widget>
@@ -1209,14 +1432,6 @@
    </property>
    <property name="shortcut">
     <string>Ctrl+S</string>
-   </property>
-  </action>
-  <action name="actionSaveProjectAs">
-   <property name="text">
-    <string>Save project &amp;as…</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+Shift+S</string>
    </property>
   </action>
   <action name="actionOpenFile">

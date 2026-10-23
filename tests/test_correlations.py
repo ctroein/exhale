@@ -10,10 +10,15 @@ from exhale.analysis.correlations import (
     sample_similarity_matrix,
 )
 from exhale.analysis.matrixplots import (
+    ALL_MATRIX_PALETTES,
     CORRELATION_COLOR_STOPS,
     MATRIX_PALETTES,
     correlation_matrix_spec,
+    distance_matrix_spec,
+    format_matrix_tick,
+    matrix_color_bar_ticks,
     matrix_text_layout,
+    use_dark_text,
 )
 from exhale.data.plotsettings import MATRIX_PALETTE_KEYS
 
@@ -38,12 +43,14 @@ def test_correlation_matrix_plot_spec_preserves_data_and_presentation():
 
 
 def test_selectable_matrix_palettes_match_persisted_palette_keys():
-    assert tuple(palette.key for palette in MATRIX_PALETTES) == MATRIX_PALETTE_KEYS
+    assert tuple(palette.key for palette in ALL_MATRIX_PALETTES) == MATRIX_PALETTE_KEYS
     assert tuple(palette.name for palette in MATRIX_PALETTES) == (
-        "Blue–white–red",
-        "Purple–white–green",
-        "Brown–white–teal",
-        "Blue–black–red",
+        "Magnolia",
+        "Linnaea",
+        "Utrumque",
+        "Uarda",
+        "Peccatorum",
+        "Nightlife",
     )
 
 
@@ -57,12 +64,67 @@ def test_matrix_text_layout_derives_shared_cell_and_colorbar_spacing():
     measured = matrix_text_layout(spec, 12.0, lambda text: len(text) * 6.0)
 
     assert measured.longest_label == 54.0
-    assert measured.value_width == 30.0
-    assert measured.minimum_cell == 33.0
-    assert measured.preferred_cell == 42.0
+    assert measured.value_width == 24.0
+    assert measured.minimum_cell == 24.0
+    assert measured.default_cell == 30.0
+    assert measured.preferred_cell == 36.0
+    assert measured.page_padding == 12.0
     assert measured.row_label_width == 60.0
     assert measured.color_bar_label_gap == 7.0
-    assert measured.color_bar_side_width == 64.2
+    assert measured.color_bar_side_width == 65.2
+
+
+def test_matrix_scale_ticks_do_not_exceed_cell_precision():
+    assert format_matrix_tick(12.345, 2) == "12.35"
+    assert format_matrix_tick(12.0, 2) == "12"
+    assert format_matrix_tick(120.0, 0) == "120"
+
+
+def test_matrix_color_bar_ticks_are_shared_and_evenly_spaced():
+    ticks = matrix_color_bar_ticks((-1.0, 1.0), 2)
+
+    assert len(ticks) == 21
+    assert [tick for tick in ticks if tick[2]] == [
+        (-1.0, "-1", True),
+        (0.0, "0", True),
+        (1.0, "1", True),
+    ]
+
+
+def test_matrix_text_layout_uses_largest_value_and_optional_second_line():
+    spec = distance_matrix_spec(
+        np.asarray(((1.0, 12345.0), (2.0, 3.0))),
+        ("A", "B"),
+        units="µm",
+        standard_deviations=np.asarray(((0.5, 987.0), (1.0, 2.0))),
+        show_secondary=True,
+        decimals=0,
+    )
+
+    measured = matrix_text_layout(spec, 12.0, lambda text: len(text) * 6.0)
+
+    assert measured.value_width == 30.0  # "12345", wider than "±987"
+    assert measured.minimum_cell >= 2 * measured.font_height
+
+
+def test_matrix_text_layout_fallback_respects_decimal_count():
+    widths = []
+    for decimals in range(4):
+        spec = distance_matrix_spec(
+            np.full((2, 2), np.nan),
+            ("A", "B"),
+            units="µm",
+            decimals=decimals,
+        )
+        widths.append(matrix_text_layout(spec, 12.0, lambda text: len(text) * 6.0).value_width)
+
+    assert widths == [6.0, 18.0, 24.0, 30.0]
+
+
+def test_matrix_text_contrast_uses_perceived_brightness():
+    assert use_dark_text(180, 220, 45)  # bright Viridis yellow-green
+    assert use_dark_text(220, 200, 70)  # Cividis yellow
+    assert not use_dark_text(33, 145, 140)  # mid-range Viridis teal
 
 
 def test_density_grid_uses_regular_value_coordinates_and_bin_areas():

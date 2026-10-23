@@ -22,6 +22,7 @@ from qtpy import QtCore, QtTest, QtWidgets
 from exhale import icons
 from exhale.analysis.controller import AnalysisController
 from exhale.analysis.correlations import correlation_matrix
+from exhale.analysis.segmentationio import result_relative_path, save_xrf_sample
 from exhale.data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from exhale.data.imagesettings import ImageSettings, Layouts
 from exhale.data.projectdata import (
@@ -71,7 +72,7 @@ class SourceLifecycleTests(unittest.TestCase):
         tabs = self.win.tabWidget
         self.assertEqual(
             [tabs.tabText(i) for i in range(tabs.count())],
-            ["Project data", "Element maps", "Segmentation", "Correlations"],
+            ["Project data", "Element maps", "Segmentation", "Relationships"],
         )
         self.assertEqual(tabs.currentIndex(), 0)
         tabs.setCurrentWidget(self.win.analysisTab)
@@ -144,6 +145,7 @@ class SourceLifecycleTests(unittest.TestCase):
             "element_correlations",
             "element_scatter",
             "sample_similarities",
+            "cluster_distances",
         }
         self.assertEqual(set(self.win._splitter_initializers), expected_names)
         previous = {}
@@ -466,7 +468,6 @@ class SourceLifecycleTests(unittest.TestCase):
             "actionOpenFile",
             "actionOpenProject",
             "actionSaveProject",
-            "actionSaveProjectAs",
             "actionSettings",
             "actionAbout",
             "actionQuit",
@@ -909,6 +910,7 @@ class SourceLifecycleTests(unittest.TestCase):
         )
         project_dir = Path(self.temp.name) / "segmentation-project"
 
+        save_xrf_sample(xrf_sample, project_dir / result_relative_path(sample.sample_id))
         projectio.save_project(self.win.project_data, project_dir / "project.xhp")
         self.win.project_state_manager.mark_saved()
         self.assertTrue(self.win.project_manager.load_project_dir(project_dir))
@@ -921,6 +923,27 @@ class SourceLifecycleTests(unittest.TestCase):
             restored.xrf_sample.nuclei.nuclei_labels,
             xrf_sample.nuclei.nuclei_labels,
         )
+
+    def test_project_save_leaves_existing_segmentation_sidecar_untouched(self):
+        self.win.source_manager.open_files([self.h5])
+        sample = next(iter(self.win.project_data.samples.values()))
+        refs = tuple(channel.ref for channel in sample.channels.values())
+        self.win.project_data.segmentation_results[sample.sample_id] = SegmentationResult(
+            sample.sample_id,
+            refs[0],
+            refs[1],
+            refs[:1],
+            SegmentationParameters(6, 18, 3, 7),
+            SimpleNamespace(),
+        )
+        project_dir = Path(self.temp.name) / "sidecar-project"
+        sidecar = project_dir / result_relative_path(sample.sample_id)
+        sidecar.parent.mkdir(parents=True)
+        sidecar.write_bytes(b"existing segmentation data")
+
+        projectio.save_project(self.win.project_data, project_dir / "project.xhp")
+
+        self.assertEqual(sidecar.read_bytes(), b"existing segmentation data")
 
     def test_analysis_rejects_an_unavailable_sample_channel(self):
         self.win.source_manager.open_files([self.h5])
@@ -1390,7 +1413,7 @@ class SourceLifecycleTests(unittest.TestCase):
         save.assert_called_once_with()
         question.assert_not_called()
 
-    def test_unsaved_project_prompts_before_opening_save_as(self):
+    def test_unsaved_project_prompts_before_choosing_save_location(self):
         manager = self.win.project_state_manager
         self.win.settings.remove(PROJECT_SAVE_ON_EXIT_KEY)
         self.addCleanup(self.win.settings.remove, PROJECT_SAVE_ON_EXIT_KEY)
@@ -1398,24 +1421,24 @@ class SourceLifecycleTests(unittest.TestCase):
 
         with (
             patch.object(manager, "_ask_unsaved_exit", return_value="cancel"),
-            patch.object(self.win.project_manager, "save_project_as") as save_as,
+            patch.object(self.win.project_manager, "save_project") as save,
         ):
             self.assertFalse(manager.prepare_to_exit())
-            save_as.assert_not_called()
+            save.assert_not_called()
 
         with (
             patch.object(manager, "_ask_unsaved_exit", return_value="quit"),
-            patch.object(self.win.project_manager, "save_project_as") as save_as,
+            patch.object(self.win.project_manager, "save_project") as save,
         ):
             self.assertTrue(manager.prepare_to_exit())
-            save_as.assert_not_called()
+            save.assert_not_called()
 
         with (
-            patch.object(manager, "_ask_unsaved_exit", return_value="save_as"),
-            patch.object(self.win.project_manager, "save_project_as", return_value=True) as save_as,
+            patch.object(manager, "_ask_unsaved_exit", return_value="save"),
+            patch.object(self.win.project_manager, "save_project", return_value=True) as save,
         ):
             self.assertTrue(manager.prepare_to_exit())
-            save_as.assert_called_once_with()
+            save.assert_called_once_with()
 
     def test_quick_quit_does_not_save_dirty_project(self):
         manager = self.win.project_state_manager
@@ -1456,6 +1479,17 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertTrue(self.win.project_manager.save_project())
         self.assertFalse(autosave.exists())
         self.assertFalse(manager.is_dirty)
+
+    def test_saving_clean_project_does_not_write_project_file(self):
+        project_dir = Path(self.temp.name) / "clean-project"
+        project_dir.mkdir()
+        self.win.project_dir = project_dir
+        self.win.project_state_manager.mark_saved()
+
+        with patch("exhale.project.projectio.save_project") as save:
+            self.assertTrue(self.win.project_manager.save_project())
+
+        save.assert_not_called()
 
     def test_returning_to_saved_state_removes_obsolete_autosave(self):
         project_dir = Path(self.temp.name) / "autosave"

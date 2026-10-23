@@ -9,9 +9,9 @@ import numpy as np
 from pyqtgraph.exporters import ImageExporter, SVGExporter
 from qtpy import QtCore, QtWidgets
 
-from ..data.plotsettings import ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES
+from ..data.plotsettings import CLUSTER_DISTANCES, ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES
 from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
-from ..tooltips import CORRELATION_MATRIX
+from .cluster_distances import cluster_distance_matrix
 from .correlations import (
     CorrelationMatrix,
     SampleSimilarityMatrix,
@@ -22,7 +22,7 @@ from .correlations import sample_similarity_matrix as calculate_sample_similarit
 from .correlationwidgets import CorrelationMatrixView, CorrelationPlotWidget
 from .matrix_export_dialog import MatrixExportDialog
 from .matrixpdf import export_matrix_pdf, export_matrix_png, export_matrix_svg
-from .matrixplots import correlation_matrix_spec
+from .matrixplots import SEQUENTIAL_MATRIX_PALETTES, distance_matrix_spec
 
 
 @dataclass(frozen=True)
@@ -32,7 +32,7 @@ class _ElementCacheEntry:
 
 
 class CorrelationController:
-    """Own the three independent correlation analyses and their session caches."""
+    """Own the independent relationship analyses and their session caches."""
 
     ELEMENT_MODE = "elements"
     SCATTER_MODE = "scatter"
@@ -43,6 +43,7 @@ class CorrelationController:
         self.window = window
         self._element_cache: dict[tuple[str, tuple[str, ...]], _ElementCacheEntry] = {}
         self._similarity_cache: dict[tuple, SampleSimilarityMatrix] = {}
+        self._distance_cache: dict[tuple, object] = {}
         self.element_matrix = CorrelationMatrixView(
             window.elementCorrelationPlotHost,
             window.showElementCorrelationValues,
@@ -52,7 +53,6 @@ class CorrelationController:
             window.elementCorrelationPalette,
             window.project_data.matrix_plot_settings[ELEMENT_CORRELATIONS],
         )
-        self.element_matrix.plot.matrix_plot.setToolTip(CORRELATION_MATRIX)
         self.scatter_plot = self._install_plot(window.elementScatterPlotHost)
         self.similarity_matrix = CorrelationMatrixView(
             window.sampleSimilarityPlotHost,
@@ -62,6 +62,18 @@ class CorrelationController:
             window.copySampleSimilarityTable,
             window.sampleSimilarityPalette,
             window.project_data.matrix_plot_settings[SAMPLE_SIMILARITIES],
+        )
+        self.distance_matrix = CorrelationMatrixView(
+            window.clusterDistancePlotHost,
+            window.showClusterDistanceValues,
+            window.clusterDistanceDecimals,
+            window.clusterDistanceDecimalsLabel,
+            window.copyClusterDistanceTable,
+            window.clusterDistancePalette,
+            window.project_data.matrix_plot_settings[CLUSTER_DISTANCES],
+            palettes=SEQUENTIAL_MATRIX_PALETTES,
+            spec_factory=self._distance_spec,
+            secondary_control=window.showClusterDistanceStandardDeviation,
         )
 
         excluded_header = window.sampleSimilarityExcluded.header()
@@ -83,6 +95,8 @@ class CorrelationController:
         window.tabWidget.currentChanged.connect(self._main_tab_changed)
         window.elementCorrelationSample.currentIndexChanged.connect(self._element_sample_changed)
         window.elementScatterSample.currentIndexChanged.connect(self._scatter_sample_changed)
+        window.clusterDistanceSample.currentIndexChanged.connect(self._distance_sample_changed)
+        window.clusterDistanceMinimum.valueChanged.connect(self._distance_options_changed)
         window.elementScatterX.currentIndexChanged.connect(self._update_scatter)
         window.elementScatterY.currentIndexChanged.connect(self._update_scatter)
         window.elementScatterPresentation.currentIndexChanged.connect(
@@ -109,6 +123,14 @@ class CorrelationController:
                 "sample-similarities.pdf",
             )
         )
+        window.saveClusterDistancePlot.clicked.connect(
+            partial(
+                self.export_matrix,
+                self.distance_matrix,
+                CLUSTER_DISTANCES,
+                "cluster-distances.pdf",
+            )
+        )
         self.element_matrix.pairActivated.connect(self._show_pair)
         window.channelsChanged.connect(self.refresh_samples)
         self._scatter_presentation_changed(update=False)
@@ -117,28 +139,35 @@ class CorrelationController:
     def clear_project(self) -> None:
         self._element_cache.clear()
         self._similarity_cache.clear()
+        self._distance_cache.clear()
         self.element_matrix.set_result(None)
         self.similarity_matrix.set_result(None)
+        self.distance_matrix.set_result(None)
         self.element_matrix.reload_settings()
         self.similarity_matrix.reload_settings()
+        self.distance_matrix.reload_settings()
         self.scatter_plot.clear_scatter()
         self.window.elementCorrelationStatus.clear()
         self.window.elementScatterStatus.clear()
         self.window.sampleSimilarityStatus.clear()
+        self.window.clusterDistanceStatus.clear()
         self.refresh_samples()
 
     def reload_appearance(self) -> None:
         self.element_matrix.reload_appearance()
         self.scatter_plot.reload_appearance()
         self.similarity_matrix.reload_appearance()
+        self.distance_matrix.reload_appearance()
 
     def refresh_samples(self) -> None:
         """Refresh each analysis' sample choices without coupling their selections."""
         window = self.window
         self.element_matrix.reload_settings()
         self.similarity_matrix.reload_settings()
+        self.distance_matrix.reload_settings()
         selected_element_sample = window.elementCorrelationSample.currentData()
         selected_scatter_sample = window.elementScatterSample.currentData()
+        selected_distance_sample = window.clusterDistanceSample.currentData()
         selected_similarity_ids = {
             item.data(self.SAMPLE_ID_ROLE)
             for item in window.sampleSimilaritySamples.selectedItems()
@@ -149,6 +178,7 @@ class CorrelationController:
         for combo, selected in (
             (window.elementCorrelationSample, selected_element_sample),
             (window.elementScatterSample, selected_scatter_sample),
+            (window.clusterDistanceSample, selected_distance_sample),
         ):
             with QtCore.QSignalBlocker(combo):
                 combo.clear()
@@ -189,6 +219,8 @@ class CorrelationController:
             self._update_scatter()
         elif current is self.window.sampleSimilarityTab:
             self.calculate_samples(show_errors=False)
+        elif current is self.window.clusterDistanceTab:
+            self.calculate_distances(show_errors=False)
 
     def _element_sample_changed(self) -> None:
         if (
@@ -201,6 +233,95 @@ class CorrelationController:
         self._refresh_scatter_elements()
         if self._correlations_visible():
             self._update_scatter()
+
+    def _distance_sample_changed(self) -> None:
+        if (
+            self._correlations_visible()
+            and self.window.correlationModes.currentWidget() is self.window.clusterDistanceTab
+        ):
+            self.calculate_distances(show_errors=False)
+
+    def _distance_options_changed(self) -> None:
+        if (
+            self._correlations_visible()
+            and self.window.correlationModes.currentWidget() is self.window.clusterDistanceTab
+        ):
+            self.calculate_distances(show_errors=False)
+
+    def _distance_spec(self, values, labels, **options):
+        units = self.window.project_data.image_defaults.resolution[1]
+        deviations = (
+            None
+            if self.distance_matrix.result is None
+            else self.distance_matrix.result.standard_deviations
+        )
+        return distance_matrix_spec(
+            values,
+            labels,
+            units=units,
+            standard_deviations=deviations,
+            **options,
+        )
+
+    def calculate_distances(self, *, show_errors=True) -> None:
+        """Show directed mean nearest-centroid distances for one analyzed sample."""
+        sample_id = self.window.clusterDistanceSample.currentData()
+        result = self.window.project_data.segmentation_results.get(sample_id)
+        if result is None:
+            self._distance_calculation_failed(
+                "Run segmentation for the selected sample first.", show_errors
+            )
+            return
+        resolution, units = self.window.project_data.image_defaults.resolution
+        minimum_clusters = self.window.clusterDistanceMinimum.value()
+        entries = tuple(
+            (channel, ref)
+            for channel, ref in zip(
+                result.xrf_sample.elements.values(), result.element_refs, strict=True
+            )
+            if (0 if channel.cluster_df is None else len(channel.cluster_df)) >= minimum_clusters
+        )
+        channels = tuple(channel for channel, _ref in entries)
+        if len(channels) < 2:
+            self._distance_calculation_failed(
+                "At least two segmented elements meet the minimum cluster count.", show_errors
+            )
+            return
+        labels = tuple(channel.name for channel in channels)
+        keys = tuple(str(ref) for _channel, ref in entries)
+        signature = (
+            sample_id,
+            id(result.xrf_sample),
+            keys,
+            float(resolution),
+            units,
+            minimum_clusters,
+        )
+        try:
+            matrix = self._distance_cache.get(signature)
+            if matrix is None:
+                matrix = cluster_distance_matrix(
+                    channels,
+                    labels,
+                    keys,
+                    resolution=float(resolution),
+                    units=units,
+                )
+                self._distance_cache[signature] = matrix
+        except (RuntimeError, ValueError, KeyError) as error:
+            self._distance_calculation_failed(str(error), show_errors)
+            return
+        self.distance_matrix.set_result(matrix)
+        nonempty = int(np.count_nonzero(matrix.counts))
+        self.window.clusterDistanceStatus.setText(
+            f"{len(channels)} elements; {nonempty} with detected clusters"
+        )
+
+    def _distance_calculation_failed(self, message: str, show_error: bool) -> None:
+        self.distance_matrix.set_result(None)
+        self.window.clusterDistanceStatus.setText(message)
+        if show_error:
+            self._show_input_error(message)
 
     def _scatter_presentation_changed(self, _index=None, *, update=True) -> None:
         density = self.window.elementScatterPresentation.currentIndex() == 1
@@ -494,22 +615,17 @@ class CorrelationController:
     def export_matrix(self, matrix, settings_key: str, default_filename: str) -> None:
         """Configure a matrix and export it through the renderer for its file type."""
         if matrix.result is None:
-            self._show_input_error("There is no correlation matrix to export.")
+            self._show_input_error("There is no matrix to export.")
             return
         project_data = self.window.project_data
         settings = project_data.matrix_plot_settings[settings_key]
-        spec = correlation_matrix_spec(
-            matrix.result.values,
-            matrix.result.labels,
-            palette=settings.palette,
-            show_values=settings.show_values,
-            decimals=settings.decimals,
-        )
+        spec = matrix.make_spec()
         dialog = MatrixExportDialog(
             project_data.matrix_publication_settings,
             settings,
             spec,
             self.window,
+            palettes=matrix.palettes,
         )
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
@@ -520,7 +636,7 @@ class CorrelationController:
         if directory is None:
             return
         filename = self.window.askFileName(
-            "Export correlation matrix",
+            "Export matrix",
             filter="PDF document (*.pdf);;PNG image (*.png);;SVG image (*.svg)",
             settingname=EXPORT_DIRECTORY_SETTING,
             save=True,
@@ -529,13 +645,7 @@ class CorrelationController:
         )
         if filename is None:
             return
-        spec = correlation_matrix_spec(
-            matrix.result.values,
-            matrix.result.labels,
-            palette=settings.palette,
-            show_values=settings.show_values,
-            decimals=settings.decimals,
-        )
+        spec = matrix.make_spec()
         try:
             if filename.lower().endswith(".pdf"):
                 outcome = export_matrix_pdf(
@@ -576,5 +686,5 @@ class CorrelationController:
 
     def _show_input_error(self, message: str) -> None:
         QtWidgets.QMessageBox.warning(
-            self.window, "Cannot calculate correlations", message, QtWidgets.QMessageBox.Ok
+            self.window, "Cannot calculate relationships", message, QtWidgets.QMessageBox.Ok
         )

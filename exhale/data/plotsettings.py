@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 ELEMENT_CORRELATIONS = "element_correlations"
 SAMPLE_SIMILARITIES = "sample_similarities"
-MATRIX_PLOT_KEYS = (ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES)
+CLUSTER_DISTANCES = "cluster_distances"
+MATRIX_PLOT_KEYS = (ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES, CLUSTER_DISTANCES)
 MATRIX_PALETTE_KEYS = (
-    "blue-white-red",
-    "purple-white-green",
-    "brown-white-blue-green",
-    "blue-black-red",
+    "magnolia",
+    "linnaea",
+    "utrumque",
+    "uarda",
+    "peccatorum",
+    "nightlife",
+    "viridis",
+    "cividis",
+    "magma",
 )
 
 
@@ -61,19 +67,22 @@ class MatrixPublicationSettings:
 class MatrixPlotSettings:
     """Store the project-specific choices for one kind of matrix plot."""
 
-    palette: str = "blue-white-red"
+    palette: str = "magnolia"
     show_values: bool = True
+    show_secondary: bool = False
     decimals: int = 2
     color_bar_position: str = "right"
     width_mm: float | None = None
     height_mm: float | None = None
     cell_borders: bool = False
     dpi: int = 300
+    default_palette: str = field(default="magnolia", repr=False, compare=False)
 
     def to_json(self) -> dict:
         return {
             "palette": self.palette,
             "show_values": self.show_values,
+            "show_secondary": self.show_secondary,
             "decimals": self.decimals,
             "color_bar_position": self.color_bar_position,
             "width_mm": self.width_mm,
@@ -85,6 +94,7 @@ class MatrixPlotSettings:
     def apply_json(self, state: dict) -> None:
         palette = state.get("palette", self.palette)
         show_values = state.get("show_values", self.show_values)
+        show_secondary = state.get("show_secondary", self.show_secondary)
         decimals = state.get("decimals", self.decimals)
         color_bar_position = state.get("color_bar_position", self.color_bar_position)
         width_mm = _dimension_from_json(state.get("width_mm", self.width_mm), "width")
@@ -97,8 +107,10 @@ class MatrixPlotSettings:
             raise ValueError("Unknown matrix palette")
         if not isinstance(show_values, bool):
             raise TypeError("Matrix value visibility must be true or false")
-        if not isinstance(decimals, int) or not 1 <= decimals <= 6:
-            raise ValueError("Matrix decimal count must be between 1 and 6")
+        if not isinstance(show_secondary, bool):
+            raise TypeError("Matrix secondary-value visibility must be true or false")
+        if not isinstance(decimals, int) or not 0 <= decimals <= 6:
+            raise ValueError("Matrix decimal count must be between 0 and 6")
         if color_bar_position not in ("left", "right", "hidden"):
             raise ValueError("Unknown matrix color-bar position")
         if not isinstance(cell_borders, bool):
@@ -109,6 +121,7 @@ class MatrixPlotSettings:
             raise ValueError("Matrix DPI must be between 72 and 2400")
         self.palette = palette
         self.show_values = show_values
+        self.show_secondary = show_secondary
         self.decimals = decimals
         self.color_bar_position = color_bar_position
         self.width_mm = width_mm
@@ -117,8 +130,9 @@ class MatrixPlotSettings:
         self.dpi = dpi
 
     def reset(self) -> None:
-        self.palette = "blue-white-red"
+        self.palette = self.default_palette
         self.show_values = True
+        self.show_secondary = False
         self.decimals = 2
         self.color_bar_position = "right"
         self.width_mm = None

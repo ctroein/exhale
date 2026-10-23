@@ -152,7 +152,9 @@ class ProjectManager:
 
     def save_project(self) -> bool:
         if self.window.project_dir is None:
-            return self.save_project_as()
+            return self._save_new_project()
+        if not self.window.project_state_manager.compare_now():
+            return True
         if not self._save_to(self.window.project_dir):
             return False
         self.window.project_state_manager.mark_saved()
@@ -161,11 +163,10 @@ class ProjectManager:
         self.window.update_window_title()
         return True
 
-    def save_project_as(self) -> bool:
-        old_project_dir = self.window.project_dir
+    def _save_new_project(self) -> bool:
         directory = QtWidgets.QFileDialog.getExistingDirectory(
             self.window,
-            f"Save {application_name} project as",
+            f"Save {application_name} project",
             self.default_dialog_directory(),
         )
         if not directory:
@@ -187,8 +188,6 @@ class ProjectManager:
         self.window.project_dir = directory
         self.remember_directory(directory)
         self.window.project_state_manager.mark_saved()
-        if old_project_dir is not None:
-            self.window.project_state_manager.discard_autosave(old_project_dir)
         self.window.project_state_manager.discard_autosave(directory)
         self.window.project_state_manager.discard_unsaved_autosave()
         self.window.project_tab.refresh()

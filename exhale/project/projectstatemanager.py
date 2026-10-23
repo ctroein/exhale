@@ -160,8 +160,8 @@ class ProjectStateManager(QtCore.QObject):
             answer = self._ask_unsaved_exit()
             if answer == "cancel":
                 return False
-            if answer == "save_as":
-                return self.window.project_manager.save_project_as()
+            if answer == "save":
+                return self.window.project_manager.save_project()
             self.discard_autosave()
             return True
         if self.save_on_exit_enabled():
@@ -174,14 +174,14 @@ class ProjectStateManager(QtCore.QObject):
         dialog.setIcon(QtWidgets.QMessageBox.Question)
         dialog.setText("This project has not been saved.")
         dialog.setInformativeText("Save it before quitting?")
-        save_button = dialog.addButton("Save as…", QtWidgets.QMessageBox.AcceptRole)
+        save_button = dialog.addButton("Save…", QtWidgets.QMessageBox.AcceptRole)
         quit_button = dialog.addButton("Quit without saving", QtWidgets.QMessageBox.DestructiveRole)
         cancel_button = dialog.addButton(QtWidgets.QMessageBox.Cancel)
         dialog.setDefaultButton(save_button)
         dialog.exec()
         clicked = dialog.clickedButton()
         if clicked is save_button:
-            return "save_as"
+            return "save"
         if clicked is quit_button:
             return "quit"
         if clicked is cancel_button:

@@ -108,6 +108,10 @@ behavior unless the task requires otherwise, and keep refactoring related to
 the task at hand. Keep user-facing text clear. Treat resource paths as part of
 the packaged application interface.
 
+Use the simplest UI rule that implements the requested behavior. Do not add
+special cases, inferred layout policies, or novel interactions without first
+establishing that they are needed.
+
 Resolve open design questions before adding GUI controls, terminology, workflows,
 or automatic behavior. Preserve standard widget behavior, including focus,
 selection, and item position, unless a feature requires otherwise. Show changing
@@ -174,8 +178,15 @@ Run commands from the repository root. The usual entry points are:
 ```bash
 python run_exhale.py
 ./run_exhale.py --help
+./run_exhale.py --startup-check
 python -m pytest
 ```
+
+The startup check constructs `MainWindow`, imports TensorFlow and the StarDist
+integration, reports the runtime versions used by the About dialog, and exits
+without showing the main window. The manually dispatched **Windows startup
+check** workflow runs it directly from an installed checkout. Release builds run
+the same check against the frozen Windows application after PyInstaller finishes.
 
 Every change should at least pass `./run_exhale.py --help` and focused tests for
 the affected code. Add tests under `tests/`, named `test_<feature>.py`, when a

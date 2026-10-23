@@ -137,6 +137,11 @@ def _run_application(pyi_splash=None):
     parser.add_argument(
         "-p", "--project", metavar="DIR", dest="project_dir", help="saved project directory to load"
     )
+    parser.add_argument(
+        "--startup-check",
+        action="store_true",
+        help="construct the application and verify runtime imports without opening a window",
+    )
     desktop_actions = parser.add_mutually_exclusive_group()
     desktop_actions.add_argument(
         "--install-desktop",
@@ -207,7 +212,7 @@ def _run_application(pyi_splash=None):
         app.setDesktopFileName(DESKTOP_ID)
 
     qt_splash = None
-    if pyi_splash is None:
+    if pyi_splash is None and not args.startup_check:
         splash_color = QtGui.QColor("#e0c000")
         pixmap = QtGui.QPixmap(str(resdir.joinpath("xrf_splash.jpg")))
         qt_splash = QtWidgets.QSplashScreen(pixmap)
@@ -250,6 +255,23 @@ def _run_application(pyi_splash=None):
 
     update_splash("Creating user interface")
     window = MainWindow()
+
+    if args.startup_check:
+        import importlib
+
+        from .runtimeinfo import runtime_environment
+
+        importlib.import_module("tensorflow")
+        importlib.import_module(f"{__package__}.xrf_refcopy.xrf_utils")
+        for name, version in runtime_environment():
+            print(f"{name}: {version}")
+        window.close()
+        app.processEvents()
+        if pyi_splash is not None:
+            pyi_splash.close()
+        print("Startup check passed")
+        return 0
+
     update_splash("Opening")
     window.show()
     window.post_setup(**windowparams)
@@ -296,15 +318,14 @@ def main():
         res = _run_application(pyi_splash)
     except Exception:
         traceback.print_exc()
-        print("Press enter to quit")
         if pyi_splash is not None:
             try:
                 pyi_splash.close()
             except Exception as e:
                 print("closing splash failed:", repr(e))
-            # except:
-            #     pass
-        input()
+        if "--startup-check" not in sys.argv:
+            print("Press enter to quit")
+            input()
     sys.exit(res)
 
 

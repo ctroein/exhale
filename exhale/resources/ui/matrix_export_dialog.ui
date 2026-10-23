@@ -5,7 +5,7 @@
   <property name="geometry">
    <rect><x>0</x><y>0</y><width>460</width><height>360</height></rect>
   </property>
-  <property name="windowTitle"><string>Export correlation matrix</string></property>
+  <property name="windowTitle"><string>Export matrix</string></property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
     <widget class="QGroupBox" name="sizeGroup">

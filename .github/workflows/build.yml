@@ -62,6 +62,9 @@ jobs:
         run: |
           pyinstaller exhale.spec --noconfirm --distpath ../dist --workpath ../build
 
+      - name: Test frozen application startup
+        run: '& .\dist\exhale\exhale.exe --startup-check'
+
       - name: Show build outputs
         run: |
           Write-Host "dist:"
