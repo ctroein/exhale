@@ -1,6 +1,12 @@
 # Exhale
 ## Efficient X-ray Hub Aiding Lung Explorations
 
+<p align="center">
+  <img src="artwork/screenshots/segmentation_20261023.png"
+       alt="EXHALE segmentation results"
+       width="900">
+</p>
+
 This project aims to develop a specialized tool for investigating elemental aspects of chronic lung diseases. 
 
 From the [VINNOVA project
