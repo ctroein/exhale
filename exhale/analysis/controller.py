@@ -51,7 +51,7 @@ class AnalysisController:
         window.analysisOptions.clicked.connect(dialog.raise_)
         dialog.buttonBox.clicked.connect(dialog.hide)
 
-    def setup(self) -> None:
+    def setup(self, *, initialize_view: bool = LOAD_NAPARI_EARLY) -> None:
         """Connect the tab and optionally initialize Napari eagerly."""
 
         def tab_check():
@@ -64,7 +64,7 @@ class AnalysisController:
                 QtCore.QTimer.singleShot(0, self._fit_view_on_first_show)
 
         self.window.tabWidget.currentChanged.connect(tab_check)
-        if LOAD_NAPARI_EARLY:
+        if initialize_view:
             self.initialize_view()
 
     def shutdown(self) -> None:

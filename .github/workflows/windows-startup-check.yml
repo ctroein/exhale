@@ -34,4 +34,5 @@ jobs:
           pip install .
 
       - name: Test application startup
+        working-directory: ${{ runner.temp }}
         run: python -m exhale --startup-check

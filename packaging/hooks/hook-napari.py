@@ -14,7 +14,7 @@ def keep(x):
 datas = sum(
     [
         [f for f in collect_data_files(p) if keep(f[0])]
-        for p in ("napari", "napari_builtins", "napari_svg")
+        for p in ("napari", "napari_builtins", "napari_resources", "napari_svg")
     ],
     [],
 )

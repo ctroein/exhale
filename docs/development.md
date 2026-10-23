@@ -182,11 +182,12 @@ python run_exhale.py
 python -m pytest
 ```
 
-The startup check constructs `MainWindow`, imports TensorFlow and the StarDist
-integration, reports the runtime versions used by the About dialog, and exits
-without showing the main window. The manually dispatched **Windows startup
-check** workflow runs it directly from an installed checkout. Release builds run
-the same check against the frozen Windows application after PyInstaller finishes.
+The startup check constructs `MainWindow` without creating the OpenGL canvas,
+imports the Napari integration, TensorFlow, and the StarDist integration, reports
+the runtime versions used by the About dialog, and exits without showing the
+main window. The manually dispatched **Windows startup check** workflow runs it
+from the installed package. Release builds run the same check against the frozen
+Windows application after PyInstaller finishes.
 
 Every change should at least pass `./run_exhale.py --help` and focused tests for
 the affected code. Add tests under `tests/`, named `test_<feature>.py`, when a

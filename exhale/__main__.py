@@ -254,13 +254,14 @@ def _run_application(pyi_splash=None):
     from .main_window import MainWindow
 
     update_splash("Creating user interface")
-    window = MainWindow()
+    window = MainWindow(initialize_analysis_view=not args.startup_check)
 
     if args.startup_check:
         import importlib
 
         from .runtimeinfo import runtime_environment
 
+        importlib.import_module(f"{__package__}.analysis.naparihelper")
         importlib.import_module("tensorflow")
         importlib.import_module(f"{__package__}.xrf_refcopy.xrf_utils")
         for name, version in runtime_environment():

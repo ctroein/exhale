@@ -51,7 +51,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     channelsChanged = QtCore.Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, initialize_analysis_view=True):
         super().__init__(parent)
         self.settings = QtCore.QSettings("CIPA", application_name)
         self.appearance = appearance.initialize(self.settings)
@@ -91,7 +91,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.element_controller.setup()
         self.image_controller.setup()
         self.element_controller.refresh_sample_selector()
-        self.analysis_controller.setup()
+        self.analysis_controller.setup(initialize_view=initialize_analysis_view)
         self.correlation_controller.setup()
         self._configure_splitter_persistence()
         self.tabWidget.setCurrentIndex(0)
