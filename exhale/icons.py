@@ -18,7 +18,7 @@ class IconName(str, Enum):
 
     APPLICATION = "xrf.png"
     OPEN = "open.svg"
-    # FOLDER = "folder-open.svg"
+    FOLDER = "folder-open.svg"
     PROJECT = "folder-open.svg"
     # CLEAR_FILES = "rays.svg"
     SAVE = "floppy.svg"

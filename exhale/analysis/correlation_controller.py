@@ -11,7 +11,7 @@ from qtpy import QtCore, QtWidgets
 
 from ..data.plotsettings import CLUSTER_DISTANCES, ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES
 from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
-from .cluster_distances import cluster_distance_matrix
+from .cluster_distances import cluster_distance_matrix, normalize_cluster_distance_matrix
 from .correlations import (
     CorrelationMatrix,
     SampleSimilarityMatrix,
@@ -44,6 +44,7 @@ class CorrelationController:
         self._element_cache: dict[tuple[str, tuple[str, ...]], _ElementCacheEntry] = {}
         self._similarity_cache: dict[tuple, SampleSimilarityMatrix] = {}
         self._distance_cache: dict[tuple, object] = {}
+        self._normalized_distance_cache: dict[tuple, object] = {}
         self.element_matrix = CorrelationMatrixView(
             window.elementCorrelationPlotHost,
             window.showElementCorrelationValues,
@@ -97,6 +98,7 @@ class CorrelationController:
         window.elementScatterSample.currentIndexChanged.connect(self._scatter_sample_changed)
         window.clusterDistanceSample.currentIndexChanged.connect(self._distance_sample_changed)
         window.clusterDistanceMinimum.valueChanged.connect(self._distance_options_changed)
+        window.normalizeClusterDistances.toggled.connect(self._distance_normalization_changed)
         window.elementScatterX.currentIndexChanged.connect(self._update_scatter)
         window.elementScatterY.currentIndexChanged.connect(self._update_scatter)
         window.elementScatterPresentation.currentIndexChanged.connect(
@@ -140,6 +142,7 @@ class CorrelationController:
         self._element_cache.clear()
         self._similarity_cache.clear()
         self._distance_cache.clear()
+        self._normalized_distance_cache.clear()
         self.element_matrix.set_result(None)
         self.similarity_matrix.set_result(None)
         self.distance_matrix.set_result(None)
@@ -165,6 +168,9 @@ class CorrelationController:
         self.element_matrix.reload_settings()
         self.similarity_matrix.reload_settings()
         self.distance_matrix.reload_settings()
+        distance_settings = window.project_data.matrix_plot_settings[CLUSTER_DISTANCES]
+        with QtCore.QSignalBlocker(window.normalizeClusterDistances):
+            window.normalizeClusterDistances.setChecked(distance_settings.normalize_to_random)
         selected_element_sample = window.elementCorrelationSample.currentData()
         selected_scatter_sample = window.elementScatterSample.currentData()
         selected_distance_sample = window.clusterDistanceSample.currentData()
@@ -248,6 +254,15 @@ class CorrelationController:
         ):
             self.calculate_distances(show_errors=False)
 
+    def _distance_normalization_changed(self, enabled: bool) -> None:
+        settings = self.window.project_data.matrix_plot_settings[CLUSTER_DISTANCES]
+        settings.normalize_to_random = enabled
+        if (
+            self._correlations_visible()
+            and self.window.correlationModes.currentWidget() is self.window.clusterDistanceTab
+        ):
+            self.calculate_distances(show_errors=False)
+
     def _distance_spec(self, values, labels, **options):
         units = self.window.project_data.image_defaults.resolution[1]
         deviations = (
@@ -260,6 +275,9 @@ class CorrelationController:
             labels,
             units=units,
             standard_deviations=deviations,
+            normalized=bool(
+                self.distance_matrix.result is not None and self.distance_matrix.result.normalized
+            ),
             **options,
         )
 
@@ -308,6 +326,19 @@ class CorrelationController:
                     units=units,
                 )
                 self._distance_cache[signature] = matrix
+            if self.window.normalizeClusterDistances.isChecked():
+                normalized = self._normalized_distance_cache.get(signature)
+                if normalized is None:
+                    self.window.clusterDistanceStatus.setText(
+                        "Computing random-placement normalization…"
+                    )
+                    normalized = normalize_cluster_distance_matrix(
+                        matrix,
+                        tuple(result.xrf_sample.elements.values()),
+                        resolution=float(resolution),
+                    )
+                    self._normalized_distance_cache[signature] = normalized
+                matrix = normalized
         except (RuntimeError, ValueError, KeyError) as error:
             self._distance_calculation_failed(str(error), show_errors)
             return
@@ -327,7 +358,6 @@ class CorrelationController:
         density = self.window.elementScatterPresentation.currentIndex() == 1
         self.window.elementScatterBins.setEnabled(density)
         self.window.elementScatterBinsLabel.setEnabled(density)
-        self.window.elementScatterSamplingWarning.setVisible(not density)
         if update:
             self._update_scatter()
 
@@ -454,7 +484,7 @@ class CorrelationController:
         counts = result.counts[np.triu_indices(len(keys), 1)]
         self.element_matrix.set_result(result)
         self.window.elementCorrelationStatus.setText(
-            f"{len(keys)} elements; {int(counts.min())}–{int(counts.max())} paired pixels"
+            f"{len(keys)} elements; {int(counts.min())}–{int(counts.max())} pixels"
         )
 
     def _element_calculation_failed(self, message: str, show_error: bool) -> None:
@@ -566,7 +596,7 @@ class CorrelationController:
         count = result.counts[0, 1]
         value_text = "undefined" if not np.isfinite(value) else f"{value:.6g}"
         self.window.elementScatterStatus.setText(
-            f"Pearson correlation: {value_text}; {count} paired pixels"
+            f"Pearson correlation: {value_text}\n{count} pixels"
         )
 
     def _show_pair(self, row: int, column: int) -> None:

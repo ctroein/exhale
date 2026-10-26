@@ -120,6 +120,7 @@ class ElementListWidget(ExhaleListWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._toggle_selected_checks = False
         self.setItemDelegate(_ElementItemDelegate(self))
         self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.itemChanged.connect(self._sample_check_state_changed)
@@ -129,6 +130,33 @@ class ElementListWidget(ExhaleListWidget):
         # self.setDragEnabled(True)
         # self.setAcceptDrops(True)
         # self.setDropIndicatorShown(True)
+
+    def enable_multi_check_selection(self):
+        """Allow extended selection and toggle all selected checks with Space."""
+        self._toggle_selected_checks = True
+        self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
+
+    def keyPressEvent(self, event):
+        if (
+            self._toggle_selected_checks
+            and event.key() == Qt.Key_Space
+            and event.modifiers() == Qt.KeyboardModifier.NoModifier
+        ):
+            current = self.currentItem()
+            if current is None:
+                super().keyPressEvent(event)
+                return
+            items = self.selectedItems() or [current]
+            state = (
+                Qt.CheckState.Checked
+                if current.checkState() == Qt.CheckState.Unchecked
+                else Qt.CheckState.Unchecked
+            )
+            for item in items:
+                item.setCheckState(state)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     # def dropEvent(self, event : QtGui.QDropEvent):
     #     if type(event.source()) == type(self):

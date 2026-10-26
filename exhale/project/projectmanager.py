@@ -8,6 +8,7 @@ from pathlib import Path
 from qtpy import QtWidgets
 
 from .. import application_name
+from ..data.constants import CONCENTRATION_UNITS
 from ..data.elementsettings import ElementSettingsDefaults
 from ..data.imagesettings import ImageSettings
 from ..overridecursor import OverrideCursor
@@ -63,20 +64,36 @@ class ProjectManager:
         """Restore the built-in defaults for a newly created project."""
         self.window.project_data.element_defaults = ElementSettingsDefaults()
         self.window.project_data.image_defaults = ImageSettings("")
+        self.window.project_data.abundance_units = CONCENTRATION_UNITS
 
     def open_project(self) -> bool:
-        directory = QtWidgets.QFileDialog.getExistingDirectory(
+        filename, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
             self.window,
-            f"Load {application_name} project",
+            f"Open {application_name} project",
             self.default_dialog_directory(),
+            f"{application_name} project ({PROJECT_FILENAME})",
         )
-        if not directory:
+        if not filename:
             return False
-        return self.load_project_dir(directory)
+        return self.load_project_file(filename)
+
+    def load_project_file(self, filename: str | Path) -> bool:
+        """Load the project identified by an XHP file and use its parent directory."""
+        project_file = Path(filename).resolve()
+        if project_file.name != PROJECT_FILENAME:
+            self._show_error(
+                "Opening failed",
+                ValueError(f"Select the {PROJECT_FILENAME} file in the project directory"),
+            )
+            return False
+        return self._load_project(project_file.parent, project_file)
 
     def load_project_dir(self, directory: str | Path) -> bool:
+        """Load the standard project file from ``directory``."""
         directory = Path(directory).resolve()
-        project_file = directory / PROJECT_FILENAME
+        return self._load_project(directory, directory / PROJECT_FILENAME)
+
+    def _load_project(self, directory: Path, project_file: Path) -> bool:
         try:
             with project_file.open(encoding="utf-8") as stream:
                 saved_state = json.load(stream)
@@ -150,6 +167,21 @@ class ProjectManager:
             )
         return True
 
+    def require_project_directory(self, explanation: str) -> bool:
+        """Ensure the project has a directory, offering to save it when necessary."""
+        if self.window.project_dir is not None:
+            return True
+        dialog = QtWidgets.QMessageBox(self.window)
+        dialog.setWindowTitle("Save project first")
+        dialog.setIcon(QtWidgets.QMessageBox.Information)
+        dialog.setText(explanation)
+        dialog.setInformativeText("Choose a project directory before continuing.")
+        save_button = dialog.addButton("Save project…", QtWidgets.QMessageBox.AcceptRole)
+        dialog.addButton(QtWidgets.QMessageBox.Cancel)
+        dialog.setDefaultButton(save_button)
+        dialog.exec()
+        return dialog.clickedButton() is save_button and self.save_project()
+
     def save_project(self) -> bool:
         if self.window.project_dir is None:
             return self._save_new_project()
@@ -166,7 +198,7 @@ class ProjectManager:
     def _save_new_project(self) -> bool:
         directory = QtWidgets.QFileDialog.getExistingDirectory(
             self.window,
-            f"Save {application_name} project",
+            f"Choose a directory for the {application_name} project",
             self.default_dialog_directory(),
         )
         if not directory:

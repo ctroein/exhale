@@ -6,7 +6,6 @@ from functools import partial
 
 from qtpy import QtCore, QtGui, QtWidgets
 
-from ..data.constants import CONCENTRATION_UNITS
 from ..data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
 from ..data.source_refs import SourceUnavailableError
 from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
@@ -14,6 +13,8 @@ from ..tooltips import IMAGE_SETTINGS_DIALOG, apply_tooltips
 from .image_settings_dialog import ImageSettingsDialog
 from .imagecomposer import ImageComposer
 from .listwidgets import ElementListWidget, ImageElementBox, ImageHeaderBox, ImageListWidget
+
+PIXEL_TOOLTIP_DURATION_MS = 24 * 60 * 60 * 1000
 
 
 class ImageController:
@@ -440,8 +441,27 @@ class ImageController:
             self.update_composed_image(reset_view=True)
 
     def _mouse_over_plot(self, canvas_pixel) -> None:
+        if canvas_pixel is None:
+            QtWidgets.QToolTip.hideText()
+            return
+        if self.window.elementPlot.composition_description is None:
+            element = self.window.element_controller.current_element
+            if element is None:
+                QtWidgets.QToolTip.hideText()
+                return
+            x, y = canvas_pixel
+            if y >= element.data.shape[0] or x >= element.data.shape[1]:
+                QtWidgets.QToolTip.hideText()
+                return
+            info = (
+                f"Pos ({x}, {y}):\n"
+                f"{element.name}: {element.data[y, x]:.4g} "
+                f"{self.window.project_data.abundance_units}"
+            )
+            self._show_pixel_tooltip(info)
+            return
         image = self.current_image
-        if image is None or canvas_pixel is None:
+        if image is None:
             QtWidgets.QToolTip.hideText()
             return
         coordinates = self.composer.map_coordinates(*canvas_pixel)
@@ -450,11 +470,21 @@ class ImageController:
             return
         x, y = coordinates
         info = f"Pos ({x}, {y}):\n" + "\n".join(
-            f"{element.name}: {element.data[y, x]:.4g} {CONCENTRATION_UNITS}"
+            f"{element.name}: {element.data[y, x]:.4g} {self.window.project_data.abundance_units}"
             for element in image.elements.values()
             if y < element.data.shape[0] and x < element.data.shape[1]
         )
-        QtWidgets.QToolTip.showText(QtGui.QCursor.pos(), info, self.window.elementPlot)
+        self._show_pixel_tooltip(info)
+
+    def _show_pixel_tooltip(self, text: str) -> None:
+        plot = self.window.elementPlot
+        QtWidgets.QToolTip.showText(
+            QtGui.QCursor.pos(),
+            text,
+            plot,
+            plot.rect(),
+            PIXEL_TOOLTIP_DURATION_MS,
+        )
 
     def _plot_clicked(self, canvas_pixel) -> None:
         description = self.window.elementPlot.composition_description

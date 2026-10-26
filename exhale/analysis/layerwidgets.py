@@ -490,7 +490,7 @@ class LayerListWidget(QtWidgets.QListWidget):
         self.rebuild(row.layer)
 
     def _move_layer_to_display_index(self, layer, display_index):
-        model_index = len(self.helper.viewer.layers) - 1 - display_index
+        model_index = len(self.helper.user_layers()) - 1 - display_index
         self.helper.move_layer(layer, model_index)
 
     def dropEvent(self, event):

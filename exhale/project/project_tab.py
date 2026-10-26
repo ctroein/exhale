@@ -47,6 +47,7 @@ class ProjectTab(QtCore.QObject):
         for name in (
             "addProjectFilesButton",
             "addSampleFilesButton",
+            "abundanceUnitsValue",
             "channelList",
             "dataRootValue",
             "elementMapList",
@@ -96,7 +97,9 @@ class ProjectTab(QtCore.QObject):
         self.removeButton.clicked.connect(self._remove_selected)
         self.resolutionValue.valueChanged.connect(self._resolution_changed)
         self.resolutionUnits.currentTextChanged.connect(self._resolution_changed)
+        self.abundanceUnitsValue.textEdited.connect(self._abundance_units_changed)
         self._sync_resolution_controls()
+        self._sync_abundance_units_control()
 
     def eventFilter(self, watched, event):
         if watched is self.widget and event.type() == QtCore.QEvent.Show:
@@ -214,6 +217,7 @@ class ProjectTab(QtCore.QObject):
         self.refresh_sample_maps()
         self._update_selection_controls()
         self._sync_resolution_controls()
+        self._sync_abundance_units_control()
 
     def _initialize_tree_widths(self):
         if self._tree_widths_initialized:
@@ -481,6 +485,16 @@ class ProjectTab(QtCore.QObject):
             self.resolutionValue.setValue(value)
         with QtCore.QSignalBlocker(self.resolutionUnits):
             self.resolutionUnits.setCurrentText(units)
+
+    def _abundance_units_changed(self, value):
+        self.project.abundance_units = value
+        if self.window.analysis_controller.naparihelper is not None:
+            self.window.analysis_controller.naparihelper.abundance_units = value
+        self._mark_changed()
+
+    def _sync_abundance_units_control(self):
+        with QtCore.QSignalBlocker(self.abundanceUnitsValue):
+            self.abundanceUnitsValue.setText(self.project.abundance_units)
 
     def _add_files_to_sample(self):
         sample_id = self.selected_sample_id()

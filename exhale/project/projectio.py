@@ -322,6 +322,7 @@ def export_project_state(
         "format": PROJECT_FORMAT,
         "version": PROJECT_VERSION,
         "element_defaults": project_data.element_defaults.to_json(),
+        "abundance_units": project_data.abundance_units,
         "image_defaults": _image_options_to_json(
             project_data.image_defaults, include_resolution=True
         ),
@@ -401,6 +402,11 @@ def load_project_state(
     validate_project_state(state)
 
     issues = []
+    abundance_units = state.get("abundance_units", project_data.abundance_units)
+    if isinstance(abundance_units, str):
+        project_data.abundance_units = abundance_units
+    else:
+        issues.append("Element abundance units were reset: expected a string")
     try:
         project_data.element_defaults = ElementSettingsDefaults.from_json(
             state.get("element_defaults", ElementSettingsDefaults().to_json())

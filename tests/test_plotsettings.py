@@ -1,6 +1,6 @@
 """Tests for project-owned matrix plot presentation settings."""
 
-from exhale.data.plotsettings import ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES
+from exhale.data.plotsettings import CLUSTER_DISTANCES, ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES
 from exhale.data.projectdata import ProjectData
 from exhale.project.projectio import export_project_state, load_project_state
 
@@ -15,6 +15,7 @@ def test_matrix_plot_settings_round_trip_independently():
     project.matrix_plot_settings[SAMPLE_SIMILARITIES].palette = "nightlife"
     project.matrix_plot_settings[SAMPLE_SIMILARITIES].show_values = False
     project.matrix_plot_settings[SAMPLE_SIMILARITIES].height_mm = 210.0
+    project.matrix_plot_settings[CLUSTER_DISTANCES].normalize_to_random = True
     project.matrix_publication_settings.font_family = "Liberation Sans"
     project.matrix_publication_settings.font_size = 9.5
     state = export_project_state(project)
@@ -32,8 +33,21 @@ def test_matrix_plot_settings_round_trip_independently():
     assert restored.matrix_plot_settings[SAMPLE_SIMILARITIES].palette == "nightlife"
     assert not restored.matrix_plot_settings[SAMPLE_SIMILARITIES].show_values
     assert restored.matrix_plot_settings[SAMPLE_SIMILARITIES].height_mm == 210.0
+    assert restored.matrix_plot_settings[CLUSTER_DISTANCES].normalize_to_random
     assert restored.matrix_publication_settings.font_family == "Liberation Sans"
     assert restored.matrix_publication_settings.font_size == 9.5
+
+
+def test_abundance_units_round_trip_with_project():
+    project = ProjectData()
+    assert project.abundance_units == "ng/mm²"
+    project.abundance_units = "µg/cm²"
+
+    restored = ProjectData()
+    issues = load_project_state(restored, export_project_state(project), open_files=False)
+
+    assert not issues
+    assert restored.abundance_units == "µg/cm²"
 
 
 def test_invalid_matrix_plot_settings_are_reset_without_blocking_project_load():

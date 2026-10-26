@@ -59,7 +59,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.multichannel_tiff = str(Path(self.temp.name) / "rgb-image.tiff")
         rgb_data = np.stack((self.data, self.data * 2, self.data * 3), axis=-1).astype(np.uint8)
         Image.fromarray(rgb_data).save(self.multichannel_tiff)
-        with patch.object(AnalysisController, "setup", lambda controller: None):
+        with patch.object(AnalysisController, "setup", lambda controller, **_kwargs: None):
             self.win = MainWindow()
         self.addCleanup(self.dispose_window)
 
@@ -684,9 +684,62 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(self.win.analysisChNuclei.currentIndex(), 0)
         self.assertNotIn(first_ref, refs)
 
+    def test_analysis_defaults_nuclei_to_phosphorus_channel(self):
+        with h5py.File(self.h5, "a") as handle:
+            handle["entry/plotselect"].create_dataset("P_K", data=self.data * 3)
+        self.win.source_manager.open_files([self.h5])
+        sample_id = self.win.project_data.assets[self.h5].sample_id
+        for key in ("Fe", "P_K", "Zn"):
+            self.win.project_data.add_project_channel_from_sample(sample_id, key)
+        self.win.element_controller.effective_channels_changed()
+        self.win.analysisSampleComboBox.addItem("elements", sample_id)
+
+        self.win.analysis_controller.update_channels()
+
+        nuclei_ref = self.win.analysisChNuclei.currentData()
+        self.assertEqual(nuclei_ref, self.win.project_data.samples[sample_id].channels["P_K"].ref)
+
+        self.win.analysisChNuclei.setCurrentIndex(self.win.analysisChNuclei.findText("Fe"))
+        self.win.analysis_controller.update_channels()
+        self.assertEqual(self.win.analysisChNuclei.currentText(), "Fe")
+
+    def test_analysis_elements_support_multi_selection_and_space_toggle(self):
+        self.win.source_manager.open_files([self.h5])
+        sample_id = self.win.project_data.assets[self.h5].sample_id
+        for key in ("Fe", "Zn"):
+            self.win.project_data.add_project_channel_from_sample(sample_id, key)
+        self.win.element_controller.effective_channels_changed()
+        self.win.analysisSampleComboBox.addItem("elements", sample_id)
+        self.win.analysis_controller.update_elements()
+        element_list = self.win.analysisElements
+        self.assertEqual(
+            element_list.selectionMode(),
+            QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection,
+        )
+        for row in range(element_list.count()):
+            element_list.item(row).setSelected(True)
+        element_list.setCurrentRow(0, QtCore.QItemSelectionModel.SelectionFlag.NoUpdate)
+
+        QtTest.QTest.keyClick(element_list, QtCore.Qt.Key_Space)
+        self.assertTrue(
+            all(
+                element_list.item(row).checkState() == QtCore.Qt.CheckState.Unchecked
+                for row in range(element_list.count())
+            )
+        )
+
+        QtTest.QTest.keyClick(element_list, QtCore.Qt.Key_Space)
+        self.assertTrue(
+            all(
+                element_list.item(row).checkState() == QtCore.Qt.CheckState.Checked
+                for row in range(element_list.count())
+            )
+        )
+
     def test_analysis_inputs_are_disabled_while_busy(self):
         self.win.analysis_controller.set_busy(True)
         for widget in (
+            self.win.analysisPipelineComboBox,
             self.win.analysisSampleComboBox,
             self.win.analysisChNuclei,
             self.win.analysisChTissue,
@@ -736,13 +789,13 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(item.checkState(), QtCore.Qt.Unchecked)
         self.assertTrue(item.icon().isNull())
 
-    def test_segmentation_screenshot_saves_the_canvas(self):
+    def test_segmentation_current_view_saves_the_canvas(self):
         viewer = Mock()
         self.win.analysis_controller.naparihelper = SimpleNamespace(sample=object(), viewer=viewer)
         filename = str(Path(self.temp.name) / "segmentation.png")
 
         with patch.object(self.win, "askFileName", return_value=filename):
-            self.win.analysis_controller.save_screenshot()
+            self.win.analysis_controller.save_current_view()
 
         viewer.screenshot.assert_called_once_with(
             path=filename,
@@ -769,7 +822,7 @@ class SourceLifecycleTests(unittest.TestCase):
 
         self.win.analysis_controller.naparihelper = SimpleNamespace(sample=object(), viewer=Mock())
         with patch.object(self.win, "askFileName", return_value=None) as ask:
-            self.win.analysis_controller.save_screenshot()
+            self.win.analysis_controller.save_current_view()
         self.assertEqual(ask.call_args.kwargs["directory"], expected)
         self.assertEqual(ask.call_args.kwargs["settingname"], EXPORT_DIRECTORY_SETTING)
 
@@ -784,12 +837,29 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertIsNone(self.win.project_dir)
         self.win.analysis_controller.worker = None
 
-        with patch.object(QtWidgets.QMessageBox, "information") as information:
+        with patch.object(
+            self.win.project_manager, "require_project_directory", return_value=False
+        ) as require_directory:
             self.win.analysis_controller.run()
 
-        information.assert_called_once()
-        self.assertIn("Save the project", information.call_args.args[2])
+        require_directory.assert_called_once_with(
+            "Segmentation results are stored in the project directory."
+        )
         self.assertIsNone(self.win.analysis_controller.worker)
+
+    def test_open_project_selects_xhp_file(self):
+        marker = str(Path(self.temp.name) / "chosen-project" / "project.xhp")
+        with (
+            patch.object(
+                QtWidgets.QFileDialog,
+                "getOpenFileName",
+                return_value=(marker, "Exhale project (project.xhp)"),
+            ),
+            patch.object(self.win.project_manager, "load_project_file", return_value=True) as load,
+        ):
+            self.assertTrue(self.win.project_manager.open_project())
+
+        load.assert_called_once_with(marker)
 
     def test_selecting_sample_restores_its_segmentation_result(self):
         other = str(Path(self.temp.name) / "other.h5")

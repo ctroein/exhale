@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from time import strftime
 
-from qtpy import QtCore, QtWidgets
+from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import Qt
 
-from .. import appearance
+from .. import appearance, icons
 from ..data.projectdata import SegmentationParameters, SegmentationResult
 from ..data.source_refs import SourceUnavailableError
 from ..imaging.listwidgets import ElementListWidget
@@ -27,10 +27,11 @@ def _scale_font(widget: QtWidgets.QWidget, scale: float) -> None:
     widget.setFont(font)
 
 
-class AnalysisController:
+class AnalysisController(QtCore.QObject):
     """Own the Segmentation tab's state and behavior."""
 
     def __init__(self, window):
+        super().__init__(window)
         self.window = window
         self.naparihelper = None
         self.worker = None
@@ -38,6 +39,9 @@ class AnalysisController:
         self._result_sample_id = None
         self._element_signatures = {}
         self._view_fitted_on_show = False
+        window.napariWidget.installEventFilter(self)
+        window.analysisPipelineComboBox.addItem("StarDist", "stardist")
+        window.analysisElements.enable_multi_check_selection()
         window.analysisElements.setItemDelegate(IconCheckDelegate(window.analysisElements))
 
         dialog = AnalysisSettingsDialog(window)
@@ -51,6 +55,26 @@ class AnalysisController:
         window.analysisOptions.clicked.connect(dialog.raise_)
         dialog.buttonBox.clicked.connect(dialog.hide)
 
+    def eventFilter(self, watched, event):
+        if watched is self.window.napariWidget and event.type() in (
+            QtCore.QEvent.Type.Resize,
+            QtCore.QEvent.Type.Show,
+        ):
+            self._place_view_buttons()
+        return super().eventFilter(watched, event)
+
+    def _place_view_buttons(self) -> None:
+        """Keep the view controls inside the Napari area's upper-right corner."""
+        margin = 6
+        spacing = 4
+        right = self.window.napariWidget.width() - margin
+        for button in (self.window.analysisFit, self.window.analysisSaveView):
+            button.adjustSize()
+            right -= button.width()
+            button.move(right, margin)
+            button.raise_()
+            right -= spacing
+
     def setup(self, *, initialize_view: bool = LOAD_NAPARI_EARLY) -> None:
         """Connect the tab and optionally initialize Napari eagerly."""
 
@@ -59,6 +83,7 @@ class AnalysisController:
                 return
             if self.naparihelper is None:
                 self.initialize_view()
+            self._select_default_nuclei_channel()
             self.refresh_result_view()
             if not self._view_fitted_on_show:
                 QtCore.QTimer.singleShot(0, self._fit_view_on_first_show)
@@ -81,15 +106,23 @@ class AnalysisController:
             and self.naparihelper is not None
             and self.naparihelper.sample is not None
         ):
-            self.naparihelper.viewer.reset_view()
+            self.fit_view()
             self._view_fitted_on_show = True
+
+    def fit_view(self, *_unused) -> None:
+        """Fit the segmentation layers to the full available canvas."""
+        if self.naparihelper is not None:
+            self.naparihelper.viewer.reset_view(margin=0)
 
     def initialize_view(self) -> None:
         """Create the embedded Napari viewer and connect analysis controls."""
         from .naparihelper import NapariHelper
 
         window = self.window
-        self.naparihelper = NapariHelper("dark" if appearance.is_dark() else "light")
+        self.naparihelper = NapariHelper(
+            "dark" if appearance.is_dark() else "light",
+            self.window.project_data.abundance_units,
+        )
         window.analysisLayerList.set_helper(self.naparihelper)
         self.naparihelper.set_info_widget(window.analysisInfo)
 
@@ -97,6 +130,7 @@ class AnalysisController:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.naparihelper.qtwidget, 1)
         window.napariWidget.setLayout(layout)
+        self._place_view_buttons()
 
         _scale_font(window.analysisStatus, 0.8)
         window.analysisSampleComboBox.currentIndexChanged.connect(self.sample_changed)
@@ -107,8 +141,8 @@ class AnalysisController:
         window.analysisRun.pressed.connect(self.run)
         window.analysisAbort.pressed.connect(self.abort)
         window.analysisExport.clicked.connect(self.export_results)
-        window.analysisScreenshot.clicked.connect(self.save_screenshot)
-        window.analysisFit.clicked.connect(self.naparihelper.viewer.reset_view)
+        window.analysisSaveView.clicked.connect(self.save_current_view)
+        window.analysisFit.clicked.connect(self.fit_view)
         self.set_busy(False)
 
     def abort(self) -> None:
@@ -202,7 +236,7 @@ class AnalysisController:
         self.window.analysisInfo.clear()
         self.update_layer_controls()
         self.window.analysisExport.setEnabled(False)
-        self.window.analysisScreenshot.setEnabled(False)
+        self.window.analysisSaveView.setEnabled(False)
 
     def show_result(self, result: SegmentationResult) -> None:
         window = self.window
@@ -237,7 +271,7 @@ class AnalysisController:
         }
         self.update_layer_controls()
         window.analysisExport.setEnabled(True)
-        window.analysisScreenshot.setEnabled(True)
+        window.analysisSaveView.setEnabled(True)
 
     def _segmentation_element_settings(self, result: SegmentationResult):
         project_data = self.window.project_data
@@ -279,6 +313,24 @@ class AnalysisController:
                 index = self._combo_index_for_data(selector, selected_ref)
                 if index >= 0:
                     selector.setCurrentIndex(index)
+        self._select_default_nuclei_channel(channels)
+
+    def _select_default_nuclei_channel(self, channels=None) -> None:
+        selector = self.window.analysisChNuclei
+        if selector.currentData() is not None:
+            return
+        if channels is None:
+            channels = self._effective_channels()
+        index = next(
+            (
+                row
+                for row, channel in enumerate(channels, start=1)
+                if channel.key == "P" or channel.key.startswith("P_")
+            ),
+            -1,
+        )
+        if index >= 0:
+            selector.setCurrentIndex(index)
 
     def update_elements(self) -> None:
         """Update the analysis element list from the active sample."""
@@ -338,6 +390,7 @@ class AnalysisController:
         window = self.window
         for widget in (
             window.analysisRun,
+            window.analysisPipelineComboBox,
             window.analysisSampleComboBox,
             window.analysisChNuclei,
             window.analysisChTissue,
@@ -353,7 +406,7 @@ class AnalysisController:
         window.analysisExport.setEnabled(
             not busy and self.naparihelper is not None and self.naparihelper.sample is not None
         )
-        window.analysisScreenshot.setEnabled(
+        window.analysisSaveView.setEnabled(
             not busy and self.naparihelper is not None and self.naparihelper.sample is not None
         )
         window.analysisAbort.setEnabled(busy)
@@ -367,13 +420,9 @@ class AnalysisController:
         window = self.window
         if self.worker is not None:
             raise RuntimeError("Analysis worker already running")
-        if window.project_dir is None:
-            QtWidgets.QMessageBox.information(
-                window,
-                "Save project before segmentation",
-                "Segmentation results are stored in the project directory. "
-                "Save the project before running segmentation.",
-            )
+        if not window.project_manager.require_project_directory(
+            "Segmentation results are stored in the project directory."
+        ):
             return
 
         window.analysisStatus.clear()
@@ -494,11 +543,22 @@ class AnalysisController:
         except Exception as exc:
             window.show_error("Export failed", str(exc))
             return
-        QtWidgets.QMessageBox.information(
-            window, "Export complete", f"Analysis results exported to:\n{output}"
+        message = QtWidgets.QMessageBox(
+            QtWidgets.QMessageBox.Icon.Information,
+            "Export complete",
+            f"Analysis results exported to:\n{output}",
+            parent=window,
         )
+        open_directory = message.addButton(
+            "Open directory", QtWidgets.QMessageBox.ButtonRole.ActionRole
+        )
+        open_directory.setIcon(icons.icon(icons.IconName.FOLDER))
+        message.addButton(QtWidgets.QMessageBox.StandardButton.Ok)
+        message.exec()
+        if message.clickedButton() is open_directory:
+            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(output)))
 
-    def save_screenshot(self) -> None:
+    def save_current_view(self) -> None:
         """Save the currently displayed segmentation canvas as a PNG image."""
         if self.naparihelper is None or self.naparihelper.sample is None:
             return
@@ -507,7 +567,7 @@ class AnalysisController:
         if directory is None:
             return
         filename = window.askFileName(
-            "Save segmentation screenshot",
+            "Save current view",
             filter="PNG image (*.png)",
             settingname=EXPORT_DIRECTORY_SETTING,
             save=True,
@@ -523,7 +583,7 @@ class AnalysisController:
                 flash=True,
             )
         except Exception as exc:
-            window.show_error("Saving screenshot failed", str(exc))
+            window.show_error("Saving the current view failed", str(exc))
 
     def clear_project(self) -> None:
         """Clear controller-owned derived display state for a new project."""

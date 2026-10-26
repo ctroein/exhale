@@ -1,6 +1,8 @@
 """Focused geometry tests for matrix plot interactions."""
 
 import os
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -8,10 +10,44 @@ import numpy as np
 import pytest
 from qtpy import QtCore, QtGui, QtWidgets
 
-from exhale.analysis.correlationwidgets import CorrelationPlotWidget
-from exhale.analysis.matrixplots import correlation_matrix_spec, matrix_text_layout
+from exhale.analysis.correlationwidgets import CorrelationMatrixView, CorrelationPlotWidget
+from exhale.analysis.matrixplots import (
+    correlation_matrix_spec,
+    distance_matrix_spec,
+    matrix_text_layout,
+)
+from exhale.data.plotsettings import MatrixPlotSettings
 
 _APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+
+def test_matrix_view_does_not_rebuild_an_unchanged_result():
+    host = QtWidgets.QWidget()
+    show_values = QtWidgets.QCheckBox()
+    decimals = QtWidgets.QSpinBox()
+    decimals_label = QtWidgets.QLabel()
+    copy_button = QtWidgets.QPushButton()
+    palette = QtWidgets.QComboBox()
+    view = CorrelationMatrixView(
+        host,
+        show_values,
+        decimals,
+        decimals_label,
+        copy_button,
+        palette,
+        MatrixPlotSettings(),
+    )
+    result = SimpleNamespace(values=np.eye(2), labels=("A", "B"))
+    update = Mock(wraps=view._update_plot_spec)
+    view._update_plot_spec = update
+
+    view.set_result(result)
+    view.set_result(result)
+
+    update.assert_called_once_with()
+    decimals.setValue(decimals.value() + 1)
+    assert update.call_count == 2
+    host.close()
 
 
 def _wheel(widget, delta):
@@ -83,6 +119,35 @@ def test_wheel_zoom_keeps_current_view_center_for_oversized_matrix():
     assert after.width() < before.width()
     assert after.center().x() == pytest.approx(before.center().x(), abs=1e-9)
     assert after.center().y() == pytest.approx(before.center().y(), abs=1e-9)
+    widget.close()
+
+
+def test_zooming_out_to_minimum_cell_size_does_not_shift_matrix():
+    size = 8
+    widget = CorrelationPlotWidget()
+    widget.resize(800, 600)
+    widget.show()
+    _APP.processEvents()
+    widget.set_matrix_spec(
+        correlation_matrix_spec(
+            np.eye(size),
+            tuple(f"Element {index}" for index in range(size)),
+            show_values=False,
+            decimals=2,
+        )
+    )
+    view_box = widget.matrix_plot.getViewBox()
+
+    previous_offset = None
+    for step in range(20):
+        matrix_scene = widget.image.mapRectToScene(widget.image.boundingRect())
+        offset = matrix_scene.center() - view_box.sceneBoundingRect().center()
+        if previous_offset is not None and step >= 10:
+            assert abs(offset.x() - previous_offset.x()) < 2.0
+            assert abs(offset.y() - previous_offset.y()) < 2.0
+        previous_offset = offset
+        _wheel(widget, -30)
+
     widget.close()
 
 
@@ -168,34 +233,120 @@ def test_decimal_round_trip_keeps_complete_figure_centered():
     widget.close()
 
 
-def test_decimal_change_preserves_cell_size_and_updates_padding():
+def test_palette_change_cannot_corrupt_cell_size_used_by_decimal_change():
     values = np.eye(4)
     labels = ("A", "B", "C", "D")
     widget = CorrelationPlotWidget()
     widget.resize(800, 600)
     widget.show()
     _APP.processEvents()
-    widget.set_matrix_spec(correlation_matrix_spec(values, labels, show_values=True, decimals=2))
+    widget.set_matrix_spec(
+        correlation_matrix_spec(values, labels, palette="magnolia", show_values=True, decimals=2)
+    )
     view_box = widget.matrix_plot.getViewBox()
     view_box.scaleBy((0.8, 0.8), QtCore.QPointF(1.5, 1.5))
     widget._matrix_view_range_changed()
     selected_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
-    original_padding = widget._matrix_cell_padding
 
-    widget.set_matrix_spec(correlation_matrix_spec(values, labels, show_values=True, decimals=3))
+    widget.set_matrix_spec(
+        correlation_matrix_spec(values, labels, palette="linnaea", show_values=True, decimals=2)
+    )
+    widget.set_matrix_spec(
+        correlation_matrix_spec(values, labels, palette="linnaea", show_values=True, decimals=3)
+    )
+
+    final_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+    assert final_cell_size == pytest.approx(selected_cell_size, abs=0.02)
+    assert widget._matrix_cell_size == pytest.approx(selected_cell_size, abs=0.02)
+    widget.close()
+
+
+def test_decimal_and_data_changes_preserve_cell_size():
+    values = np.eye(4) * 12
+    labels = ("A", "B", "C", "D")
+    widget = CorrelationPlotWidget()
+    widget.resize(800, 600)
+    widget.show()
+    _APP.processEvents()
+    widget.set_matrix_spec(
+        distance_matrix_spec(values, labels, units="µm", show_values=True, decimals=2)
+    )
+    view_box = widget.matrix_plot.getViewBox()
+    view_box.scaleBy((0.6, 0.6), QtCore.QPointF(1.5, 1.5))
+    widget._matrix_view_range_changed()
+    selected_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+    assert widget._matrix_cell_size == pytest.approx(selected_cell_size, abs=0.02)
+
+    widget.set_matrix_spec(
+        distance_matrix_spec(values, labels, units="µm", show_values=True, decimals=3)
+    )
     decimal_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
     assert decimal_cell_size == pytest.approx(selected_cell_size, abs=0.02)
-    assert widget._matrix_cell_padding < original_padding
-    decimal_padding = widget._matrix_cell_padding
 
-    larger = np.eye(5)
+    larger = np.eye(5) * 100
     widget.set_matrix_spec(
-        correlation_matrix_spec(
+        distance_matrix_spec(
             larger,
             (*labels, "E"),
+            units="µm",
             show_values=True,
             decimals=3,
         )
     )
-    assert widget._matrix_cell_padding == pytest.approx(decimal_padding)
+    data_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+    assert data_cell_size == pytest.approx(selected_cell_size, abs=0.02)
+    assert widget._matrix_cell_size == pytest.approx(selected_cell_size, abs=0.02)
+    widget.close()
+
+
+def test_value_and_secondary_text_changes_preserve_cell_size_within_limits():
+    values = np.asarray(((12.0, 34.0), (56.0, 78.0)))
+    deviations = np.ones_like(values)
+    labels = ("A", "B")
+    widget = CorrelationPlotWidget()
+    widget.resize(800, 600)
+    widget.show()
+    _APP.processEvents()
+    widget.set_matrix_spec(
+        distance_matrix_spec(
+            values,
+            labels,
+            units="µm",
+            standard_deviations=deviations,
+            show_values=True,
+            show_secondary=False,
+        )
+    )
+    view_box = widget.matrix_plot.getViewBox()
+    selected_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+
+    for show_values, show_secondary in ((False, False), (True, True), (True, False)):
+        widget.set_matrix_spec(
+            distance_matrix_spec(
+                values,
+                labels,
+                units="µm",
+                standard_deviations=deviations,
+                show_values=show_values,
+                show_secondary=show_secondary,
+            )
+        )
+        cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+        assert cell_size == pytest.approx(selected_cell_size, abs=0.02)
+    widget.close()
+
+
+def test_matrix_zoom_allows_six_digits_of_padding():
+    values = np.eye(2)
+    widget = CorrelationPlotWidget()
+    widget.resize(800, 600)
+    widget.show()
+    _APP.processEvents()
+    spec = correlation_matrix_spec(values, ("A", "B"), show_values=True, decimals=2)
+    widget.set_matrix_spec(spec)
+
+    metrics = QtGui.QFontMetrics(QtWidgets.QApplication.font())
+    text = matrix_text_layout(spec, metrics.height(), metrics.horizontalAdvance)
+    minimum_cell, maximum_cell = widget._matrix_cell_limits(text, spec)
+    assert maximum_cell - minimum_cell == pytest.approx(6 * text.digit_width)
     widget.close()

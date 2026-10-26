@@ -102,9 +102,9 @@ MATRIX_PALETTES = (
         "linnaea",
         "Linnaea",
         (
-            ColorStop(0.0, (118, 42, 131, 255)),
+            ColorStop(0.0, (170, 61, 141, 255)),
             ColorStop(0.5, (247, 247, 247, 255)),
-            ColorStop(1.0, (0, 136, 55, 255)),
+            ColorStop(1.0, (61, 122, 41, 255)),
         ),
     ),
     MatrixPalette(
@@ -182,6 +182,16 @@ SEQUENTIAL_MATRIX_PALETTES = (
             ColorStop(0.5, (183, 55, 121, 255)),
             ColorStop(0.75, (252, 137, 97, 255)),
             ColorStop(1.0, (252, 253, 191, 255)),
+        ),
+    ),
+    MatrixPalette(
+        "lundagård",
+        "Lundagård",
+        (
+            ColorStop(0.0, (243, 241, 234, 255)),
+            ColorStop(1 / 3, (203, 197, 169, 255)),
+            ColorStop(2 / 3, (159, 196, 173, 255)),
+            ColorStop(1.0, (155, 187, 198, 255)),
         ),
     ),
 )
@@ -329,6 +339,7 @@ def distance_matrix_spec(
     show_values: bool = True,
     decimals: int = 2,
     show_secondary: bool = False,
+    normalized: bool = False,
 ) -> MatrixPlotSpec:
     """Describe a non-negative directed-distance matrix."""
     finite = values[np.isfinite(values)]
@@ -341,7 +352,9 @@ def distance_matrix_spec(
         labels=labels,
         levels=(lower, upper),
         color_stops=MATRIX_PALETTES_BY_KEY[palette].color_stops,
-        color_bar_label=f"Mean nearest distance ({units})",
+        color_bar_label=(
+            "Observed / random placement" if normalized else f"Mean nearest distance ({units})"
+        ),
         show_values=show_values,
         decimals=decimals,
         secondary_values=standard_deviations,

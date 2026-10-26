@@ -206,6 +206,97 @@ class NapariPresentationTest(unittest.TestCase):
         self.assertTrue(element_layer.visible)
         self.assertEqual(element_layer.opacity, 0.35)
 
+    def test_sample_switch_reuses_fixed_and_pooled_layers(self):
+        self.helper.viewer = ViewerModel()
+
+        def sample(names):
+            raw = np.ones((3, 4), dtype=np.float32)
+            return SimpleNamespace(
+                tissue=SimpleNamespace(raw=raw),
+                nuclei=SimpleNamespace(
+                    raw=raw,
+                    membrane_labels=np.zeros_like(raw, dtype=np.uint8),
+                    nuclei_labels=np.ones_like(raw, dtype=np.uint8),
+                ),
+                elements={
+                    name: SimpleNamespace(
+                        raw=raw,
+                        cluster_labels=(
+                            np.ones_like(raw, dtype=np.uint8) if name != "Zn" else None
+                        ),
+                    )
+                    for name in names
+                },
+            )
+
+        larger = sample(("Fe", "Zn", "Cu"))
+        self.helper.set_sample(larger, tuple(ch.raw for ch in larger.elements.values()))
+        fixed = dict(self.helper._fixed_layers)
+        element_pool = tuple(self.helper._element_layer_pool)
+        cluster_pool = tuple(self.helper._cluster_layer_pool)
+        layer_count = len(self.helper.viewer.layers)
+
+        smaller = sample(("Ca",))
+        self.helper.set_sample(smaller, tuple(ch.raw for ch in smaller.elements.values()))
+
+        self.assertEqual(self.helper._fixed_layers, fixed)
+        self.assertEqual(tuple(self.helper._element_layer_pool), element_pool)
+        self.assertEqual(tuple(self.helper._cluster_layer_pool), cluster_pool)
+        self.assertEqual(len(self.helper.viewer.layers), layer_count)
+        self.assertIs(self.helper._element_layers["Ca"], element_pool[0])
+        self.assertEqual(
+            [layer.name for layer in self.helper.user_layers()],
+            [
+                "Tissue raw",
+                "Nuclei raw",
+                "Ca map",
+                "Ca clusters",
+                "Membrane labels",
+                "Nuclei labels",
+            ],
+        )
+        self.assertTrue(all(not layer.visible for layer in element_pool[1:]))
+        self.assertTrue(all(not self.helper.is_active_layer(layer) for layer in element_pool[1:]))
+
+        self.helper.set_sample(None)
+
+        self.assertFalse(self.helper.user_layers())
+        self.assertEqual(len(self.helper.viewer.layers), layer_count)
+
+    def test_layer_pools_grow_without_replacing_existing_slots(self):
+        self.helper.viewer = ViewerModel()
+        raw = np.ones((2, 3), dtype=np.float32)
+
+        def sample(names):
+            return SimpleNamespace(
+                tissue=SimpleNamespace(raw=raw),
+                nuclei=SimpleNamespace(
+                    raw=raw,
+                    membrane_labels=np.zeros_like(raw, dtype=np.uint8),
+                    nuclei_labels=np.ones_like(raw, dtype=np.uint8),
+                ),
+                elements={
+                    name: SimpleNamespace(
+                        raw=raw,
+                        cluster_labels=np.ones_like(raw, dtype=np.uint8),
+                    )
+                    for name in names
+                },
+            )
+
+        first = sample(("Fe",))
+        self.helper.set_sample(first, (raw,))
+        first_element_layer = self.helper._element_layer_pool[0]
+        first_cluster_layer = self.helper._cluster_layer_pool[0]
+
+        larger = sample(("Fe", "Zn", "Cu"))
+        self.helper.set_sample(larger, (raw, raw, raw))
+
+        self.assertEqual(len(self.helper._element_layer_pool), 3)
+        self.assertEqual(len(self.helper._cluster_layer_pool), 3)
+        self.assertIs(self.helper._element_layer_pool[0], first_element_layer)
+        self.assertIs(self.helper._cluster_layer_pool[0], first_cluster_layer)
+
 
 class NapariRenderingTest(unittest.TestCase):
     def test_normal_layers_render_in_order_and_respect_opacity(self):

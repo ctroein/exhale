@@ -5,6 +5,7 @@ import os
 
 # import importlib
 import re
+from pathlib import Path
 
 # from typing import Optional
 # from collections.abc import Iterable
@@ -217,7 +218,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.saveClusterDistancePlot.setIcon(icons.icon(icons.IconName.SCREENSHOT))
         self.saveElementScatterPlot.setIcon(icons.icon(icons.IconName.SCREENSHOT))
         self.saveSampleSimilarityPlot.setIcon(icons.icon(icons.IconName.SCREENSHOT))
-        self.analysisScreenshot.set_icon_name(icons.IconName.SCREENSHOT)
+        self.analysisSaveView.set_icon_name(icons.IconName.SCREENSHOT)
         self.analysisFit.set_icon_name(icons.IconName.MAXIMIZE)
         for button in self.findChildren(IconToolButton):
             button.reload_icon()
@@ -339,7 +340,11 @@ Licensed under the MIT License.</p>
         "Called after setting up UI to start loading data etc"
         ExceptionDialog.install(self)
         if project_dir is not None:
-            self.project_manager.load_project_dir(project_dir)
+            project_path = Path(project_dir)
+            if project_path.is_dir():
+                self.project_manager.load_project_dir(project_path)
+            else:
+                self.project_manager.load_project_file(project_path)
         else:
             self.project_state_manager.recover_unsaved_project()
         if files is not None and files:

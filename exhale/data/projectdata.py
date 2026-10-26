@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .constants import CONCENTRATION_UNITS
 from .elementsettings import ElementSettingsDefaults
 from .imagesettings import ImageSettings
 from .plotsettings import (
@@ -267,6 +268,7 @@ class ProjectData:
             ElementSettingsDefaults() if element_defaults is None else element_defaults.copy()
         )
         self.image_defaults = ImageSettings("")
+        self.abundance_units = CONCENTRATION_UNITS
         self.assets: dict[str, DataAsset] = {}
         self.samples: dict[str, Sample] = {}
         self.project_channels: dict[str, Channel] = {}

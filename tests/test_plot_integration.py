@@ -36,7 +36,7 @@ class PlotIntegrationTests(unittest.TestCase):
         with h5py.File(self.filename, "w") as handle:
             handle.attrs["default"] = "entry"
             handle.create_dataset("entry/plotselect/Fe", data=self.data)
-        with patch.object(AnalysisController, "setup", lambda controller: None):
+        with patch.object(AnalysisController, "setup", lambda controller, **_kwargs: None):
             self.window = MainWindow()
         self.addCleanup(self.dispose)
         self.window.source_manager.open_files([self.filename])
@@ -116,6 +116,20 @@ class PlotIntegrationTests(unittest.TestCase):
         tooltip = show_text.call_args.args[1]
         self.assertIn("Pos (0, 0)", tooltip)
         self.assertIn(f"{self.data[0, 0]:.4g}", tooltip)
+        self.assertEqual(show_text.call_args.args[3], self.window.elementPlot.rect())
+        self.assertEqual(show_text.call_args.args[4], 24 * 60 * 60 * 1000)
+
+    def test_single_element_hover_shows_position_and_abundance(self):
+        self.select_element()
+        self.window.project_data.abundance_units = "µg/cm²"
+
+        with patch.object(QtWidgets.QToolTip, "showText") as show_text:
+            self.window.elementPlot.pixelHovered.emit((2, 1))
+
+        show_text.assert_called_once()
+        tooltip = show_text.call_args.args[1]
+        self.assertIn("Pos (2, 1)", tooltip)
+        self.assertIn(f"{self.data[1, 2]:.4g} µg/cm²", tooltip)
 
     def test_layout_and_element_changes_reset_composed_image_zoom(self):
         ref = self.select_element()

@@ -18,6 +18,7 @@ MATRIX_PALETTE_KEYS = (
     "viridis",
     "cividis",
     "magma",
+    "lundagård",
 )
 
 
@@ -70,6 +71,7 @@ class MatrixPlotSettings:
     palette: str = "magnolia"
     show_values: bool = True
     show_secondary: bool = False
+    normalize_to_random: bool = False
     decimals: int = 2
     color_bar_position: str = "right"
     width_mm: float | None = None
@@ -83,6 +85,7 @@ class MatrixPlotSettings:
             "palette": self.palette,
             "show_values": self.show_values,
             "show_secondary": self.show_secondary,
+            "normalize_to_random": self.normalize_to_random,
             "decimals": self.decimals,
             "color_bar_position": self.color_bar_position,
             "width_mm": self.width_mm,
@@ -95,6 +98,7 @@ class MatrixPlotSettings:
         palette = state.get("palette", self.palette)
         show_values = state.get("show_values", self.show_values)
         show_secondary = state.get("show_secondary", self.show_secondary)
+        normalize_to_random = state.get("normalize_to_random", self.normalize_to_random)
         decimals = state.get("decimals", self.decimals)
         color_bar_position = state.get("color_bar_position", self.color_bar_position)
         width_mm = _dimension_from_json(state.get("width_mm", self.width_mm), "width")
@@ -109,6 +113,8 @@ class MatrixPlotSettings:
             raise TypeError("Matrix value visibility must be true or false")
         if not isinstance(show_secondary, bool):
             raise TypeError("Matrix secondary-value visibility must be true or false")
+        if not isinstance(normalize_to_random, bool):
+            raise TypeError("Matrix random normalization must be true or false")
         if not isinstance(decimals, int) or not 0 <= decimals <= 6:
             raise ValueError("Matrix decimal count must be between 0 and 6")
         if color_bar_position not in ("left", "right", "hidden"):
@@ -122,6 +128,7 @@ class MatrixPlotSettings:
         self.palette = palette
         self.show_values = show_values
         self.show_secondary = show_secondary
+        self.normalize_to_random = normalize_to_random
         self.decimals = decimals
         self.color_bar_position = color_bar_position
         self.width_mm = width_mm
@@ -133,6 +140,7 @@ class MatrixPlotSettings:
         self.palette = self.default_palette
         self.show_values = True
         self.show_secondary = False
+        self.normalize_to_random = False
         self.decimals = 2
         self.color_bar_position = "right"
         self.width_mm = None

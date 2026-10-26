@@ -119,7 +119,7 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         self._clamping_matrix_view = False
         self._fit_pending = False
         self._reset_matrix_view = False
-        self._matrix_cell_padding: float | None = None
+        self._matrix_cell_size: float | None = None
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -188,24 +188,6 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
                 or previous.show_secondary != spec.show_secondary
             )
         )
-        decimals_changed = (
-            spec is not None
-            and previous is not None
-            and previous.decimals != spec.decimals
-            and previous.show_values == spec.show_values
-            and previous.show_secondary == spec.show_secondary
-        )
-        if decimals_changed:
-            view_box = self.matrix_plot.getViewBox()
-            view_rect = view_box.sceneBoundingRect()
-            current_range = view_box.viewRect()
-            if view_rect.width() > 0 and current_range.width() > 0:
-                current_cell = view_rect.width() / current_range.width()
-                metrics = QtGui.QFontMetrics(QtWidgets.QApplication.font())
-                text = matrix_text_layout(spec, metrics.height(), metrics.horizontalAdvance)
-                minimum_cell, maximum_cell = self._matrix_cell_limits(text, spec)
-                retained_cell = min(max(current_cell, minimum_cell), maximum_cell)
-                self._matrix_cell_padding = retained_cell - minimum_cell
         reset_view = spec is not None and (previous is None or data_changed or presentation_changed)
         self._reset_matrix_view = self._reset_matrix_view or reset_view
         self._matrix_spec = spec
@@ -331,10 +313,14 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         view_rect = view_box.sceneBoundingRect()
         aspect = view_rect.width() / max(view_rect.height(), 1.0)
         minimum_cell, maximum_cell = self._matrix_cell_limits(text, spec)
-        initial_fit = self._matrix_cell_padding is None
-        if initial_fit:
-            self._matrix_cell_padding = max(0.0, text.default_cell - minimum_cell)
-        fitted_cell = max(minimum_cell, text.default_cell)
+        initial_fit = self._matrix_cell_size is None
+        current_range = view_box.viewRect()
+        current_cell = (
+            view_rect.width() / current_range.width()
+            if view_rect.width() > 0 and current_range.width() > 0
+            else text.default_cell
+        )
+        fitted_cell = max(minimum_cell, self._matrix_cell_size or current_cell)
         if self._reset_matrix_view:
             edge_clearance = 10.0
             horizontal_fixed = text.row_label_width + 2 * edge_clearance
@@ -353,7 +339,7 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
                 ),
             )
             if not initial_fit:
-                fitted_cell = minimum_cell + self._matrix_cell_padding
+                fitted_cell = max(minimum_cell, self._matrix_cell_size)
                 maximum_cell = max(maximum_cell, fitted_cell)
         top_margin = text.font_height / (2 * fitted_cell) + 0.1
         row_margin = max(0.35, text.row_label_width / fitted_cell)
@@ -373,7 +359,6 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         minimum_x_span = view_rect.width() / maximum_cell
         maximum_x_span = view_rect.width() / minimum_cell
         if not self._reset_matrix_view:
-            current_range = view_box.viewRect()
             maximum_x_span = max(maximum_x_span, current_range.width())
         self._set_matrix_navigation_limits(
             content_bounds,
@@ -385,7 +370,6 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
             initial_width = view_rect.width() / fitted_cell
             center = content_bounds.center()
         else:
-            current_range = view_box.viewRect()
             initial_width = current_range.width()
             center = current_range.center()
         initial_width = min(max(initial_width, minimum_x_span), maximum_x_span)
@@ -418,6 +402,9 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
             maximum_x_span,
         )
         self._clamp_matrix_view_to_content()
+        final_range = view_box.viewRect()
+        if view_rect.width() > 0 and final_range.width() > 0:
+            self._matrix_cell_size = view_rect.width() / final_range.width()
         self._reset_matrix_view = False
         self._fit_pending = False
         self.matrix_plot.update()
@@ -469,13 +456,7 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
             view_rect = view_box.sceneBoundingRect()
             current_range = view_box.viewRect()
             if view_rect.width() > 0 and current_range.width() > 0:
-                metrics = QtGui.QFontMetrics(QtWidgets.QApplication.font())
-                text = matrix_text_layout(
-                    self._matrix_spec, metrics.height(), metrics.horizontalAdvance
-                )
-                minimum_cell, _maximum_cell = self._matrix_cell_limits(text, self._matrix_spec)
-                cell_size = view_rect.width() / current_range.width()
-                self._matrix_cell_padding = max(0.0, cell_size - minimum_cell)
+                self._matrix_cell_size = view_rect.width() / current_range.width()
         self._position_matrix_column_labels()
         self._update_matrix_content_bounds()
         self._clamp_matrix_view_to_content()
@@ -484,13 +465,9 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
     @staticmethod
     def _matrix_cell_limits(text, spec) -> tuple[float, float]:
         minimum_cell = text.minimum_cell
-        maximum_cell = 3.0 * minimum_cell
         if spec.show_values:
             minimum_cell = max(minimum_cell, text.value_width + 2.0)
-            maximum_cell = max(
-                text.value_width + text.digit_width * 4.0,
-                text.font_height * 3.0,
-            )
+        maximum_cell = minimum_cell + text.digit_width * 6.0
         return minimum_cell, maximum_cell
 
     def _set_matrix_navigation_limits(
@@ -514,10 +491,6 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
             navigation_height,
         )
         self.matrix_plot.getViewBox().setLimits(
-            xMin=self._matrix_bounds.left(),
-            xMax=self._matrix_bounds.right(),
-            yMin=self._matrix_bounds.top(),
-            yMax=self._matrix_bounds.bottom(),
             minXRange=minimum_x_span,
             minYRange=minimum_x_span / aspect,
             maxXRange=maximum_x_span,
@@ -786,6 +759,8 @@ class CorrelationMatrixView(QtCore.QObject):
         self.reload_settings()
 
     def set_result(self, result: MatrixResult | None) -> None:
+        if result is self.result:
+            return
         self.result = result
         self._update_plot_spec()
 
@@ -859,7 +834,9 @@ class CorrelationMatrixView(QtCore.QObject):
         if self.result is None:
             return
         corner = ""
-        if hasattr(self.result, "units"):
+        if getattr(self.result, "normalized", False):
+            corner = "Observed / random placement"
+        elif hasattr(self.result, "units"):
             corner = f"Mean nearest distance ({self.result.units})"
         rows = [corner + "\t" + "\t".join(self.result.labels)]
         for label, values in zip(self.result.labels, self.result.values, strict=True):

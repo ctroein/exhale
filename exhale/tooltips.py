@@ -70,16 +70,13 @@ MAIN_WINDOW = {
     "label_8": "Select the element maps to partition and measure in detected regions.",
     "analysisRun": "Run segmentation and clustering for this sample.",
     "analysisOptions": "Configure nucleus filtering, expansion, and element-intensity clustering.",
-    "analysisExport": "Export tables from the currently displayed segmentation result.",
-    "analysisScreenshot": "Save screenshot",
+    "analysisExport": "Export channels, masks, cluster labels, and tables from this result.",
+    "analysisSaveView": "Save current view",
     "analysisFit": "Fit image to view",
     "showElementCorrelationValues": "Show correlation coefficients inside matrix cells.",
     "elementCorrelationPalette": "Choose the color scale used for correlation values.",
     "copyElementCorrelationTable": "Copy the correlation matrix as tab-separated text.",
     "saveElementCorrelationPlot": "Save the current plot as a PNG or SVG image.",
-    "elementScatterPresentation": (
-        "Scatter samples up to 100,000 pixels; Density bins all finite pixel pairs."
-    ),
     "elementScatterBins": (
         "Number of bins along each axis; the two-dimensional grid contains this number squared "
         "of cells. Higher values refine the smoothed density estimate."
@@ -96,15 +93,17 @@ MAIN_WINDOW = {
     "sampleSimilarityPalette": "Choose the color scale used for correlation values.",
     "copySampleSimilarityTable": "Copy the correlation matrix as tab-separated text.",
     "saveSampleSimilarityPlot": "Save the current plot as a PNG or SVG image.",
-    "showClusterDistanceValues": "Show physical distances inside matrix cells.",
+    "showClusterDistanceValues": "Show distances or normalized scores inside matrix cells.",
+    "showClusterDistanceStandardDeviation": (
+        "Show the standard deviation of nearest distances below each mean."
+    ),
+    "normalizeClusterDistances": (
+        "Divide each distance by its expected value when cluster centers are placed randomly "
+        "in the two-pixel-expanded union of all segmented clusters."
+    ),
     "clusterDistancePalette": "Choose the sequential color scale used for distances.",
     "copyClusterDistanceTable": "Copy the directed distance matrix as tab-separated text.",
     "saveClusterDistancePlot": "Save the current matrix as PDF, PNG or SVG.",
-    "actionSettings": "Application settings",
-    "actionAbout": "About Exhale",
-    "actionOpenProject": "Load an Exhale project directory",
-    "actionSaveProject": "Save Exhale project",
-    "actionOpenFile": "Add one or more samples from HDF5 or TIFF files",
 }
 
 IMAGE_SETTINGS_DIALOG = {

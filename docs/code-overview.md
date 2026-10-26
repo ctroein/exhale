@@ -198,7 +198,9 @@ and value-positioned density grids for element scatter views.
 ### `exhale/analysis/cluster_distances.py`
 
 Computes directed mean nearest-centroid distances between the segmented
-clusters of each pair of elements in physical project units.
+clusters of each pair of elements in physical project units. It can normalize
+those distances against reproducible random placement within the expanded
+pooled cluster mask.
 
 ### `exhale/analysis/analysisworker.py`
 

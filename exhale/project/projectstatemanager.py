@@ -84,6 +84,7 @@ class ProjectStateManager(QtCore.QObject):
             w.showSampleSimilarityValues.toggled,
             w.sampleSimilarityDecimals.valueChanged,
             w.sampleSimilarityPalette.currentIndexChanged,
+            w.normalizeClusterDistances.toggled,
         ]
         for box in w.imageElementBoxes:
             signals.extend((box.combo.currentIndexChanged, box.colorChanged))

@@ -12,16 +12,15 @@ from napari.utils.colormaps.standardize_color import transform_color
 from qtpy import QtGui, QtWidgets
 from skimage import morphology
 
-from ..data.constants import CONCENTRATION_UNITS
-
 
 class NapariHelper:
     """Own the embedded Napari model, widget, and Exhale-created layers."""
 
-    def __init__(self, theme="light"):
+    def __init__(self, theme="light", abundance_units="ng/mm²"):
         viewer_model = ViewerModel()
         viewer_model.theme = theme
         self.viewer = viewer_model
+        self.abundance_units = abundance_units
         self._label_presentations = WeakKeyDictionary()
         self._image_colors = WeakKeyDictionary()
         self._label_color_rng = np.random.default_rng()
@@ -34,6 +33,9 @@ class NapariHelper:
         self.nuc_layer = None
         self.mem_layer = None
         self._element_layers = {}
+        self._fixed_layers = {}
+        self._element_layer_pool = []
+        self._cluster_layer_pool = []
         self.viewer.mouse_move_callbacks.append(self._hover)
         self.viewer.mouse_drag_callbacks.append(self._click)
         self.info_widget = None
@@ -48,6 +50,7 @@ class NapariHelper:
     NUCLEI_RAW_ROLE = "nuclei_raw"
     GAIN_ROLES = (TISSUE_RAW_ROLE, NUCLEI_RAW_ROLE)
     GAIN_BASE_UPPER = "exhale_gain_base_upper"
+    ACTIVE_KEY = "exhale_active"
     BLENDING_NORMAL = "translucent_no_depth"
     BLENDING_ADD = "additive"
 
@@ -197,9 +200,18 @@ class NapariHelper:
     def is_background_layer(cls, layer):
         return layer.metadata.get("exhale_role") == cls.BACKGROUND_ROLE
 
+    @classmethod
+    def is_active_layer(cls, layer):
+        """Return whether a pooled layer belongs to the displayed sample."""
+        return layer.metadata.get(cls.ACTIVE_KEY, True)
+
     def user_layers(self):
         "Return the layers exposed in Exhale's layer controls."
-        return tuple(layer for layer in self.viewer.layers if not self.is_background_layer(layer))
+        return tuple(
+            layer
+            for layer in self.viewer.layers
+            if self.is_active_layer(layer) and not self.is_background_layer(layer)
+        )
 
     def set_theme(self, theme):
         "Apply the viewer theme while retaining a predictable compositing background."
@@ -213,16 +225,15 @@ class NapariHelper:
 
     def move_layer(self, layer, target_index):
         "Move a layer to a final index in Napari's layer order."
-        layers = self.viewer.layers
-        if not 0 <= target_index < len(layers):
-            raise IndexError("Layer index out of range")
-        if self.is_background_layer(layer):
+        if self.is_background_layer(layer) or not self.is_active_layer(layer):
             return False
-        if layers and self.is_background_layer(layers[0]):
-            target_index = max(1, target_index)
-        source_index = layers.index(layer)
-        destination = target_index + 1 if target_index > source_index else target_index
-        return layers.move(source_index, destination)
+        active_layers = list(self.user_layers())
+        if not 0 <= target_index < len(active_layers):
+            raise IndexError("Layer index out of range")
+        active_layers.remove(layer)
+        active_layers.insert(target_index, layer)
+        self._set_active_layer_order(active_layers)
+        return True
 
     def set_info_widget(self, widget):
         self.info_widget = widget
@@ -249,7 +260,7 @@ class NapariHelper:
             # sizes = ", ".join(f"{v:.0f}" for v in r["cluster_sizes"])
             # intensities = ", ".join(f"{v:.3g}" for v in r["cluster_intensities"])
             text.append(
-                f"{elem}: avg={r['average_element_intensity']:.3g} ng/mm², "
+                f"{elem}: avg={r['average_element_intensity']:.3g} {self.abundance_units}, "
                 f"number of overlapping clusters={r['num_clusters']}"
                 # f"sizes=[{sizes}], intensities=[{intensities}]"
             )
@@ -275,7 +286,7 @@ class NapariHelper:
                 continue
             lines.append(
                 f"{name} ({row['area']:.0f} px, "
-                f"avg {row['mean_intensity']:.4g} {CONCENTRATION_UNITS})"
+                f"avg {row['mean_intensity']:.4g} {self.abundance_units})"
             )
         return "" if not lines else "Clusters:\n" + "\n".join(lines)
 
@@ -372,7 +383,7 @@ class NapariHelper:
             lines.extend(["", elem])
 
             if 0 <= y < ch.raw.shape[0] and 0 <= x < ch.raw.shape[1]:
-                lines.append(f"Point intensity: {ch.raw[y, x]:.4g} {CONCENTRATION_UNITS}")
+                lines.append(f"Point intensity: {ch.raw[y, x]:.4g} {self.abundance_units}")
 
             if region_df is not None:
                 rows = region_df[
@@ -383,7 +394,7 @@ class NapariHelper:
                     lines.append(
                         f"Average intensity in {region_name.lower()}: "
                         f"{r['average_element_intensity']:.4g} "
-                        f"{CONCENTRATION_UNITS}"
+                        f"{self.abundance_units}"
                     )
 
             if region_mask is not None and ch.cluster_labels is not None:
@@ -401,7 +412,7 @@ class NapariHelper:
                             f"  {cid}: size {row['area']:.0f} px, "
                             f"overlap {overlap} px, "
                             f"avg {row['mean_intensity']:.4g} "
-                            f"{CONCENTRATION_UNITS}"
+                            f"{self.abundance_units}"
                         )
 
             if ch.cluster_labels is not None:
@@ -412,18 +423,159 @@ class NapariHelper:
                     lines.append(
                         f"  {cid}: size {row['area']:.0f} px, "
                         f"avg {row['mean_intensity']:.4g} "
-                        f"{CONCENTRATION_UNITS}"
+                        f"{self.abundance_units}"
                     )
 
         self.info_widget.setPlainText("\n".join(lines))
 
+    def _ensure_layer_pools(self):
+        """Initialize pool state for helpers constructed without ``__init__`` in tests."""
+        if not hasattr(self, "_fixed_layers"):
+            self._fixed_layers = {}
+        if not hasattr(self, "_element_layer_pool"):
+            self._element_layer_pool = []
+        if not hasattr(self, "_cluster_layer_pool"):
+            self._cluster_layer_pool = []
+
+    def _set_layer_active(self, layer, active):
+        layer.metadata[self.ACTIVE_KEY] = active
+        if not active:
+            layer.visible = False
+            dtype = np.int32 if isinstance(layer, Labels) else np.float32
+            layer.data = np.zeros((1, 1), dtype=dtype)
+
+    def _fixed_image(self, role, data, *, name, visible, colormap):
+        layer = self._fixed_layers.get(role)
+        if layer is None:
+            layer = self.viewer.add_image(
+                data,
+                name=name,
+                visible=visible,
+                colormap=colormap,
+                blending=self.BLENDING_ADD,
+                metadata={"exhale_role": role, self.ACTIVE_KEY: True},
+            )
+            layer.editable = False
+            self._fixed_layers[role] = layer
+        else:
+            layer.data = data
+            layer.name = name
+            layer.visible = visible
+            layer.opacity = 1.0
+            layer.colormap = colormap
+            layer.blending = self.BLENDING_ADD
+            self._set_layer_active(layer, True)
+        self._image_colors.pop(layer, None)
+        return layer
+
+    def _fixed_labels(self, role, data, *, name, visible, opacity=1.0):
+        layer = self._fixed_layers.get(role)
+        if layer is None:
+            layer = self.viewer.add_labels(
+                data,
+                name=name,
+                visible=visible,
+                opacity=opacity,
+                blending=self.BLENDING_NORMAL,
+                metadata={"exhale_role": role, self.ACTIVE_KEY: True},
+            )
+            self._fixed_layers[role] = layer
+        else:
+            layer.data = data
+            layer.name = name
+            layer.visible = visible
+            layer.opacity = opacity
+            layer.blending = self.BLENDING_NORMAL
+            layer.new_colormap(seed=0)
+            self._set_layer_active(layer, True)
+        self._label_presentations.pop(layer, None)
+        return layer
+
+    def _pooled_element_layer(self, index, name, data):
+        if index == len(self._element_layer_pool):
+            layer = self.viewer.add_image(
+                data,
+                name=f"{name} map",
+                visible=False,
+                colormap="red",
+                blending=self.BLENDING_ADD,
+                metadata={
+                    "exhale_role": "element_map",
+                    "exhale_element": name,
+                    self.ACTIVE_KEY: True,
+                },
+            )
+            self._element_layer_pool.append(layer)
+        else:
+            layer = self._element_layer_pool[index]
+            layer.data = data
+            layer.name = f"{name} map"
+            layer.visible = False
+            layer.opacity = 1.0
+            layer.colormap = "red"
+            layer.blending = self.BLENDING_ADD
+            layer.metadata["exhale_element"] = name
+            self._set_layer_active(layer, True)
+        self._image_colors.pop(layer, None)
+        return layer
+
+    def _pooled_cluster_layer(self, index, name, data):
+        if index == len(self._cluster_layer_pool):
+            layer = self.viewer.add_labels(
+                data,
+                name=f"{name} clusters",
+                visible=False,
+                blending=self.BLENDING_NORMAL,
+                metadata={
+                    "exhale_role": "element_clusters",
+                    "exhale_element": name,
+                    self.ACTIVE_KEY: True,
+                },
+            )
+            self._cluster_layer_pool.append(layer)
+        else:
+            layer = self._cluster_layer_pool[index]
+            layer.data = data
+            layer.name = f"{name} clusters"
+            layer.visible = False
+            layer.opacity = 1.0
+            layer.blending = self.BLENDING_NORMAL
+            layer.new_colormap(seed=index + 1)
+            layer.metadata["exhale_element"] = name
+            self._set_layer_active(layer, True)
+        self._label_presentations.pop(layer, None)
+        return layer
+
+    def _deactivate_unused_layers(self, element_count, cluster_count):
+        for layer in self._element_layer_pool[element_count:]:
+            self._set_layer_active(layer, False)
+        for layer in self._cluster_layer_pool[cluster_count:]:
+            self._set_layer_active(layer, False)
+
+    def _set_active_layer_order(self, active_layers):
+        """Place active layers above the backing layer in their compositing order."""
+        backgrounds = [layer for layer in self.viewer.layers if self.is_background_layer(layer)]
+        inactive = [
+            layer
+            for layer in self.viewer.layers
+            if not self.is_background_layer(layer) and not self.is_active_layer(layer)
+        ]
+        desired = backgrounds + inactive + list(active_layers)
+        layers = self.viewer.layers
+        for target, layer in enumerate(desired):
+            source = layers.index(layer)
+            if source == target:
+                continue
+            destination = target + 1 if target > source else target
+            layers.move(source, destination)
+
     def set_sample(self, sample, element_maps=None):
-        "Set/update the XRFSample, replacing layers and their displayed element maps."
+        "Set/update the XRFSample using reusable fixed and variable layer pools."
+        self._ensure_layer_pools()
         self.sample = sample
         if sample is None:
-            self.viewer.layers.clear()
-            self._label_presentations.clear()
-            self._image_colors.clear()
+            for layer in self.viewer.layers:
+                self._set_layer_active(layer, False)
             self.nuc_layer = None
             self.mem_layer = None
             self._element_layers = {}
@@ -437,72 +589,75 @@ class NapariHelper:
             if len(element_maps) != len(element_items):
                 raise ValueError("Displayed element maps must match the segmentation elements")
 
-        viewer = self.viewer
-        viewer.layers.clear()
-        self._label_presentations.clear()
-        self._image_colors.clear()
         self._element_layers = {}
 
-        background = viewer.add_image(
+        self._fixed_image(
+            self.BACKGROUND_ROLE,
             np.zeros(sample.tissue.raw.shape, dtype=np.uint8),
             name="Background",
-            blending=self.BLENDING_ADD,
+            visible=True,
             colormap=Colormap(colors=("black", "black"), name="Exhale black backing"),
-            metadata={"exhale_role": self.BACKGROUND_ROLE},
         )
-        background.editable = False
-        tissue_layer = viewer.add_image(
+        tissue_layer = self._fixed_image(
+            self.TISSUE_RAW_ROLE,
             sample.tissue.raw,
             name="Tissue raw",
             visible=False,
             colormap="blue",
-            blending=self.BLENDING_ADD,
-            metadata={"exhale_role": self.TISSUE_RAW_ROLE},
         )
+        tissue_layer.reset_contrast_limits()
         tissue_layer.metadata[self.GAIN_BASE_UPPER] = tissue_layer.contrast_limits[1]
-        nuclei_layer = viewer.add_image(
+        nuclei_layer = self._fixed_image(
+            self.NUCLEI_RAW_ROLE,
             sample.nuclei.raw,
             name="Nuclei raw",
+            visible=True,
             colormap="green",
-            blending=self.BLENDING_ADD,
-            metadata={"exhale_role": self.NUCLEI_RAW_ROLE},
         )
+        nuclei_layer.reset_contrast_limits()
         nuclei_layer.metadata[self.GAIN_BASE_UPPER] = nuclei_layer.contrast_limits[1]
 
         cluster_layers = []
-        for (name, ch), display_map in zip(element_items, element_maps, strict=True):
-            self._element_layers[name] = viewer.add_image(
-                display_map,
-                name=f"{name} map",
-                visible=False,
-                colormap="red",
-                blending=self.BLENDING_ADD,
-                metadata={"exhale_role": "element_map", "exhale_element": name},
-            )
+        element_layers = []
+        for index, ((name, ch), display_map) in enumerate(
+            zip(element_items, element_maps, strict=True)
+        ):
+            layer = self._pooled_element_layer(index, name, display_map)
+            self._element_layers[name] = layer
+            element_layers.append(layer)
             if ch.cluster_labels is not None:
                 cluster_layers.append((name, ch.cluster_labels))
 
-        for name, labels in cluster_layers:
-            viewer.add_labels(
-                labels,
-                name=f"{name} clusters",
-                visible=False,
-                blending=self.BLENDING_NORMAL,
-            )
+        active_cluster_layers = [
+            self._pooled_cluster_layer(index, name, labels)
+            for index, (name, labels) in enumerate(cluster_layers)
+        ]
 
-        self.mem_layer = viewer.add_labels(
+        self.mem_layer = self._fixed_labels(
+            "membrane_labels",
             sample.nuclei.membrane_labels,
             name="Membrane labels",
             visible=False,
-            blending=self.BLENDING_NORMAL,
         )
-        self.nuc_layer = viewer.add_labels(
+        self.nuc_layer = self._fixed_labels(
+            "nuclei_labels",
             morphology.erosion(sample.nuclei.nuclei_labels),
             name="Nuclei labels",
+            visible=True,
             opacity=0.6,
-            blending=self.BLENDING_NORMAL,
         )
-        viewer.reset_view()
+        self._deactivate_unused_layers(len(element_layers), len(active_cluster_layers))
+        self._set_active_layer_order(
+            (
+                tissue_layer,
+                nuclei_layer,
+                *element_layers,
+                *active_cluster_layers,
+                self.mem_layer,
+                self.nuc_layer,
+            )
+        )
+        self.viewer.reset_view(margin=0)
         # attach_napari_hover(sample, viewer, widget, nuc_layer, mem_layer)
 
     def update_element_maps(self, maps):

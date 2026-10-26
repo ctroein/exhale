@@ -13,6 +13,7 @@ from exhale.analysis.matrixplots import (
     ALL_MATRIX_PALETTES,
     CORRELATION_COLOR_STOPS,
     MATRIX_PALETTES,
+    SEQUENTIAL_MATRIX_PALETTES,
     correlation_matrix_spec,
     distance_matrix_spec,
     format_matrix_tick,
@@ -51,6 +52,12 @@ def test_selectable_matrix_palettes_match_persisted_palette_keys():
         "Uarda",
         "Peccatorum",
         "Nightlife",
+    )
+    assert tuple(palette.name for palette in SEQUENTIAL_MATRIX_PALETTES) == (
+        "Viridis",
+        "Cividis",
+        "Magma",
+        "Lundagård",
     )
 
 

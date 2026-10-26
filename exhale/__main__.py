@@ -135,7 +135,11 @@ def _run_application(pyi_splash=None):
             help="recompile all UI files and exit",
         )
     parser.add_argument(
-        "-p", "--project", metavar="DIR", dest="project_dir", help="saved project directory to load"
+        "-p",
+        "--project",
+        metavar="PATH",
+        dest="project_dir",
+        help="saved project directory or project.xhp file to open",
     )
     parser.add_argument(
         "--startup-check",
@@ -275,6 +279,8 @@ def _run_application(pyi_splash=None):
 
     update_splash("Opening")
     window.show()
+    if any(windowparams.values()):
+        update_splash("Loading data")
     window.post_setup(**windowparams)
 
     if pyi_splash is not None:
