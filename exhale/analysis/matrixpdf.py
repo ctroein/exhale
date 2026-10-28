@@ -100,7 +100,11 @@ def matrix_pdf_layout(
     publication: MatrixPublicationSettings,
     settings: MatrixPlotSettings,
 ) -> MatrixPdfLayout:
-    """Calculate a tight layout within the requested maximum dimensions."""
+    """Calculate square cells within the requested page dimensions.
+
+    An automatic dimension follows the content; an explicit dimension remains
+    fixed, with spare space centered around the content.
+    """
     if not spec.labels:
         raise ValueError("The matrix has no labels to export")
     text = _measured_text(spec, publication)
@@ -310,6 +314,11 @@ def _paint_matrix(
     settings: MatrixPlotSettings,
     layout: MatrixPdfLayout,
 ) -> None:
+    """Paint cells, vector text, and optional borders from one shared layout.
+
+    Cell fills use exact rectangles without antialiasing so PNG output has no
+    seams between adjacent pixels; text and other geometry retain antialiasing.
+    """
     painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing)
     font = _font(publication)

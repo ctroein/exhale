@@ -73,3 +73,15 @@ def test_matrix_export_dialog_prevents_dimensions_below_current_minimum():
 
     assert dialog.widthMm.value() == width_minimum
     assert width_minimum > 10.0
+
+
+def test_percentile_export_precision_preserves_distance_decimal_setting():
+    plot = MatrixPlotSettings(decimals=4)
+    dialog = MatrixExportDialog(MatrixPublicationSettings(), plot, _spec(), fixed_decimals=1)
+    assert dialog.decimals.value() == 1
+    assert not dialog.decimals.isEnabled()
+    dialog.showValues.setChecked(False)
+    dialog.showValues.setChecked(True)
+    assert not dialog.decimals.isEnabled()
+    dialog.accept()
+    assert plot.decimals == 4

@@ -12,7 +12,13 @@ import sys
 import traceback
 from pathlib import Path
 
-from . import application_description, application_name, application_title, resdir
+from . import (
+    application_description,
+    application_icon_filename,
+    application_name,
+    application_title,
+    resdir,
+)
 
 DESKTOP_ID = "io.github.ctroein.Exhale"
 
@@ -62,7 +68,7 @@ def _install_desktop():
     desktop_path.parent.mkdir(parents=True, exist_ok=True)
     icon_path.parent.mkdir(parents=True, exist_ok=True)
     desktop_path.write_text(desktop_entry, encoding="utf-8")
-    icon_path.write_bytes(resdir.joinpath("icons", "xrf.png").read_bytes())
+    icon_path.write_bytes(resdir.joinpath("icons", application_icon_filename).read_bytes())
     print(f"Installed desktop entry: {desktop_path}")
 
 
@@ -108,12 +114,9 @@ def _run_application(pyi_splash=None):
         # Fix for possible OpenGL problems on Windows
         os.environ.setdefault("QT_OPENGL", "desktop")
         os.environ.setdefault("VISPY_GL_DEBUG", "0")
-        # Early load tensorflow because of DLL problems on Windows.
-    #        from .xrf_refcopy import xrf_utils
 
     import argparse
     import signal
-    # import multiprocessing
 
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -162,14 +165,8 @@ def _run_application(pyi_splash=None):
 
     windowparams = {}
     parser.add_argument("--version", action="version", version=application_title)
-    # selmp = multiprocessing.get_start_method(
-    #     allow_none=True) is None
-    # if selmp:
-    #     parser.add_argument('--mpmethod', help="fork, spawn or forkserver")
     args = parser.parse_args()
     windowparams = {k: args.__dict__[k] for k in parameters}
-    # if selmp and args.mpmethod:
-    #     multiprocessing.set_start_method(args.mpmethod)
 
     if args.install_desktop or args.remove_desktop:
         if not sys.platform.startswith("linux"):
@@ -293,7 +290,6 @@ def _run_application(pyi_splash=None):
         qt_splash.finish(window)
 
     app.lastWindowClosed.connect(app.quit)
-    # app.aboutToQuit.connect(window.cleanup)
     return app.exec_()
 
 
@@ -301,16 +297,10 @@ def main():
     "Run the Exhale GUI"
 
     pyi_splash = None
-    # print("startup: frozen?", getattr(sys, "frozen", False))
-    # print("startup: _PYI_SPLASH_IPC =", os.environ.get("_PYI_SPLASH_IPC"))
-    # print("startup: suppress =",
-    #       os.environ.get("PYINSTALLER_SUPPRESS_SPLASH_SCREEN"))
     if "_PYI_SPLASH_IPC" in os.environ:
         try:
             import pyi_splash
 
-            # print("startup: imported pyi_splash")
-            # print("startup: is_alive =", pyi_splash.is_alive())
             if pyi_splash.is_alive():
                 pyi_splash.update_text(_splash_text("Initializing"))
             else:

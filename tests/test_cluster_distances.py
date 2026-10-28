@@ -7,7 +7,7 @@ import pandas as pd
 
 from exhale.analysis.cluster_distances import (
     cluster_distance_matrix,
-    normalize_cluster_distance_matrix,
+    random_placement_statistics,
 )
 from exhale.analysis.matrixplots import distance_matrix_spec, matrix_cell_text
 
@@ -74,50 +74,90 @@ def test_distance_matrix_spec_uses_finite_data_range_and_units():
     assert normalized.color_bar_label == "Observed / random placement"
 
 
-def test_cluster_distances_normalize_to_reproducible_random_placement():
-    first = _channel((1, 1), (5, 5))
-    second = _channel((1, 5), (5, 1), (3, 3))
-    first.cluster_labels = np.zeros((7, 7), dtype=np.int32)
-    second.cluster_labels = np.zeros((7, 7), dtype=np.int32)
-    first.cluster_labels[1, 1] = 1
-    first.cluster_labels[5, 5] = 2
-    second.cluster_labels[1, 5] = 1
-    second.cluster_labels[5, 1] = 2
-    second.cluster_labels[3, 3] = 3
-    matrix = cluster_distance_matrix(
-        (first, second), ("A", "B"), ("a", "b"), resolution=2.0, units="µm"
+def test_random_placement_uses_unexpanded_union_mask():
+    first_mask = np.zeros((1, 5), dtype=np.int32)
+    second_mask = np.zeros_like(first_mask)
+    first_mask[0, 0] = 1
+    second_mask[0, 4] = 1
+
+    result = random_placement_statistics(
+        (2,),
+        (first_mask, second_mask),
+        simulations=40,
+        seed=2,
     )
 
-    normalized = normalize_cluster_distance_matrix(
-        matrix,
-        (first, second),
-        resolution=2.0,
-        simulations=100,
-        seed=4,
-    )
-    repeated = normalize_cluster_distance_matrix(
-        matrix,
-        (first, second),
-        resolution=2.0,
-        simulations=100,
-        seed=4,
+    # Both support pixels must be selected. Jitter can alter their separation
+    # by less than one pixel along the row.
+    assert 3.0 < result.means[0, 0] < 5.0
+
+
+def test_random_placement_simulates_complete_directed_matrix():
+    mask = np.ones((8, 8), dtype=np.int32)
+
+    result = random_placement_statistics(
+        (1, 4),
+        (mask, mask),
+        simulations=300,
+        seed=7,
     )
 
-    assert normalized.normalized
-    assert normalized.units == ""
-    assert normalized.random_expectations is not None
+    assert np.isnan(result.means[0, 0])
+    assert np.isnan(result.standard_deviations[0, 0])
+    assert np.isfinite(result.means[1, 1])
+    assert np.isfinite(result.standard_deviations[1, 1])
+    assert result.means[0, 1] < result.means[1, 0]
+    np.testing.assert_array_equal(result.counts, (1, 4))
+    assert result.simulations == 300
+
+
+def test_random_placement_is_reproducible():
+    mask = np.ones((5, 6), dtype=np.int32)
+
+    first = random_placement_statistics((2, 3), (mask, mask), simulations=50, seed=11)
+    second = random_placement_statistics((2, 3), (mask, mask), simulations=50, seed=11)
+
+    np.testing.assert_allclose(first.means, second.means, equal_nan=True)
+    np.testing.assert_allclose(first.variances, second.variances, equal_nan=True)
     np.testing.assert_allclose(
-        normalized.values,
-        matrix.values / normalized.random_expectations,
+        first.standard_deviations,
+        second.standard_deviations,
         equal_nan=True,
     )
-    np.testing.assert_allclose(
-        normalized.standard_deviations,
-        matrix.standard_deviations / normalized.random_expectations,
-        equal_nan=True,
+
+
+def test_random_placement_rejects_invalid_support_and_counts():
+    mask = np.ones((2, 2), dtype=np.int32)
+
+    with np.testing.assert_raises_regex(ValueError, "non-negative integers"):
+        random_placement_statistics((1.5,), (mask,), simulations=2)
+    with np.testing.assert_raises_regex(ValueError, "fewer pixels"):
+        random_placement_statistics((5,), (mask,), simulations=2)
+    with np.testing.assert_raises_regex(ValueError, "equal dimensions"):
+        random_placement_statistics((1,), (mask, np.ones((3, 3))), simulations=2)
+
+
+def test_null_percentiles_count_strictly_lower_simulated_means(monkeypatch):
+    from exhale.analysis import cluster_distances as module
+
+    draws = iter(np.array(((value, value), (np.nan, value))) for value in (1.0, 2.0, 3.0, 4.0))
+    monkeypatch.setattr(module, "_random_distance_matrix", lambda _: next(draws))
+    result = random_placement_statistics(
+        (2, 2),
+        (np.ones((3, 3)),),
+        simulations=4,
+        observed=np.array(((1.0, 5.0), (2.5, 3.0))),
     )
-    np.testing.assert_allclose(
-        normalized.random_expectations,
-        repeated.random_expectations,
-        equal_nan=True,
+    np.testing.assert_allclose(result.percentiles, ((0.0, 100.0), (np.nan, 50.0)), equal_nan=True)
+
+
+def test_null_percentiles_preserve_missing_observations_and_validate_shape():
+    mask = np.ones((5, 5))
+    result = random_placement_statistics(
+        (1, 2), (mask,), simulations=20, observed=np.array(((np.nan, 0.0), (np.inf, np.nan)))
     )
+    assert result.percentiles[0, 1] == 0.0
+    assert np.isnan(result.percentiles[0, 0])
+    assert np.isnan(result.percentiles[1]).all()
+    with np.testing.assert_raises_regex(ValueError, "Observed distances must match"):
+        random_placement_statistics((1, 2), (mask,), observed=np.ones((3, 3)))

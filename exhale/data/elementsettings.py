@@ -14,12 +14,12 @@ from .source_refs import ElementRef
 class Normalizers(Enum):
     "Available intensity normalizers"
 
-    LINEAR = 0, "linear", "Linear"
-    GAMMA = 1, "gamma", "Gamma"
-    LOG = 2, "log", "Logarithmic"
-    RANK = 3, "rank", "Rank"
-    SQRT = 4, "sqrt", "Square root"
-    ARCSINH = 5, "arcsinh", "Arcsinh"
+    LINEAR = 0, "Linear"
+    GAMMA = 1, "Gamma"
+    LOG = 2, "Logarithmic"
+    RANK = 3, "Rank"
+    SQRT = 4, "Square root"
+    ARCSINH = 5, "Arcsinh"
 
     def __new__(cls, *args, **kwds):
         obj = object.__new__(cls)
@@ -27,13 +27,8 @@ class Normalizers(Enum):
         return obj
 
     # ignore the first param since it's already set by __new__
-    def __init__(self, _: str, cmname: str, description: str):
-        self._cmname_ = cmname
+    def __init__(self, _: int, description: str):
         self._description_ = description
-
-    # @property
-    # def cmname(self):
-    #     return self._cmname_
 
     @property
     def description(self):
@@ -123,18 +118,11 @@ class ElementSettings:
         """Materialized channel data retained for existing consumers."""
         return self.data_source.array()
 
-    def release_data_cache(self):
-        """Discard file-backed materialized data when it can be reread."""
-        self.data_source.release_cache()
-
     def copy(self):
         e = type(self).__new__(self.__class__)
         e.__dict__.update(self.__dict__)
         e.trfRange = self.trfRange.copy()
         return e
-
-    def getNormalizer(self):
-        return self.normalizer.cmname
 
     def setMinmax(self, mm, val):
         "Set current min OR max from percentage"
@@ -204,7 +192,6 @@ class ElementSettings:
             data = np.sqrt(data)
 
         data[~np.isfinite(data)] = 0
-        # print("trf", data.min(), data.max(), self.normalizer.description, vmin, vmax)
         return data
 
     def minConstraint(self, x, y):

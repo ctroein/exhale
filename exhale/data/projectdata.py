@@ -121,16 +121,39 @@ class SegmentationParameters:
     cluster_max_k: int
 
 
+@dataclass(frozen=True)
+class LayerPresentation:
+    """Saved presentation of one segmentation viewer layer."""
+
+    visible: bool
+    opacity: float
+    blending: str
+    color: tuple[float, float, float, float] | None = None
+    label_mode: str | None = None
+    palette_index: int | None = None
+    gain: float | None = None
+
+
+@dataclass
+class SegmentationLayerSettings:
+    """Saved layer order and presentation for one segmentation result."""
+
+    order: tuple[str, ...] = ()
+    layers: dict[str, LayerPresentation] = field(default_factory=dict)
+
+
 @dataclass
 class SegmentationResult:
-    """The most recent successful segmentation run for one sample."""
+    """The most recent successful run of one method for one sample."""
 
     sample_id: str
+    method_id: str
     nuclei_ref: ElementRef
     tissue_ref: ElementRef
     element_refs: tuple[ElementRef, ...]
     parameters: SegmentationParameters
     xrf_sample: Any
+    layer_settings: SegmentationLayerSettings = field(default_factory=SegmentationLayerSettings)
 
 
 @dataclass
@@ -273,7 +296,7 @@ class ProjectData:
         self.samples: dict[str, Sample] = {}
         self.project_channels: dict[str, Channel] = {}
         self.images: dict[int, ImageSettings] = {}
-        self.segmentation_results: dict[str, SegmentationResult] = {}
+        self.segmentation_results: dict[str, dict[str, SegmentationResult]] = {}
         self.matrix_plot_settings = {key: MatrixPlotSettings() for key in MATRIX_PLOT_KEYS}
         self.matrix_plot_settings[CLUSTER_DISTANCES] = MatrixPlotSettings(
             palette="viridis", default_palette="viridis"
@@ -297,6 +320,24 @@ class ProjectData:
         sample = Sample(sample_id=sample_id, name=name)
         self.samples[sample_id] = sample
         return sample
+
+    def segmentation_result(
+        self, sample_id: str | None, method_id: str | None
+    ) -> SegmentationResult | None:
+        """Return one saved method result without exposing the nested storage."""
+        if sample_id is None or method_id is None:
+            return None
+        return self.segmentation_results.get(sample_id, {}).get(method_id)
+
+    def set_segmentation_result(self, result: SegmentationResult) -> None:
+        """Store the latest result for its sample and method."""
+        self.segmentation_results.setdefault(result.sample_id, {})[result.method_id] = result
+
+    def segmentation_results_for_sample(self, sample_id: str | None):
+        """Return the method-indexed results for one sample."""
+        if sample_id is None:
+            return {}
+        return self.segmentation_results.get(sample_id, {})
 
     def rename_sample(self, sample_id: str, name: str) -> None:
         if not name:
@@ -419,6 +460,7 @@ class ProjectData:
 
     @staticmethod
     def _tiff_file_prefix(used_keys):
+        """Choose the first letter prefix not used by another channel key."""
         index = 0
         while True:
             value = index
@@ -434,6 +476,7 @@ class ProjectData:
             index += 1
 
     def _source_channels(self, source, channel_names=None, used_keys=()):
+        """Build channels using saved names, source names, or TIFF name suggestions."""
         candidates = source.list_elements()
         names = channel_names or {}
         proposal = infer_tiff_import(source.filename) if source.kind == "tiff" else None
@@ -475,7 +518,11 @@ class ProjectData:
     def register_source(
         self, source: LoadedSource, *, sample_id=None, channel_names=None
     ) -> Sample:
-        """Register a source, optionally adding it to an existing sample."""
+        """Register a source, optionally adding it to an existing sample.
+
+        Validate all maps before changing the sample. An existing asset keeps
+        its sample and source identity when its backing file is reopened.
+        """
         source_id = source.source_id
         existing_asset = self.assets.get(source_id)
         if existing_asset is not None:
@@ -563,7 +610,11 @@ class ProjectData:
         return self.external_data_root
 
     def replace_asset_path(self, asset_id: str, path: str) -> None:
-        """Reopen an asset elsewhere without changing any stable references."""
+        """Reopen an asset elsewhere without changing any stable references.
+
+        Check kind, item IDs, and map shapes before transferring the new file
+        handle to the existing source. A failed validation leaves it intact.
+        """
         from .source_refs import open_source
 
         asset = self.assets[asset_id]

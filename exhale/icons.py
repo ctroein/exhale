@@ -9,21 +9,20 @@ from pathlib import Path
 from qtpy import QtCore, QtGui, QtSvg
 from qtpy.QtWidgets import QApplication
 
-from . import resdir
+from . import application_icon_filename, resdir
 from .appearance import is_dark
 
 
 class IconName(str, Enum):
     """Canonical names of icons packaged with Exhale."""
 
-    APPLICATION = "xrf.png"
+    APPLICATION = application_icon_filename
     OPEN = "open.svg"
     FOLDER = "folder-open.svg"
     PROJECT = "folder-open.svg"
-    # CLEAR_FILES = "rays.svg"
     SAVE = "floppy.svg"
-    # SAVE_AS = "floppy-pen.svg"
     SETTINGS = "settings.svg"
+    ADJUSTMENTS = "adjustments.svg"
     INFO = "info-circle.svg"
     QUIT = "x-mark.svg"
     MAXIMIZE = "arrows-maximize.svg"
@@ -44,6 +43,8 @@ class IconName(str, Enum):
     CHECKBOX_DENIED = "checkbox-denied-extended.svg"
     LAYERS = "layers.svg"
     LAYERS_ADD = "layers-plus.svg"
+    START = "bolt.svg"
+    STOP = "player-stop.svg"
 
 
 _ICON_ROOT = Path(resdir) / "icons"

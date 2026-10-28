@@ -12,11 +12,14 @@ from napari.utils.colormaps.standardize_color import transform_color
 from qtpy import QtGui, QtWidgets
 from skimage import morphology
 
+from ..data.constants import CONCENTRATION_UNITS
+from ..data.projectdata import LayerPresentation, SegmentationLayerSettings
+
 
 class NapariHelper:
     """Own the embedded Napari model, widget, and Exhale-created layers."""
 
-    def __init__(self, theme="light", abundance_units="ng/mm²"):
+    def __init__(self, theme="light", abundance_units=CONCENTRATION_UNITS):
         viewer_model = ViewerModel()
         viewer_model.theme = theme
         self.viewer = viewer_model
@@ -51,6 +54,7 @@ class NapariHelper:
     GAIN_ROLES = (TISSUE_RAW_ROLE, NUCLEI_RAW_ROLE)
     GAIN_BASE_UPPER = "exhale_gain_base_upper"
     ACTIVE_KEY = "exhale_active"
+    LAYER_ID_KEY = "exhale_layer_id"
     BLENDING_NORMAL = "translucent_no_depth"
     BLENDING_ADD = "additive"
 
@@ -97,6 +101,10 @@ class NapariHelper:
             raise TypeError("Label display modes apply only to Napari Labels layers")
         presentation = self._label_presentation(layer)
         return presentation["mode"], presentation["color"]
+
+    def label_palette_index(self, layer):
+        """Return the selected deterministic categorical palette index."""
+        return self._label_presentation(layer)["palette_index"]
 
     def categorical_colors(self, layer, count=4):
         "Return representative colors from a labels layer's categorical palette."
@@ -146,6 +154,15 @@ class NapariHelper:
             layer.colormap = self._label_color_dict(layer, mode, presentation["color"])
         presentation["mode"] = mode
         return layer.colormap
+
+    def set_label_presentation(self, layer, mode, color, palette_index=0):
+        """Restore a labels layer's mode, base color, and categorical palette."""
+        presentation = self._label_presentation(layer)
+        while len(presentation["categorical_colormaps"]) <= palette_index:
+            layer.new_colormap(seed=len(presentation["categorical_colormaps"]))
+            presentation["categorical_colormaps"].append(layer.colormap)
+        presentation["palette_index"] = palette_index
+        return self.set_label_display(layer, mode, color)
 
     def set_layer_opacity(self, layer, percent):
         "Set a layer opacity expressed as an integer percentage."
@@ -213,6 +230,78 @@ class NapariHelper:
             if self.is_active_layer(layer) and not self.is_background_layer(layer)
         )
 
+    def layer_identity(self, layer):
+        """Return the stable project key attached to a user-facing layer."""
+        return layer.metadata.get(self.LAYER_ID_KEY)
+
+    def layer_settings(self) -> SegmentationLayerSettings:
+        """Capture all user-controlled presentation of the active layers."""
+
+        def saved_color(color):
+            return tuple(round(float(component), 5) for component in color)
+
+        layers = {}
+        order = []
+        for layer in self.user_layers():
+            identity = self.layer_identity(layer)
+            if identity is None:
+                continue
+            order.append(identity)
+            color = None
+            label_mode = None
+            palette_index = None
+            gain = self.layer_gain(layer) if self.layer_has_gain(layer) else None
+            if isinstance(layer, Image):
+                color = saved_color(self.image_color(layer))
+            elif isinstance(layer, Labels):
+                label_mode, label_color = self.label_display_mode(layer)
+                color = saved_color(label_color)
+                palette_index = self.label_palette_index(layer)
+            layers[identity] = LayerPresentation(
+                visible=bool(layer.visible),
+                opacity=float(layer.opacity),
+                blending=str(layer.blending),
+                color=color,
+                label_mode=label_mode,
+                palette_index=palette_index,
+                gain=None if gain is None else round(float(gain), 6),
+            )
+        return SegmentationLayerSettings(tuple(order), layers)
+
+    def apply_layer_settings(self, settings: SegmentationLayerSettings) -> None:
+        """Apply saved presentation to matching active layers, ignoring stale keys."""
+        by_identity = {
+            self.layer_identity(layer): layer
+            for layer in self.user_layers()
+            if self.layer_identity(layer) is not None
+        }
+        for identity, presentation in settings.layers.items():
+            layer = by_identity.get(identity)
+            if layer is None:
+                continue
+            if isinstance(layer, Image) and presentation.color is not None:
+                self.set_image_color(layer, presentation.color)
+            elif (
+                isinstance(layer, Labels)
+                and presentation.color is not None
+                and presentation.label_mode in self.LABEL_MODES
+            ):
+                self.set_label_presentation(
+                    layer,
+                    presentation.label_mode,
+                    presentation.color,
+                    presentation.palette_index or 0,
+                )
+            if presentation.gain is not None and self.layer_has_gain(layer):
+                self.set_layer_gain(layer, presentation.gain)
+            layer.opacity = presentation.opacity
+            layer.blending = presentation.blending
+            layer.visible = presentation.visible
+
+        ordered = [by_identity[key] for key in settings.order if key in by_identity]
+        ordered.extend(layer for layer in self.user_layers() if layer not in ordered)
+        self._set_active_layer_order(ordered)
+
     def set_theme(self, theme):
         "Apply the viewer theme while retaining a predictable compositing background."
         if theme not in ("light", "dark"):
@@ -257,12 +346,9 @@ class NapariHelper:
             if row.empty:
                 continue
             r = row.iloc[0]
-            # sizes = ", ".join(f"{v:.0f}" for v in r["cluster_sizes"])
-            # intensities = ", ".join(f"{v:.3g}" for v in r["cluster_intensities"])
             text.append(
                 f"{elem}: avg={r['average_element_intensity']:.3g} {self.abundance_units}, "
                 f"number of overlapping clusters={r['num_clusters']}"
-                # f"sizes=[{sizes}], intensities=[{intensities}]"
             )
         return "\n".join(text)
 
@@ -332,6 +418,11 @@ class NapariHelper:
         self._tt_show(text)
 
     def _click(self, obj, event):
+        """Describe the clicked region and each element's point and cluster data.
+
+        Nuclei take precedence over membrane labels at shared pixels; the
+        information panel is cleared before reporting an in-bounds click.
+        """
         if event.type != "mouse_press" or event.button != 1:
             return
         if self.sample is None or self.info_widget is None:
@@ -453,7 +544,11 @@ class NapariHelper:
                 visible=visible,
                 colormap=colormap,
                 blending=self.BLENDING_ADD,
-                metadata={"exhale_role": role, self.ACTIVE_KEY: True},
+                metadata={
+                    "exhale_role": role,
+                    self.ACTIVE_KEY: True,
+                    self.LAYER_ID_KEY: f"role:{role}",
+                },
             )
             layer.editable = False
             self._fixed_layers[role] = layer
@@ -464,6 +559,7 @@ class NapariHelper:
             layer.opacity = 1.0
             layer.colormap = colormap
             layer.blending = self.BLENDING_ADD
+            layer.metadata[self.LAYER_ID_KEY] = f"role:{role}"
             self._set_layer_active(layer, True)
         self._image_colors.pop(layer, None)
         return layer
@@ -477,7 +573,11 @@ class NapariHelper:
                 visible=visible,
                 opacity=opacity,
                 blending=self.BLENDING_NORMAL,
-                metadata={"exhale_role": role, self.ACTIVE_KEY: True},
+                metadata={
+                    "exhale_role": role,
+                    self.ACTIVE_KEY: True,
+                    self.LAYER_ID_KEY: f"role:{role}",
+                },
             )
             self._fixed_layers[role] = layer
         else:
@@ -487,11 +587,12 @@ class NapariHelper:
             layer.opacity = opacity
             layer.blending = self.BLENDING_NORMAL
             layer.new_colormap(seed=0)
+            layer.metadata[self.LAYER_ID_KEY] = f"role:{role}"
             self._set_layer_active(layer, True)
         self._label_presentations.pop(layer, None)
         return layer
 
-    def _pooled_element_layer(self, index, name, data):
+    def _pooled_element_layer(self, index, name, element_id, data):
         if index == len(self._element_layer_pool):
             layer = self.viewer.add_image(
                 data,
@@ -502,6 +603,7 @@ class NapariHelper:
                 metadata={
                     "exhale_role": "element_map",
                     "exhale_element": name,
+                    self.LAYER_ID_KEY: f"element-map:{element_id}",
                     self.ACTIVE_KEY: True,
                 },
             )
@@ -515,11 +617,12 @@ class NapariHelper:
             layer.colormap = "red"
             layer.blending = self.BLENDING_ADD
             layer.metadata["exhale_element"] = name
+            layer.metadata[self.LAYER_ID_KEY] = f"element-map:{element_id}"
             self._set_layer_active(layer, True)
         self._image_colors.pop(layer, None)
         return layer
 
-    def _pooled_cluster_layer(self, index, name, data):
+    def _pooled_cluster_layer(self, index, name, element_id, data):
         if index == len(self._cluster_layer_pool):
             layer = self.viewer.add_labels(
                 data,
@@ -529,6 +632,7 @@ class NapariHelper:
                 metadata={
                     "exhale_role": "element_clusters",
                     "exhale_element": name,
+                    self.LAYER_ID_KEY: f"element-clusters:{element_id}",
                     self.ACTIVE_KEY: True,
                 },
             )
@@ -542,6 +646,7 @@ class NapariHelper:
             layer.blending = self.BLENDING_NORMAL
             layer.new_colormap(seed=index + 1)
             layer.metadata["exhale_element"] = name
+            layer.metadata[self.LAYER_ID_KEY] = f"element-clusters:{element_id}"
             self._set_layer_active(layer, True)
         self._label_presentations.pop(layer, None)
         return layer
@@ -569,7 +674,7 @@ class NapariHelper:
             destination = target + 1 if target > source else target
             layers.move(source, destination)
 
-    def set_sample(self, sample, element_maps=None):
+    def set_sample(self, sample, element_maps=None, element_ids=None):
         "Set/update the XRFSample using reusable fixed and variable layer pools."
         self._ensure_layer_pools()
         self.sample = sample
@@ -582,6 +687,12 @@ class NapariHelper:
             return
 
         element_items = tuple(sample.elements.items())
+        if element_ids is None:
+            element_ids = tuple(name for name, _channel in element_items)
+        else:
+            element_ids = tuple(element_ids)
+            if len(element_ids) != len(element_items):
+                raise ValueError("Element identities must match the segmentation elements")
         if element_maps is None:
             element_maps = tuple(channel.raw for _name, channel in element_items)
         else:
@@ -619,18 +730,18 @@ class NapariHelper:
 
         cluster_layers = []
         element_layers = []
-        for index, ((name, ch), display_map) in enumerate(
-            zip(element_items, element_maps, strict=True)
+        for index, ((name, ch), display_map, element_id) in enumerate(
+            zip(element_items, element_maps, element_ids, strict=True)
         ):
-            layer = self._pooled_element_layer(index, name, display_map)
+            layer = self._pooled_element_layer(index, name, element_id, display_map)
             self._element_layers[name] = layer
             element_layers.append(layer)
             if ch.cluster_labels is not None:
-                cluster_layers.append((name, ch.cluster_labels))
+                cluster_layers.append((name, element_id, ch.cluster_labels))
 
         active_cluster_layers = [
-            self._pooled_cluster_layer(index, name, labels)
-            for index, (name, labels) in enumerate(cluster_layers)
+            self._pooled_cluster_layer(index, name, element_id, labels)
+            for index, (name, element_id, labels) in enumerate(cluster_layers)
         ]
 
         self.mem_layer = self._fixed_labels(

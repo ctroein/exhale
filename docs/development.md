@@ -118,6 +118,14 @@ selection, and item position, unless a feature requires otherwise. Show changing
 user data in its own field or in the content view rather than building long labels
 from headings, separators, and values.
 
+Write interface help for a reader who knows the application's task but has not
+read the development conversation. Explain the quantities and assumptions the
+reader needs to interpret results. Do not include references to abandoned
+designs, implementation details, or qualifications whose relevance exists only
+in chat history. Describe spatial restrictions in terms of the visible data,
+rather than array or mask operations. Retain the methodological information
+needed to reproduce calculations, expressed in the reader's terms.
+
 ## Qt and generated code
 
 Access Qt through `qtpy` so the application remains independent of a specific

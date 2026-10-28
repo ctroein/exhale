@@ -7,6 +7,7 @@ from qtpy import QtCore, QtWidgets
 from qtpy.QtCore import Qt
 
 from .. import icons
+from ..data.source_refs import SourceUnavailableError
 from ..imaging.listwidgets import ElementListWidget
 from ..widgets import IconCheckDelegate
 
@@ -421,18 +422,31 @@ class ProjectTab(QtCore.QObject):
             self.refresh(sample_id)
 
     def _set_project_channels(self, items, enabled):
+        changed = False
         with QtCore.QSignalBlocker(self.channelList):
             for item in items:
                 key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
                 ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
                 if enabled:
-                    settings = self.window.element_controller.ensure_settings(ref)
+                    try:
+                        settings = self.window.element_controller.ensure_settings(ref)
+                    except SourceUnavailableError as exc:
+                        self.window.show_source_unavailable(exc.source_id)
+                        item.setCheckState(
+                            Qt.CheckState.Checked
+                            if key in self.project.project_channels
+                            else Qt.CheckState.Unchecked
+                        )
+                        continue
                     _sample, channel = self.project.channel_for_ref(ref)
                     channel.settings = settings
                     self.project.add_project_channel(key, channel.name, settings)
                 else:
                     self.project.remove_project_channel(key)
+                changed = True
                 item.setCheckState(Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked)
+        if not changed:
+            return
         self.window.element_controller.effective_channels_changed()
         self.window.element_controller.refresh_current_channel_states()
         self.refresh_sample_maps()
@@ -448,14 +462,9 @@ class ProjectTab(QtCore.QObject):
             return
         key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
         ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
-        sample = self.project.samples[sample_id]
-        if key not in sample.channel_overrides:
-            settings = self.window.element_controller.ensure_settings(ref)
-            self.project.override_sample_channel(sample_id, key, settings=settings)
-        elif sample.channel_overrides[key] is not None:
-            self.project.skip_sample_channel(sample_id, key)
-        else:
-            self.project.revert_sample_channel(sample_id, key)
+        if not self.window.element_controller.cycle_sample_channel(sample_id, key, ref):
+            self.refresh_sample_maps()
+            return
         self.window.element_controller.effective_channels_changed()
         self.window.element_controller.refresh_current_channel_states()
         self.refresh_sample_maps()
@@ -525,12 +534,6 @@ class ProjectTab(QtCore.QObject):
             self.window.source_manager.remove_project_asset(asset_id)
         else:
             self.window.source_manager.remove_project_sample(sample_id)
-
-    def _changed(self, selected=None):
-        self.window.element_controller.effective_channels_changed()
-        self.window.element_controller.refresh_sample_selector(selected)
-        self.refresh(selected)
-        self._mark_changed()
 
     def _mark_changed(self):
         if hasattr(self.window, "project_state_manager"):

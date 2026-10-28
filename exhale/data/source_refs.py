@@ -12,9 +12,11 @@ import tifffile
 
 @dataclass(frozen=True, order=True)
 class ElementRef:
-    """Identify a source by absolute filename and an element within it.
+    """Identify an element by stable source ID and item ID.
 
-    HDF5 item IDs are dataset paths; TIFF item IDs are zero-based page/<n>.
+    A source ID starts as an absolute path but does not change when the file is
+    relocated. HDF5 item IDs are dataset paths; TIFF item IDs are zero-based
+    page/component paths.
     """
 
     source_id: str
@@ -105,7 +107,7 @@ def _ome_channel_names(handle) -> tuple[str | None, ...]:
 
 @dataclass
 class LoadedSource:
-    """Own the backing file; materialized element arrays survive close()."""
+    """Own a backing file while retaining its identity and metadata after close()."""
 
     source_id: str
     filename: str
@@ -125,10 +127,6 @@ class LoadedSource:
             self.handle.close()
         self.handle = None
         self.root = None
-
-    def display_name(self) -> str:
-        suffix = "" if self.is_open else " [closed]"
-        return f"{self.alias}{suffix}"
 
     def default_element_name(self, ref: ElementRef) -> str:
         if self.kind == "tiff":
@@ -287,9 +285,3 @@ def open_source(filename: str) -> LoadedSource:
     except Exception:
         handle.close()
         raise
-
-
-def ref_display_basename(ref: ElementRef) -> str:
-    """Return the final item-path component for compact display."""
-
-    return ref.item_id.rsplit("/", 1)[-1] or ref.item_id

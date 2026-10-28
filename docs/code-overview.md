@@ -39,7 +39,7 @@ independent of Qt widgets.
 
 Defines the authoritative project model. `ProjectData` owns assets, samples,
 composed-image settings, project channel choices, shared defaults, and
-segmentation results. `Sample`, `Channel`, `ChannelOverride`, and
+segmentation results with their saved viewer-layer presentation. `Sample`, `Channel`, `ChannelOverride`, and
 `ResolvedChannel` express local versus inherited channel state; the remaining
 data classes describe assets and analysis metadata.
 
@@ -184,10 +184,18 @@ parameter dialog, worker and thread lifetime, saved-result display,
 incremental Napari updates, and result export. `MainWindow` supplies the
 generated widgets and application-level services but owns no analysis state.
 
+### `exhale/analysis/segmentationmethods.py`
+
+Defines the lightweight segmentation-method registry. Stable method IDs,
+dependency checks, capabilities, display names, and worker construction live
+here so populating method selectors does not import numerical backends.
+
 ### `exhale/analysis/correlation_controller.py`
 
 Owns the independent Relationships subtabs, their sample and element selection,
-disposable session caches, calculation requests, and result views.
+disposable session caches, calculation requests, and result views. Cluster-distance
+null statistics run in a cancellable worker using private array snapshots; late
+results cannot replace a different selection or a newly loaded project.
 
 ### `exhale/analysis/correlations.py`
 
@@ -198,15 +206,17 @@ and value-positioned density grids for element scatter views.
 ### `exhale/analysis/cluster_distances.py`
 
 Computes directed mean nearest-centroid distances between the segmented
-clusters of each pair of elements in physical project units. It can normalize
-those distances against reproducible random placement within the expanded
-pooled cluster mask.
+clusters of each pair of elements in physical project units. Simulates complete
+directed matrices within the unexpanded union of segmentation cluster masks,
+returning null means and unbiased variances in pixels for resolution-independent
+caching and normalization, and empirical percentiles from strictly lower
+simulated means.
 
 ### `exhale/analysis/analysisworker.py`
 
-Defines the background `AnalysisWorker`. It captures Python and native stderr,
-emits progress, constructs an `XRFSample`, runs processing and combination,
-and returns either the result or a traceback through Qt signals.
+Defines the StarDist background `AnalysisWorker`. It captures Python and native
+stderr, emits progress, constructs an `XRFSample`, runs processing and
+combination, and returns either the result or a traceback through Qt signals.
 
 ### `exhale/xrf_refcopy/xrf_sample_class.py`
 
@@ -253,9 +263,13 @@ heat-map/scatter plotting widgets used by the Correlations tab.
 
 ### `exhale/analysis/matrixplots.py`
 
-Defines renderer-independent matrix data, colour scales, value formatting,
-text measurements, and spacing rules shared by interactive and export
-renderers.
+Defines renderer-independent matrix data, value formatting, text measurements,
+and spacing rules shared by interactive and export renderers.
+
+### `exhale/data/matrixpalettes.py`
+
+Defines the shared matrix palette catalog and derives the valid palette keys
+used by project settings.
 
 ### `exhale/analysis/matrix_export_dialog.py`
 

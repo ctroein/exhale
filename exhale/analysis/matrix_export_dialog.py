@@ -24,12 +24,14 @@ class MatrixExportDialog(QtWidgets.QDialog, Ui_MatrixExportDialog):
         parent=None,
         *,
         palettes=MATRIX_PALETTES,
+        fixed_decimals: int | None = None,
     ):
         super().__init__(parent)
         self.setupUi(self)
         self._publication_settings = publication_settings
         self._plot_settings = plot_settings
         self._spec = spec
+        self._fixed_decimals = fixed_decimals
 
         for palette in palettes:
             self.palette.addItem(palette.name, palette.key)
@@ -48,7 +50,7 @@ class MatrixExportDialog(QtWidgets.QDialog, Ui_MatrixExportDialog):
         self.showValues.setChecked(plot_settings.show_values)
         if spec.secondary_values is not None:
             self.decimals.setMinimum(0)
-        self.decimals.setValue(plot_settings.decimals)
+        self.decimals.setValue(plot_settings.decimals if fixed_decimals is None else fixed_decimals)
         self.cellBorders.setChecked(plot_settings.cell_borders)
         self.dpi.setValue(plot_settings.dpi)
 
@@ -71,8 +73,8 @@ class MatrixExportDialog(QtWidgets.QDialog, Ui_MatrixExportDialog):
             spin_box.setValue(value)
 
     def _set_decimals_enabled(self, enabled: bool) -> None:
-        self.decimals.setEnabled(enabled)
-        self.decimalsLabel.setEnabled(enabled)
+        self.decimals.setEnabled(enabled and self._fixed_decimals is None)
+        self.decimalsLabel.setEnabled(enabled and self._fixed_decimals is None)
 
     def _update_dimension_minima(self, *_unused) -> None:
         publication = MatrixPublicationSettings(
@@ -105,7 +107,8 @@ class MatrixExportDialog(QtWidgets.QDialog, Ui_MatrixExportDialog):
         self._plot_settings.palette = self.palette.currentData()
         self._plot_settings.color_bar_position = self.colorBarPosition.currentData()
         self._plot_settings.show_values = self.showValues.isChecked()
-        self._plot_settings.decimals = self.decimals.value()
+        if self._fixed_decimals is None:
+            self._plot_settings.decimals = self.decimals.value()
         self._plot_settings.cell_borders = self.cellBorders.isChecked()
         self._plot_settings.dpi = self.dpi.value()
         super().accept()

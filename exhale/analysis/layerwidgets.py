@@ -9,7 +9,6 @@ from ..tooltips import (
     LAYER_COLOR,
     LAYER_DRAG,
     LAYER_GAIN,
-    LAYER_MONOCHROME,
     LAYER_OPACITY,
     LAYER_VISIBLE,
 )
@@ -172,7 +171,7 @@ class LayerRowWidget(QtWidgets.QWidget):
 
         self.color_button = LayerColorButton()
         self.color_button.clicked.connect(self._pick_color)
-        self.color_button.modeSelected.connect(self._set_label_mode)
+        self.color_button.modeSelected.connect(self._color_menu_selected)
         color_cell = QtWidgets.QWidget()
         color_layout = QtWidgets.QHBoxLayout(color_cell)
         color_layout.setContentsMargins(0, 0, 0, 0)
@@ -242,14 +241,17 @@ class LayerRowWidget(QtWidgets.QWidget):
     def _set_visible(self, visible):
         self._activate()
         self.layer.visible = visible
+        self.layer_list.presentationChanged.emit()
 
     def _set_opacity(self, percent):
         self._activate()
         self.helper.set_layer_opacity(self.layer, percent)
+        self.layer_list.presentationChanged.emit()
 
     def _set_gain(self, gain):
         self._activate()
         self.helper.set_layer_gain(self.layer, gain)
+        self.layer_list.presentationChanged.emit()
 
     def set_selected(self, selected):
         self.gain_row.setVisible(selected and self.helper.layer_has_gain(self.layer))
@@ -265,6 +267,7 @@ class LayerRowWidget(QtWidgets.QWidget):
             self.helper.BLENDING_ADD if additive else self.helper.BLENDING_NORMAL,
         )
         self._update_blending_icon()
+        self.layer_list.presentationChanged.emit()
 
     def _update_blending_icon(self):
         self.additive.set_icon_name(
@@ -280,6 +283,46 @@ class LayerRowWidget(QtWidgets.QWidget):
         else:
             self.helper.set_label_display(self.layer, mode)
         self._refresh_previews()
+        self.layer_list.presentationChanged.emit()
+
+    def _color_menu_selected(self, choice):
+        if self.is_labels:
+            self._set_label_mode(choice)
+        else:
+            self._set_image_color_option(choice)
+
+    def _set_image_color_option(self, choice):
+        if choice == "custom":
+            self._pick_color()
+            return
+        self._activate()
+        self.visible.setChecked(True)
+        color = self._automatic_image_color() if choice == "auto" else QtGui.QColor(choice)
+        self.helper.set_image_color(self.layer, color.getRgbF())
+        self._refresh_previews()
+        self.layer_list.presentationChanged.emit()
+
+    def _automatic_image_color(self):
+        """Choose a saturated hue far from the other visible image layers."""
+        from napari.layers import Labels
+
+        other_colors = [
+            self.helper.image_color(layer)[:3]
+            for layer in self.helper.user_layers()
+            if layer is not self.layer and layer.visible and not isinstance(layer, Labels)
+        ]
+        candidates = [QtGui.QColor.fromHsvF(index / 24, 1.0, 1.0) for index in range(24)]
+        if not other_colors:
+            return candidates[0]
+
+        def separation(candidate):
+            red, green, blue, _alpha = candidate.getRgbF()
+            return min(
+                (red - other[0]) ** 2 + (green - other[1]) ** 2 + (blue - other[2]) ** 2
+                for other in other_colors
+            )
+
+        return max(candidates, key=separation)
 
     def _pick_color(self):
         self._activate()
@@ -289,6 +332,7 @@ class LayerRowWidget(QtWidgets.QWidget):
             if mode == self.helper.LABEL_CATEGORICAL:
                 self.helper.reseed_label_colormap(self.layer)
                 self._refresh_previews()
+                self.layer_list.presentationChanged.emit()
                 return
         else:
             color = self.helper.image_color(self.layer)
@@ -305,13 +349,37 @@ class LayerRowWidget(QtWidgets.QWidget):
         else:
             self.helper.set_image_color(self.layer, rgba)
         self._refresh_previews()
+        self.layer_list.presentationChanged.emit()
 
     def _refresh_previews(self):
         if not self.is_labels:
-            self.color_button.set_colors(
-                [QtGui.QColor.fromRgbF(*self.helper.image_color(self.layer))]
+            current = QtGui.QColor.fromRgbF(*self.helper.image_color(self.layer))
+            self.color_button.set_colors([current])
+            self.color_button.setToolTip(LAYER_COLOR)
+            presets = (
+                ("#ff0000", "Red"),
+                ("#00ff00", "Green"),
+                ("#0000ff", "Blue"),
+                ("#00ffff", "Cyan"),
+                ("#ff00ff", "Magenta"),
+                ("#ffff00", "Yellow"),
             )
-            self.color_button.setToolTip(LAYER_MONOCHROME)
+            self.color_button.set_mode_options(
+                tuple((value, name, [QtGui.QColor(value)]) for value, name in presets)
+                + (
+                    (
+                        "auto",
+                        "Auto",
+                        [
+                            QtGui.QColor("#ff0000"),
+                            QtGui.QColor("#00ff00"),
+                            QtGui.QColor("#0000ff"),
+                            QtGui.QColor("#ffff00"),
+                        ],
+                    ),
+                    ("custom", "Custom…", [current]),
+                )
+            )
             return
 
         mode, rgba = self.helper.label_display_mode(self.layer)
@@ -338,12 +406,12 @@ class LayerRowWidget(QtWidgets.QWidget):
                 ),
                 (
                     self.helper.LABEL_MASK,
-                    "Single-color mask",
+                    "Monochrome mask",
                     previews[self.helper.LABEL_MASK],
                 ),
                 (
                     self.helper.LABEL_MONOCHROME,
-                    "Monochrome labels",
+                    "Monochrome scale",
                     previews[self.helper.LABEL_MONOCHROME],
                 ),
             )
@@ -382,6 +450,8 @@ class _LayerHeaderWidget(QtWidgets.QWidget):
 
 class LayerListWidget(QtWidgets.QListWidget):
     """List of embedded Napari layers with direct presentation controls."""
+
+    presentationChanged = QtCore.Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -488,6 +558,7 @@ class LayerListWidget(QtWidgets.QListWidget):
         row = self.itemWidget(item)
         self._move_layer_to_display_index(row.layer, target_index)
         self.rebuild(row.layer)
+        self.presentationChanged.emit()
 
     def _move_layer_to_display_index(self, layer, display_index):
         model_index = len(self.helper.user_layers()) - 1 - display_index
@@ -522,6 +593,7 @@ class LayerListWidget(QtWidgets.QListWidget):
         event.acceptProposedAction()
         selected_layer = source_row.layer
         QtCore.QTimer.singleShot(0, lambda: self.rebuild(selected_layer))
+        self.presentationChanged.emit()
 
     def reload_appearance(self):
         for index in range(1, self.count()):

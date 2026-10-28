@@ -7,7 +7,6 @@ from qtpy.QtCore import Qt
 
 from .. import icons
 from ..data.imagesettings import ImageSettings
-from ..data.source_refs import ElementRef
 from ..tooltips import (
     IMAGE_BORDER_COLOR,
     IMAGE_ELEMENT_ADJUST,
@@ -22,8 +21,8 @@ _SAMPLE_DEFERRED_ROLE = Qt.UserRole + 11
 _SAMPLE_PROJECT_ENABLED_ROLE = Qt.UserRole + 12
 
 
-class _ElementItemDelegate(QtWidgets.QStyledItemDelegate):
-    """Add optional group dividers to ordinary element-list rows."""
+class _GroupDividerMixin:
+    """Draw and account for optional dividers above element-list rows."""
 
     DIVIDER_HEIGHT = 5
 
@@ -49,10 +48,12 @@ class _ElementItemDelegate(QtWidgets.QStyledItemDelegate):
         return size
 
 
-class SampleElementCheckDelegate(IconCheckDelegate):
-    """Render sample-channel states while retaining standard checkbox interaction."""
+class _ElementItemDelegate(_GroupDividerMixin, QtWidgets.QStyledItemDelegate):
+    """Draw ordinary element-list rows with optional group dividers."""
 
-    DIVIDER_HEIGHT = 5
+
+class SampleElementCheckDelegate(_GroupDividerMixin, IconCheckDelegate):
+    """Render sample-channel states while retaining standard checkbox interaction."""
 
     def indicator_icon_name(self, index, state):
         if state == Qt.CheckState.Checked:
@@ -64,27 +65,6 @@ class SampleElementCheckDelegate(IconCheckDelegate):
             if index.data(_SAMPLE_PROJECT_ENABLED_ROLE)
             else icons.IconName.CHECKBOX
         )
-
-    def _style_option(self, option, index):
-        option = QtWidgets.QStyleOptionViewItem(option)
-        if index.data(_GROUP_DIVIDER_ROLE):
-            option.rect.adjust(0, self.DIVIDER_HEIGHT, 0, 0)
-        return option
-
-    def paint(self, painter, option, index):
-        if index.data(_GROUP_DIVIDER_ROLE):
-            painter.save()
-            painter.setPen(option.palette.color(QtGui.QPalette.ColorRole.Mid))
-            y = option.rect.top() + self.DIVIDER_HEIGHT // 2
-            painter.drawLine(option.rect.left() + 4, y, option.rect.right() - 4, y)
-            painter.restore()
-        super().paint(painter, self._style_option(option, index), index)
-
-    def sizeHint(self, option, index):
-        size = super().sizeHint(option, index)
-        if index.data(_GROUP_DIVIDER_ROLE):
-            size.setHeight(size.height() + self.DIVIDER_HEIGHT)
-        return size
 
     def editorEvent(self, event, model, option, index):
         return super().editorEvent(event, model, self._style_option(option, index), index)
@@ -124,12 +104,6 @@ class ElementListWidget(ExhaleListWidget):
         self.setItemDelegate(_ElementItemDelegate(self))
         self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.itemChanged.connect(self._sample_check_state_changed)
-        # self.setDragDropMode(QtWidgets.QAbstractItemView.DragDropMode.DragDrop)
-        # self.setDefaultDropAction(Qt.MoveAction)
-        # self.setSortingEnabled(True)
-        # self.setDragEnabled(True)
-        # self.setAcceptDrops(True)
-        # self.setDropIndicatorShown(True)
 
     def enable_multi_check_selection(self):
         """Allow extended selection and toggle all selected checks with Space."""
@@ -157,21 +131,6 @@ class ElementListWidget(ExhaleListWidget):
             event.accept()
             return
         super().keyPressEvent(event)
-
-    # def dropEvent(self, event : QtGui.QDropEvent):
-    #     if type(event.source()) == type(self):
-    #         event.accept()
-    #         print("drop OK")
-    #         super().dropEvent(event)
-
-    def addElementRef(self, name: str, ref: ElementRef, checked=False):
-        "Add element via ElementRef."
-        return self.addChannel(
-            name,
-            ref.item_id.rsplit("/", 1)[-1],
-            ref,
-            Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked,
-        )
 
     def addChannel(self, name, key, ref, check_state, *, tristate=False, element_icon=True):
         """Add a project or sample channel with its effective state."""
@@ -317,7 +276,6 @@ class ColorButton(QtWidgets.QPushButton):
         self.clicked.connect(pick)
 
     def color(self):
-        # color = self.palette().color(0)
         color = self.palette().color(QtGui.QPalette.ColorRole.Button)
         return [color.redF(), color.greenF(), color.blueF()]
 
@@ -327,7 +285,6 @@ class ColorButton(QtWidgets.QPushButton):
         pal = self.palette()
         pal.setColor(QtGui.QPalette.ColorRole.Button, color)
         self.setPalette(pal)
-        # self.setPalette(QtGui.QPalette(color))
         self.dialog.setCurrentColor(color)
         self.colorChanged.emit([color.redF(), color.greenF(), color.blueF()])
 
@@ -340,18 +297,6 @@ class ImageElementBoxBase(QtWidgets.QHBoxLayout):
     def __init__(self, rgb):
         "Create common widgets but don't add them"
         super().__init__()
-        # butt = QtWidgets.QPushButton(" ")
-        # butt.setMinimumWidth(15)
-        # butt.setMaximumWidth(30)
-        # butt.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred,
-        #                    QtWidgets.QSizePolicy.Policy.Preferred)
-        # self.dialog = QtWidgets.QColorDialog()
-        # def picked():
-        #     self.setColor(self.dialog.currentColor())
-        # def pick():
-        #     self.dialog.open(picked)
-        # butt.clicked.connect(pick)
-        # self.colorButton = butt
         self.colorButton = ColorButton()
         self.colorButton.colorChanged.connect(self.colorChanged.emit)
         self.edit = QtWidgets.QPushButton("Adjust")
@@ -361,12 +306,6 @@ class ImageElementBoxBase(QtWidgets.QHBoxLayout):
 
     def setColor(self, color):
         self.colorButton.setColor(color)
-        # if isinstance(color, np.ndarray):
-        #     color = QtGui.QColor.fromRgbF(*map(float, color))
-        # self.colorButton.setPalette(QtGui.QPalette(color))
-        # self.dialog.setCurrentColor(color)
-        # self.colorChanged.emit(
-        #     [color.redF(), color.greenF(), color.blueF()])
 
     def setWidgetsEnabled(self, enabled: bool):
         "Enable/disable all the widgets"

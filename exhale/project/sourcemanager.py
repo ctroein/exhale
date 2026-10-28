@@ -15,11 +15,6 @@ class SourceManager:
     def __init__(self, window):
         self.window = window
 
-    @property
-    def open_file_count(self) -> int:
-        """Return the number of sources whose file handles are open."""
-        return sum(1 for source in self.window.project_data.sources.values() if source.is_open)
-
     def select_and_open_files(self) -> None:
         """Ask for source files and add the selected files to the project."""
         filenames = self.select_file_names("Add files to project")

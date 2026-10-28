@@ -26,11 +26,13 @@ from exhale.analysis.segmentationio import result_relative_path, save_xrf_sample
 from exhale.data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from exhale.data.imagesettings import ImageSettings, Layouts
 from exhale.data.projectdata import (
+    LayerPresentation,
     SampleChannelState,
+    SegmentationLayerSettings,
     SegmentationParameters,
     SegmentationResult,
 )
-from exhale.data.source_refs import open_source
+from exhale.data.source_refs import SourceUnavailableError, open_source
 from exhale.imaging.listwidgets import ElementListWidget, SampleElementCheckDelegate
 from exhale.main_window import ACTIVE_TAB_SETTINGS_KEY, SPLITTER_SETTINGS_PREFIX, MainWindow
 from exhale.project import projectio
@@ -102,7 +104,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(result.values.shape, (2, 2))
         np.testing.assert_allclose(result.values, np.ones((2, 2)))
 
-        self.win.correlation_controller.copy_table()
+        self.win.correlation_controller.element_matrix.copy_table()
         self.assertEqual(
             QtWidgets.QApplication.clipboard().text(),
             "\tFe\tZn\nFe\t1\t1\nZn\t1\t1",
@@ -630,6 +632,60 @@ class SourceLifecycleTests(unittest.TestCase):
             SampleChannelState.OVERRIDE,
         )
 
+    def test_unavailable_source_restores_channel_checkboxes(self):
+        self.win.source_manager.open_files([self.h5])
+        self.win.loadedFileComboBox.setCurrentIndex(0)
+        sample = self.win.element_controller.current_sample()
+        element = next(
+            self.win.elementList.item(row)
+            for row in range(self.win.elementList.count())
+            if self.win.elementList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
+        )
+        project_item = next(
+            self.win.project_tab.channelList.item(row)
+            for row in range(self.win.project_tab.channelList.count())
+            if self.win.project_tab.channelList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE)
+            == "Fe"
+        )
+        ref = element.data(ElementListWidget.ELEMENT_REF_ROLE)
+        error = SourceUnavailableError(self.win.project_data.sources[ref.source_id])
+        with (
+            patch.object(self.win.element_controller, "ensure_settings", side_effect=error),
+            patch.object(self.win, "show_source_unavailable") as show_error,
+        ):
+            element.setCheckState(QtCore.Qt.CheckState.Checked)
+            self.assertNotIn("Fe", sample.channel_overrides)
+            self.assertEqual(element.checkState(), QtCore.Qt.CheckState.PartiallyChecked)
+
+            tree = self.win.project_tab.sampleTree
+            sample_item = next(
+                tree.topLevelItem(row)
+                for row in range(tree.topLevelItemCount())
+                if tree.topLevelItem(row).data(0, self.win.project_tab.NODE_ID_ROLE)
+                == sample.sample_id
+            )
+            tree.setCurrentItem(sample_item)
+            map_item = next(
+                self.win.elementMapList.item(row)
+                for row in range(self.win.elementMapList.count())
+                if self.win.elementMapList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE)
+                == "Fe"
+            )
+            map_item.setCheckState(QtCore.Qt.CheckState.Checked)
+            self.assertNotIn("Fe", sample.channel_overrides)
+            map_item = next(
+                self.win.elementMapList.item(row)
+                for row in range(self.win.elementMapList.count())
+                if self.win.elementMapList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE)
+                == "Fe"
+            )
+            self.assertEqual(map_item.checkState(), QtCore.Qt.CheckState.PartiallyChecked)
+
+            project_item.setCheckState(QtCore.Qt.CheckState.Checked)
+            self.assertNotIn("Fe", self.win.project_data.project_channels)
+            self.assertEqual(project_item.checkState(), QtCore.Qt.CheckState.Unchecked)
+            self.assertEqual(show_error.call_count, 3)
+
     def test_analysis_inputs_follow_the_segmentation_sample(self):
         other = str(Path(self.temp.name) / "other.h5")
         with h5py.File(other, "w") as handle:
@@ -880,13 +936,10 @@ class SourceLifecycleTests(unittest.TestCase):
         zn_ref = sample.channels["Zn"].ref
         parameters = SegmentationParameters(7, 19, 3, 8)
         xrf_sample = SimpleNamespace(elements={"Zn": object()})
-        self.win.project_data.segmentation_results[first_id] = SegmentationResult(
-            first_id,
-            fe_ref,
-            zn_ref,
-            (zn_ref,),
-            parameters,
-            xrf_sample,
+        self.win.project_data.set_segmentation_result(
+            SegmentationResult(
+                first_id, "stardist", fe_ref, zn_ref, (zn_ref,), parameters, xrf_sample
+            )
         )
 
         class FakeNapariHelper:
@@ -897,10 +950,14 @@ class SourceLifecycleTests(unittest.TestCase):
                 self.set_sample_calls = 0
                 self.updated_element_maps = []
 
-            def set_sample(self, value, element_maps=None):
+            def set_sample(self, value, element_maps=None, element_ids=None):
                 self.sample = value
                 self.element_maps = element_maps
+                self.element_ids = element_ids
                 self.set_sample_calls += 1
+
+            def apply_layer_settings(self, settings):
+                self.layer_settings_applied = settings
 
             def update_element_maps(self, maps):
                 self.updated_element_maps.append(maps)
@@ -970,13 +1027,29 @@ class SourceLifecycleTests(unittest.TestCase):
         xrf_sample.tissue.tissue_labels = np.ones_like(self.data)
         xrf_sample._processed = True
         xrf_sample._combined = True
-        self.win.project_data.segmentation_results[sample.sample_id] = SegmentationResult(
-            sample.sample_id,
-            fe_ref,
-            zn_ref,
-            (fe_ref,),
-            parameters,
-            xrf_sample,
+        layer_settings = SegmentationLayerSettings(
+            order=("role:nuclei_raw",),
+            layers={
+                "role:nuclei_raw": LayerPresentation(
+                    visible=True,
+                    opacity=0.7,
+                    blending="additive",
+                    color=(1.0, 0.0, 0.0, 1.0),
+                    gain=2.4,
+                )
+            },
+        )
+        self.win.project_data.set_segmentation_result(
+            SegmentationResult(
+                sample.sample_id,
+                "stardist",
+                fe_ref,
+                zn_ref,
+                (fe_ref,),
+                parameters,
+                xrf_sample,
+                layer_settings,
+            )
         )
         project_dir = Path(self.temp.name) / "segmentation-project"
 
@@ -985,10 +1058,12 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.project_state_manager.mark_saved()
         self.assertTrue(self.win.project_manager.load_project_dir(project_dir))
 
-        restored = self.win.project_data.segmentation_results[sample.sample_id]
+        restored = self.win.project_data.segmentation_result(sample.sample_id, "stardist")
+        self.assertEqual(restored.method_id, "stardist")
         self.assertEqual(restored.parameters, parameters)
         self.assertEqual(restored.nuclei_ref, fe_ref)
         self.assertEqual(restored.element_refs, (fe_ref,))
+        self.assertEqual(restored.layer_settings, layer_settings)
         np.testing.assert_array_equal(
             restored.xrf_sample.nuclei.nuclei_labels,
             xrf_sample.nuclei.nuclei_labels,
@@ -998,13 +1073,16 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.source_manager.open_files([self.h5])
         sample = next(iter(self.win.project_data.samples.values()))
         refs = tuple(channel.ref for channel in sample.channels.values())
-        self.win.project_data.segmentation_results[sample.sample_id] = SegmentationResult(
-            sample.sample_id,
-            refs[0],
-            refs[1],
-            refs[:1],
-            SegmentationParameters(6, 18, 3, 7),
-            SimpleNamespace(),
+        self.win.project_data.set_segmentation_result(
+            SegmentationResult(
+                sample.sample_id,
+                "stardist",
+                refs[0],
+                refs[1],
+                refs[:1],
+                SegmentationParameters(6, 18, 3, 7),
+                SimpleNamespace(),
+            )
         )
         project_dir = Path(self.temp.name) / "sidecar-project"
         sidecar = project_dir / result_relative_path(sample.sample_id)

@@ -2,13 +2,9 @@
 """Main Exhale window and integration of project, image, and analysis workflows."""
 
 import os
-
-# import importlib
 import re
 from pathlib import Path
 
-# from typing import Optional
-# from collections.abc import Iterable
 from qtpy import QtCore, QtGui, QtWidgets
 
 from . import appearance, application_description, application_name, application_title, icons
@@ -40,17 +36,11 @@ WINDOW_GEOMETRY_SETTINGS_KEY = "window/geometry"
 SPLITTER_SETTINGS_PREFIX = "window/splitters"
 
 
-def scale_font(widget: QtWidgets.QWidget, scale: float):
-    "Rescale font of widget and its children"
-    font = widget.font()
-    font.setPointSizeF(font.pointSizeF() * scale)
-    widget.setFont(font)
-
-
 class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     """Own the application shell and coordinate feature-specific controllers."""
 
     channelsChanged = QtCore.Signal()
+    segmentationResultsChanged = QtCore.Signal()
 
     def __init__(self, parent=None, *, initialize_analysis_view=True):
         super().__init__(parent)
@@ -59,7 +49,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.project_dir = None
         self.project_manager = ProjectManager(self)
         self.source_manager = SourceManager(self)
-        # QApplication.instance().installEventFilter(self) # needed why?
         self.setupUi(self)
         self.setWindowTitle(application_title)
         self._configure_tooltips()
@@ -125,6 +114,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             return
         self.image_controller.shutdown()
         self.analysis_controller.shutdown()
+        self.correlation_controller.shutdown()
         self._save_splitter_states()
         current_tab = self.tabWidget.currentWidget()
         if current_tab is not None:
@@ -207,6 +197,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.addSampleFilesButton.setIcon(icons.icon(icons.IconName.FILE))
         self.removeButton.setIcon(icons.icon(icons.IconName.DELETE))
         self.refreshChannelsButton.setIcon(icons.icon(icons.IconName.REFRESH))
+        self.analysisOptions.setIcon(icons.icon(icons.IconName.ADJUSTMENTS))
+        self.analysisRun.setIcon(icons.icon(icons.IconName.START))
+        self.analysisAbort.setIcon(icons.icon(icons.IconName.STOP))
         self.addImageButton.set_icon_name(icons.IconName.ADD_IMAGE)
         self.deleteImageButton.set_icon_name(icons.IconName.DELETE)
         self.showSingleElementButton.set_icon_name(icons.IconName.ELEMENT)

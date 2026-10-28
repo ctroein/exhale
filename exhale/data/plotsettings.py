@@ -4,22 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .matrixpalettes import MATRIX_PALETTE_KEYS
+
 ELEMENT_CORRELATIONS = "element_correlations"
 SAMPLE_SIMILARITIES = "sample_similarities"
 CLUSTER_DISTANCES = "cluster_distances"
 MATRIX_PLOT_KEYS = (ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES, CLUSTER_DISTANCES)
-MATRIX_PALETTE_KEYS = (
-    "magnolia",
-    "linnaea",
-    "utrumque",
-    "uarda",
-    "peccatorum",
-    "nightlife",
-    "viridis",
-    "cividis",
-    "magma",
-    "lundagård",
-)
 
 
 def _dimension_from_json(value, name: str) -> float | None:
@@ -72,6 +62,9 @@ class MatrixPlotSettings:
     show_values: bool = True
     show_secondary: bool = False
     normalize_to_random: bool = False
+    distance_percentile: bool = False
+    distance_pixels: bool = False
+    distance_secondary: str = "none"
     decimals: int = 2
     color_bar_position: str = "right"
     width_mm: float | None = None
@@ -86,6 +79,9 @@ class MatrixPlotSettings:
             "show_values": self.show_values,
             "show_secondary": self.show_secondary,
             "normalize_to_random": self.normalize_to_random,
+            "distance_percentile": self.distance_percentile,
+            "distance_pixels": self.distance_pixels,
+            "distance_secondary": self.distance_secondary,
             "decimals": self.decimals,
             "color_bar_position": self.color_bar_position,
             "width_mm": self.width_mm,
@@ -99,6 +95,17 @@ class MatrixPlotSettings:
         show_values = state.get("show_values", self.show_values)
         show_secondary = state.get("show_secondary", self.show_secondary)
         normalize_to_random = state.get("normalize_to_random", self.normalize_to_random)
+        distance_pixels = state.get("distance_pixels", self.distance_pixels)
+        if not isinstance(distance_pixels, bool):
+            raise TypeError("Matrix pixel distances must be true or false")
+        distance_percentile = state.get("distance_percentile", self.distance_percentile)
+        if not isinstance(distance_percentile, bool):
+            raise TypeError("Matrix percentile visibility must be true or false")
+        distance_secondary = state.get("distance_secondary", self.distance_secondary)
+        if distance_secondary == "null":
+            distance_secondary = "none"
+        if distance_secondary not in ("none", "observed"):
+            raise ValueError("Unknown distance secondary value")
         decimals = state.get("decimals", self.decimals)
         color_bar_position = state.get("color_bar_position", self.color_bar_position)
         width_mm = _dimension_from_json(state.get("width_mm", self.width_mm), "width")
@@ -129,6 +136,9 @@ class MatrixPlotSettings:
         self.show_values = show_values
         self.show_secondary = show_secondary
         self.normalize_to_random = normalize_to_random
+        self.distance_percentile = distance_percentile
+        self.distance_pixels = distance_pixels
+        self.distance_secondary = distance_secondary
         self.decimals = decimals
         self.color_bar_position = color_bar_position
         self.width_mm = width_mm
@@ -141,6 +151,9 @@ class MatrixPlotSettings:
         self.show_values = True
         self.show_secondary = False
         self.normalize_to_random = False
+        self.distance_percentile = False
+        self.distance_pixels = False
+        self.distance_secondary = "none"
         self.decimals = 2
         self.color_bar_position = "right"
         self.width_mm = None

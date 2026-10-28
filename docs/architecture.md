@@ -37,6 +37,8 @@ visualization concerns.
 
 Widget-independent models and source handling live in `exhale.data`. This
 package must not import Qt widgets or application controllers.
+Matrix palette definitions also live there, so project settings and renderers
+use one palette catalog.
 
 `ProjectData` is the authoritative owner of loaded assets, samples,
 composed-image settings, project-level channel selection, per-sample channel
@@ -48,6 +50,8 @@ a physical source file; a `Sample` groups compatible channel maps; and a
 with an item identity inside that source. HDF5 dataset paths and TIFF
 page/component identifiers remain storage details behind this common value.
 Raw filename/dataset tuples must not become a second identity system.
+The source identity is initially its absolute path and remains unchanged when
+the backing file is relocated; `LoadedSource.filename` records the current path.
 
 `ChannelData` separates access to a two-dimensional map from its storage.
 `ArrayChannelData` owns an already-materialized NumPy array, while
@@ -60,6 +64,9 @@ Project and sample resolution determines the effective settings. An image slot
 normally refers to those effective settings; only an explicit image override
 owns a copy. `ImageSettings` records the distinction so propagation is not
 inferred from object identity alone.
+For a sample channel, an absent override inherits the project selection, a
+`None` override skips it, and a `ChannelOverride` explicitly selects local
+settings. A channel without a project selection is absent unless overridden.
 
 `ElementController` presents and edits those settings without owning a second
 model copy. Its current selection and editor context are controller UI state;
@@ -108,13 +115,15 @@ Analysis execution, persistence, and result visualization live in
 `exhale.analysis`. The numerical implementation in `xrf_refcopy/` is imported
 external code and remains a separate boundary.
 
-`AnalysisWorker` runs XRF analysis away from the GUI thread, translates Python
-and native-library output into progress messages, and supports cooperative
-abortion. `AnalysisController` owns the worker and thread lifetime and all
-Segmentation-tab UI state; the main window only constructs the controller and
-passes application-level changes to it. The classes under `xrf_refcopy/`
-implement nuclei segmentation, tissue masking, intensity partitioning,
-per-element clustering, and combined sample tables.
+The lightweight segmentation-method registry supplies stable method IDs,
+dependency checks, capabilities, and worker factories without importing the
+numerical backends. `AnalysisWorker` runs the StarDist method away from the GUI
+thread, translates Python and native-library output into progress messages,
+and supports cooperative abortion. `AnalysisController` owns the worker and
+thread lifetime and all Segmentation-tab UI state; the main window only
+constructs the controller and passes application-level changes to it. The
+classes under `xrf_refcopy/` implement nuclei segmentation, tissue masking,
+intensity partitioning, per-element clustering, and combined sample tables.
 
 Element correlations use the effective selected channels of one sample and
 their untransformed source arrays. Between-sample similarities use only channel
@@ -123,6 +132,15 @@ the same ordered features. Cluster-distance matrices use the centroids retained
 in a sample's segmentation result and the project's XRF resolution to calculate
 directed mean nearest-neighbour distances in physical units. These derived
 matrices are disposable session state and are not part of the saved project.
+Cluster-distance null simulations use independent centroid sets per element
+within the union of existing segmentation cluster masks. A cancellable Qt worker
+operates on private array snapshots. Its complete matrix is cached in pixels,
+independently of the displayed minimum cluster count and XRF resolution.
+Observed SD describes the spread of distances and can be shown alongside means
+in project length units, pixels, or null-model normalized units. Null percentiles count simulated mean distances strictly below
+the observation, with no multiple-testing correction. Percentile display uses
+the full simulation precision (0.1 percentage points for 1,000 simulations),
+a fixed 0–100% scale, and no secondary SD.
 Element density views use regular bins spanning all paired finite values and
 retain source values as plot coordinates. Bin counts are divided by their
 value-space areas and interpolated in value space. The user can set the bin
@@ -135,10 +153,14 @@ plots, while dimensions and appearance belong to each matrix type. PDF and SVG
 use vector cells and text; PNG uses the same physical layout at the selected
 DPI.
 
-Completed analysis is represented by `SegmentationResult` in the project
-model. The large arrays and result tables are stored separately by
-`exhale.analysis.segmentationio` in an HDF5 sidecar below the project; the main
-project file stores the association and parameters.
+Completed analysis is represented by one `SegmentationResult` per sample and
+method in the project model. The stable method ID is saved in both the project
+entry and sidecar. Large arrays and result tables are stored separately by
+`exhale.analysis.segmentationio` in method-specific HDF5 sidecars below the
+project; the main project file stores the association, parameters, and layer
+presentation. Layer presentation is keyed by fixed role or source element
+reference so it remains valid across display-name changes and pooled Napari
+layer reuse.
 
 ## Persistence and state changes
 

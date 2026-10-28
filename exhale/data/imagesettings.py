@@ -18,7 +18,6 @@ class Layouts(Enum):
     IR = 2, "Images right"
     IA = 3, "Images above"
     IB = 4, "Images below"
-    # SQUARES = 5, "Four squares"
 
     def __new__(cls, *args, **kwds):
         obj = object.__new__(cls)
@@ -144,8 +143,6 @@ class ImageSettings:
         self.dpi = 300
         self.clipColors = True  # Hard clip of RGB or rescale by theor. max
         self.resolution = [200, "nm"]
-        # self.pdfSize = [10., 10.]
-        # self.pdfKeepDim = 0 # keep width(0) or height(1) when aspect changes
 
     def copyForSample(self, name, sample_id, source_ids):
         "Return an empty image initialized from these composition settings."
@@ -238,10 +235,6 @@ class ImageSettings:
 
     def setElementBorders(self, eb):
         self.elementBorders = eb
-
-    # def dpi(self):
-    #     "Compute dpi from selected size"
-    #     return None
 
     def setElement(self, index: int, element: ElementSettings, channel_key=None):
         "Select a sample element for an image slot."

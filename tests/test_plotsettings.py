@@ -16,6 +16,8 @@ def test_matrix_plot_settings_round_trip_independently():
     project.matrix_plot_settings[SAMPLE_SIMILARITIES].show_values = False
     project.matrix_plot_settings[SAMPLE_SIMILARITIES].height_mm = 210.0
     project.matrix_plot_settings[CLUSTER_DISTANCES].normalize_to_random = True
+    project.matrix_plot_settings[CLUSTER_DISTANCES].distance_secondary = "observed"
+    project.matrix_plot_settings[CLUSTER_DISTANCES].distance_percentile = True
     project.matrix_publication_settings.font_family = "Liberation Sans"
     project.matrix_publication_settings.font_size = 9.5
     state = export_project_state(project)
@@ -34,6 +36,8 @@ def test_matrix_plot_settings_round_trip_independently():
     assert not restored.matrix_plot_settings[SAMPLE_SIMILARITIES].show_values
     assert restored.matrix_plot_settings[SAMPLE_SIMILARITIES].height_mm == 210.0
     assert restored.matrix_plot_settings[CLUSTER_DISTANCES].normalize_to_random
+    assert restored.matrix_plot_settings[CLUSTER_DISTANCES].distance_secondary == "observed"
+    assert restored.matrix_plot_settings[CLUSTER_DISTANCES].distance_percentile
     assert restored.matrix_publication_settings.font_family == "Liberation Sans"
     assert restored.matrix_publication_settings.font_size == 9.5
 
@@ -74,3 +78,12 @@ def test_invalid_matrix_publication_settings_are_reset_without_blocking_project_
     ]
     assert restored.matrix_publication_settings.font_family == ""
     assert restored.matrix_publication_settings.font_size == 10.0
+
+
+def test_pixel_distance_mode_round_trips_with_project():
+    project = ProjectData()
+    project.matrix_plot_settings[CLUSTER_DISTANCES].distance_pixels = True
+    restored = ProjectData()
+    issues = load_project_state(restored, export_project_state(project), open_files=False)
+    assert not issues
+    assert restored.matrix_plot_settings[CLUSTER_DISTANCES].distance_pixels

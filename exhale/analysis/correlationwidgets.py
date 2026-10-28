@@ -16,6 +16,7 @@ from .correlations import (
 from .matrixplots import (
     CORRELATION_COLOR_STOPS,
     MATRIX_PALETTES,
+    NORMALIZED_DISTANCE_LABEL,
     ColorStop,
     MatrixPlotSpec,
     correlation_matrix_spec,
@@ -152,8 +153,7 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         matrix_item.getViewBox().sigRangeChangedManually.connect(self._matrix_view_range_changed)
         matrix_item.hideAxis("left")
         matrix_item.hideAxis("bottom")
-        vertical_margin = QtGui.QFontMetrics(QtWidgets.QApplication.font()).height() // 2
-        matrix_item.layout.setContentsMargins(0, vertical_margin, 0, vertical_margin)
+        matrix_item.layout.setContentsMargins(0, 0, 0, 0)
         self.matrix_border = QtWidgets.QGraphicsRectItem()
         self.matrix_border.setZValue(5)
         self.matrix_plot.addItem(self.matrix_border)
@@ -174,6 +174,28 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
     def set_matrix_spec(self, spec: MatrixPlotSpec | None) -> None:
         """Display a matrix according to a renderer-independent specification."""
         previous = self._matrix_spec
+        if spec is not None and previous is not None:
+            same_presentation = (
+                spec.labels == previous.labels
+                and spec.levels == previous.levels
+                and spec.color_stops == previous.color_stops
+                and spec.color_bar_label == previous.color_bar_label
+                and spec.show_values == previous.show_values
+                and spec.decimals == previous.decimals
+                and spec.show_secondary == previous.show_secondary
+                and spec.secondary_label == previous.secondary_label
+            )
+            same_secondary = spec.secondary_values is previous.secondary_values or (
+                spec.secondary_values is not None
+                and previous.secondary_values is not None
+                and np.array_equal(spec.secondary_values, previous.secondary_values, equal_nan=True)
+            )
+            if (
+                same_presentation
+                and same_secondary
+                and np.array_equal(spec.values, previous.values, equal_nan=True)
+            ):
+                return
         data_changed = (
             spec is not None
             and previous is not None
@@ -289,6 +311,11 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
             self._axis_labels.append(column_label)
 
     def _fit_matrix(self) -> None:
+        """Fit labels and cells while preserving the current cell size when possible.
+
+        Reset requests choose the preferred size; later fits reuse the saved
+        pixel size and clamp the view to the measured content and zoom limits.
+        """
         if self._matrix_spec is None or not self._matrix_spec.labels:
             self._fit_pending = False
             return
@@ -310,7 +337,7 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
             self._fit_pending = False
             return
         view_box = self.matrix_plot.getViewBox()
-        view_rect = view_box.sceneBoundingRect()
+        view_rect = view_box.geometry()
         aspect = view_rect.width() / max(view_rect.height(), 1.0)
         minimum_cell, maximum_cell = self._matrix_cell_limits(text, spec)
         initial_fit = self._matrix_cell_size is None
@@ -322,25 +349,11 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         )
         fitted_cell = max(minimum_cell, self._matrix_cell_size or current_cell)
         if self._reset_matrix_view:
-            edge_clearance = 10.0
-            horizontal_fixed = text.row_label_width + 2 * edge_clearance
-            vertical_fixed = (
-                text.font_height / 2
-                + text.column_label_height
-                + text.column_label_gap
-                + 2 * edge_clearance
-            )
             fitted_cell = max(
                 minimum_cell,
-                min(
-                    text.default_cell,
-                    (view_rect.width() - horizontal_fixed) / size,
-                    (view_rect.height() - vertical_fixed) / size,
-                ),
+                text.default_cell if initial_fit else self._matrix_cell_size,
             )
-            if not initial_fit:
-                fitted_cell = max(minimum_cell, self._matrix_cell_size)
-                maximum_cell = max(maximum_cell, fitted_cell)
+            maximum_cell = max(maximum_cell, fitted_cell)
         top_margin = text.font_height / (2 * fitted_cell) + 0.1
         row_margin = max(0.35, text.row_label_width / fitted_cell)
         column_margin = max(
@@ -453,7 +466,7 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
     def _matrix_view_range_changed(self, *_unused) -> None:
         if self._matrix_spec is not None:
             view_box = self.matrix_plot.getViewBox()
-            view_rect = view_box.sceneBoundingRect()
+            view_rect = view_box.geometry()
             current_range = view_box.viewRect()
             if view_rect.width() > 0 and current_range.width() > 0:
                 self._matrix_cell_size = view_rect.width() / current_range.width()
@@ -576,6 +589,12 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
     def show_density(self, grid: DensityGrid, first_label: str, second_label: str) -> None:
         self.scatter_plot.clear()
         image = interpolated_density(grid)
+        bin_area = float(np.diff(grid.x_edges)[0] * np.diff(grid.y_edges)[0])
+        single_point = np.zeros_like(grid.density)
+        center = tuple(length // 2 for length in single_point.shape)
+        single_point[center] = 1.0 / bin_area
+        reference = DensityGrid(grid.x_edges, grid.y_edges, single_point, count=1)
+        self._density_single_point = float(np.max(interpolated_density(reference)))
         self.density_image = pg.ImageItem(image, axisOrder="row-major")
         self.density_image.setRect(
             QtCore.QRectF(
@@ -678,9 +697,9 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
             return
         palette = QtWidgets.QApplication.palette()
         background = _density_background(palette)
-        foreground = palette.color(QtGui.QPalette.Text)
+        foreground = QtGui.QColor("white" if background.lightness() < 128 else "black")
         positions = (0.0, 0.01, 0.25, 0.5, 0.75, 1.0)
-        foreground_fractions = (0.0, 0.03, 0.08, 0.25, 0.55, 1.0)
+        foreground_fractions = (0.0, 0.03, 0.2, 0.5, 0.8, 1.0)
         colors = []
         for fraction in foreground_fractions:
             colors.append(
@@ -700,11 +719,20 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         self.density_color_bar.setColorMap(display_map)
         self.density_image.setLookupTable(lookup_table)
         maximum = float(np.nanmax(self.density_image.image))
-        levels = (0.0, maximum if maximum > 0 else 1.0)
+        single_point = self._density_single_point
+        # A sparse plot still needs headroom above the one-point reference.
+        maximum = max(maximum, single_point * 2.0)
+        minimum = (single_point - 0.1 * maximum) / 0.9
+        levels = (minimum, maximum)
         self.density_image.setLevels(levels)
         self.density_color_bar.setLevels(levels)
         self.density_color_bar.getAxis("left").setTicks(
-            [[(position * 64.0, f"{levels[1] * position / 4:.2g}") for position in range(5)]]
+            [
+                [
+                    (position * 64.0, f"{levels[0] + (levels[1] - levels[0]) * position / 4:.2g}")
+                    for position in range(5)
+                ]
+            ]
         )
 
     def _resize_density_color_bar(self) -> None:
@@ -771,7 +799,8 @@ class CorrelationMatrixView(QtCore.QObject):
         if self._secondary_control is not None:
             self._secondary_control.setEnabled(enabled)
         self._settings.show_values = enabled
-        self._settings.decimals = self._decimals.value()
+        if not self._settings.distance_percentile:
+            self._settings.decimals = self._decimals.value()
         if self._secondary_control is not None:
             self._settings.show_secondary = self._secondary_control.isChecked()
         self._update_plot_spec()
@@ -834,13 +863,21 @@ class CorrelationMatrixView(QtCore.QObject):
         if self.result is None:
             return
         corner = ""
-        if getattr(self.result, "normalized", False):
-            corner = "Observed / random placement"
+        if getattr(self.result, "percentile", False):
+            corner = "Null-model percentile (%)"
+        elif getattr(self.result, "normalized", False):
+            corner = NORMALIZED_DISTANCE_LABEL
         elif hasattr(self.result, "units"):
             corner = f"Mean nearest distance ({self.result.units})"
         rows = [corner + "\t" + "\t".join(self.result.labels)]
         for label, values in zip(self.result.labels, self.result.values, strict=True):
-            formatted = ["" if not np.isfinite(value) else f"{value:.6g}" for value in values]
+            if getattr(self.result, "percentile", False):
+                decimals = self.make_spec().decimals
+                formatted = [
+                    "" if not np.isfinite(value) else f"{value:.{decimals}f}" for value in values
+                ]
+            else:
+                formatted = ["" if not np.isfinite(value) else f"{value:.6g}" for value in values]
             rows.append(label + "\t" + "\t".join(formatted))
         QtWidgets.QApplication.clipboard().setText("\n".join(rows))
 

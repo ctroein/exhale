@@ -10,7 +10,7 @@ from qtpy.QtCore import Qt
 
 from ..data.elementsettings import ElementSettings, Normalizers
 from ..data.projectdata import SampleChannelState, shortest_unique_path_suffixes
-from ..data.source_refs import ElementRef, SourceUnavailableError
+from ..data.source_refs import SourceUnavailableError
 from .listwidgets import ElementListWidget, ImageListWidget
 
 
@@ -249,20 +249,26 @@ class ElementController:
             return
         key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
         ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
+        if not self.cycle_sample_channel(sample.sample_id, key, ref):
+            self.refresh_current_channel_states()
+            return
+        self._finish_channel_state_change()
+
+    def cycle_sample_channel(self, sample_id, key, ref) -> bool:
+        """Advance one sample channel state, leaving it unchanged if its source is unavailable."""
+        sample = self.window.project_data.samples[sample_id]
         if key not in sample.channel_overrides:
             try:
                 settings = self.ensure_settings(ref)
             except SourceUnavailableError as exc:
                 self.window.show_source_unavailable(exc.source_id)
-                return
-            self.window.project_data.override_sample_channel(
-                sample.sample_id, key, settings=settings
-            )
+                return False
+            self.window.project_data.override_sample_channel(sample_id, key, settings=settings)
         elif sample.channel_overrides[key] is not None:
-            self.window.project_data.skip_sample_channel(sample.sample_id, key)
+            self.window.project_data.skip_sample_channel(sample_id, key)
         else:
-            self.window.project_data.revert_sample_channel(sample.sample_id, key)
-        self._finish_channel_state_change()
+            self.window.project_data.revert_sample_channel(sample_id, key)
+        return True
 
     def skip_sample_element(self, item) -> None:
         sample = self.current_sample()
@@ -568,34 +574,6 @@ class ElementController:
             with QtCore.QSignalBlocker(field):
                 field.setValue(value)
         self.update_plot()
-
-    def source_alias_for_ref(self, ref: ElementRef):
-        asset = self.window.project_data.assets.get(ref.source_id)
-        if asset is not None:
-            return self.window.project_data.samples[asset.sample_id].name
-        return ref.source_id
-
-    def element_display_name(self, ref: ElementRef, *, force_alias=False):
-        settings = self.window.project_data.element_settings[ref]
-        label = settings.name
-        if force_alias or len(self.window.project_data.samples) > 1:
-            label = f"{label} ({self.source_alias_for_ref(ref)})"
-        source = self.window.project_data.sources.get(ref.source_id)
-        if source is not None and not source.is_open:
-            label += " [closed]"
-        return label
-
-    def element_local_display_name(self, ref):
-        source = self.window.project_data.sources.get(ref.source_id)
-        original = (
-            source.default_element_name(ref)
-            if source is not None
-            else ref.item_id.rsplit("/", 1).pop()
-        )
-        settings = self.window.project_data.element_settings.get(ref)
-        if settings is not None and settings.name != original:
-            return f"{settings.name} ({original})"
-        return original
 
     def refresh_display_names(self) -> None:
         window = self.window

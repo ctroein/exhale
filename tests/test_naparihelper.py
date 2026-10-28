@@ -176,6 +176,49 @@ class NapariPresentationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must match"):
             self.helper.set_sample(sample, ())
 
+    def test_sample_layer_settings_roundtrip_by_stable_identity(self):
+        self.helper.viewer = ViewerModel()
+        raw = np.ones((3, 4), dtype=np.float32)
+        sample = SimpleNamespace(
+            tissue=SimpleNamespace(raw=raw),
+            nuclei=SimpleNamespace(
+                raw=raw,
+                membrane_labels=np.zeros_like(raw, dtype=np.uint8),
+                nuclei_labels=np.ones_like(raw, dtype=np.uint8),
+            ),
+            elements={
+                "Iron": SimpleNamespace(raw=raw, cluster_labels=np.ones_like(raw, dtype=np.uint8))
+            },
+        )
+        self.helper.set_sample(sample, (raw,), ("stable-fe-ref",))
+        element = next(layer for layer in self.helper.user_layers() if layer.name == "Iron map")
+        clusters = next(
+            layer for layer in self.helper.user_layers() if layer.name == "Iron clusters"
+        )
+        nuclei = next(layer for layer in self.helper.user_layers() if layer.name == "Nuclei raw")
+        self.helper.set_image_color(element, "#00ffff")
+        element.visible = True
+        element.opacity = 0.4
+        self.helper.set_label_presentation(
+            clusters, self.helper.LABEL_MONOCHROME, "#ff00ff", palette_index=3
+        )
+        clusters.visible = True
+        self.helper.set_layer_gain(nuclei, 2.4)
+        self.helper.move_layer(element, 0)
+        settings = self.helper.layer_settings()
+
+        sample.elements = {
+            "Renamed iron": SimpleNamespace(
+                raw=raw, cluster_labels=np.ones_like(raw, dtype=np.uint8)
+            )
+        }
+        self.helper.set_sample(sample, (raw,), ("stable-fe-ref",))
+        self.helper.apply_layer_settings(settings)
+
+        self.assertEqual(self.helper.layer_settings(), settings)
+        restored = {self.helper.layer_identity(layer): layer for layer in self.helper.user_layers()}
+        self.assertEqual(restored["element-map:stable-fe-ref"].name, "Renamed iron map")
+
     def test_element_map_update_retains_layers_and_presentation(self):
         self.helper.viewer = ViewerModel()
         raw = np.ones((2, 3), dtype=np.float32)

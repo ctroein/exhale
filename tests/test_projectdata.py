@@ -76,13 +76,10 @@ class ProjectDataTests(unittest.TestCase):
         project = ProjectData()
         project.samples["scan"] = self.sample
         parameters = SegmentationParameters(5, 10, 2, 4)
-        project.segmentation_results["scan"] = SegmentationResult(
-            "scan",
-            self.fe_ref,
-            self.zn_ref,
-            (self.fe_ref,),
-            parameters,
-            object(),
+        project.set_segmentation_result(
+            SegmentationResult(
+                "scan", "stardist", self.fe_ref, self.zn_ref, (self.fe_ref,), parameters, object()
+            )
         )
 
         project.remove_sample("scan")
@@ -91,11 +88,27 @@ class ProjectDataTests(unittest.TestCase):
 
     def test_clear_removes_segmentation_results(self):
         project = ProjectData()
-        project.segmentation_results["scan"] = object()
+        project.segmentation_results["scan"] = {"stardist": object()}
 
         project.clear()
 
         self.assertFalse(project.segmentation_results)
+
+    def test_segmentation_results_are_kept_per_method(self):
+        project = ProjectData()
+        parameters = SegmentationParameters(5, 10, 2, 4)
+        first = SegmentationResult(
+            "scan", "first", self.fe_ref, self.zn_ref, (), parameters, object()
+        )
+        second = SegmentationResult(
+            "scan", "second", self.fe_ref, self.zn_ref, (), parameters, object()
+        )
+
+        project.set_segmentation_result(first)
+        project.set_segmentation_result(second)
+
+        self.assertIs(project.segmentation_result("scan", "first"), first)
+        self.assertIs(project.segmentation_result("scan", "second"), second)
 
     def test_materialized_settings_are_attached_to_sample_channel(self):
         project = ProjectData()

@@ -99,7 +99,6 @@ class AnalysisWorker(QtCore.QObject):
     def xrf_analysis(self):
         """Build and process an ``XRFSample`` while forwarding library output."""
 
-        # self._abort = False
         def progress_or_abort(msg):
             if self._abort:
                 raise InterruptedError("Aborted")

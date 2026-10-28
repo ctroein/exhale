@@ -20,9 +20,9 @@ SEGMENTATION_FORMAT = "exhale-segmentation"
 SEGMENTATION_VERSION = 1
 
 
-def result_relative_path(sample_id: str) -> Path:
-    """Return the project-relative sidecar path for one sample."""
-    return Path(SEGMENTATION_DIRECTORY) / f"{sample_id}.h5"
+def result_relative_path(sample_id: str, method_id: str = "stardist") -> Path:
+    """Return the project-relative sidecar path for one sample and method."""
+    return Path(SEGMENTATION_DIRECTORY) / method_id / f"{sample_id}.h5"
 
 
 def _write_optional_array(group, name, value) -> None:
@@ -67,7 +67,9 @@ def _read_dataframe(group, name):
     return pd.DataFrame(payload["records"], columns=payload["columns"])
 
 
-def save_xrf_sample(sample: XRFSample, filename: str | Path) -> None:
+def save_xrf_sample(
+    sample: XRFSample, filename: str | Path, *, method_id: str = "stardist"
+) -> None:
     """Atomically store an analyzed sample in an HDF5 sidecar."""
     filename = Path(filename)
     filename.parent.mkdir(parents=True, exist_ok=True)
@@ -83,6 +85,7 @@ def save_xrf_sample(sample: XRFSample, filename: str | Path) -> None:
         with h5py.File(temporary, "w") as handle:
             handle.attrs["format"] = SEGMENTATION_FORMAT
             handle.attrs["version"] = SEGMENTATION_VERSION
+            handle.attrs["method_id"] = method_id
             handle.attrs["name"] = sample.name
             handle.attrs["processed"] = sample.is_processed
             handle.attrs["combined"] = sample.is_combined
@@ -122,7 +125,7 @@ def save_xrf_sample(sample: XRFSample, filename: str | Path) -> None:
         raise
 
 
-def load_xrf_sample(filename: str | Path) -> XRFSample:
+def load_xrf_sample(filename: str | Path, *, expected_method_id: str | None = None) -> XRFSample:
     """Restore an analyzed sample from an HDF5 sidecar."""
     from ..xrf_refcopy.xrf_element_channel import ElementChannel
     from ..xrf_refcopy.xrf_other_channel import NucleiChannel, TissueChannel
@@ -134,6 +137,18 @@ def load_xrf_sample(filename: str | Path) -> XRFSample:
         version = int(handle.attrs.get("version", 0))
         if version != SEGMENTATION_VERSION:
             raise ValueError(f"Unsupported segmentation result version {version}")
+        stored_method_id = handle.attrs.get("method_id")
+        if isinstance(stored_method_id, bytes):
+            stored_method_id = stored_method_id.decode("utf-8")
+        if (
+            expected_method_id is not None
+            and stored_method_id is not None
+            and stored_method_id != expected_method_id
+        ):
+            raise ValueError(
+                f"Segmentation result belongs to method {stored_method_id!r}, "
+                f"not {expected_method_id!r}"
+            )
 
         sample = XRFSample(str(handle.attrs["name"]))
         nuclei_group = handle["nuclei"]

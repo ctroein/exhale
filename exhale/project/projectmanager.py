@@ -94,6 +94,11 @@ class ProjectManager:
         return self._load_project(directory, directory / PROJECT_FILENAME)
 
     def _load_project(self, directory: Path, project_file: Path) -> bool:
+        """Validate a project, offer autosave recovery, then replace the current model.
+
+        Validation happens before asking to leave the current project. A
+        recoverable loading issue is reported after the new model is shown.
+        """
         try:
             with project_file.open(encoding="utf-8") as stream:
                 saved_state = json.load(stream)

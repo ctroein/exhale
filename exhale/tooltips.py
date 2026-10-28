@@ -93,13 +93,12 @@ MAIN_WINDOW = {
     "sampleSimilarityPalette": "Choose the color scale used for correlation values.",
     "copySampleSimilarityTable": "Copy the correlation matrix as tab-separated text.",
     "saveSampleSimilarityPlot": "Save the current plot as a PNG or SVG image.",
-    "showClusterDistanceValues": "Show distances or normalized scores inside matrix cells.",
-    "showClusterDistanceStandardDeviation": (
-        "Show the standard deviation of nearest distances below each mean."
-    ),
-    "normalizeClusterDistances": (
-        "Divide each distance by its expected value when cluster centers are placed randomly "
-        "in the two-pixel-expanded union of all segmented clusters."
+    "showClusterDistanceValues": "Show distances, normalized distances or null-model percentiles inside matrix cells.",
+    "clusterDistanceSecondary": "Show the spread of observed nearest-cluster distances.",
+    "clusterDistanceValue": (
+        "Show distances in project units or pixels, null-model normalized distances, "
+        "or null-model percentiles among random placements "
+        "within the union of segmented cluster masks."
     ),
     "clusterDistancePalette": "Choose the sequential color scale used for distances.",
     "copyClusterDistanceTable": "Copy the directed distance matrix as tab-separated text.",
@@ -144,7 +143,6 @@ LAYER_VISIBLE = "Show layer"
 LAYER_OPACITY = "Opacity"
 LAYER_ADDITIVE = "Add this layer's RGB values to the layers below it."
 LAYER_GAIN = "Increase the display brightness of the raw nuclei or tissue layer."
-LAYER_MONOCHROME = "Choose monochrome color"
 LAYER_CATEGORICAL = "Cycle categorical palette"
 LAYER_COLOR = "Choose color"
 

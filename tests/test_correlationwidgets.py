@@ -85,7 +85,7 @@ def test_initial_matrix_uses_default_one_digit_padding_when_it_fits():
     metrics = QtGui.QFontMetrics(QtWidgets.QApplication.font())
     text = matrix_text_layout(spec, metrics.height(), metrics.horizontalAdvance)
     view_box = widget.matrix_plot.getViewBox()
-    cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+    cell_size = view_box.geometry().width() / view_box.viewRect().width()
     assert cell_size == pytest.approx(text.default_cell, abs=0.02)
     before = view_box.viewRect().width()
     _wheel(widget, 120)
@@ -141,7 +141,7 @@ def test_zooming_out_to_minimum_cell_size_does_not_shift_matrix():
     previous_offset = None
     for step in range(20):
         matrix_scene = widget.image.mapRectToScene(widget.image.boundingRect())
-        offset = matrix_scene.center() - view_box.sceneBoundingRect().center()
+        offset = matrix_scene.center() - view_box.geometry().center()
         if previous_offset is not None and step >= 10:
             assert abs(offset.x() - previous_offset.x()) < 2.0
             assert abs(offset.y() - previous_offset.y()) < 2.0
@@ -215,7 +215,7 @@ def test_decimal_round_trip_keeps_complete_figure_centered():
     matrix_center = QtCore.QPointF(1.5, 1.5)
     view_box.scaleBy((0.8, 0.8), matrix_center)
     widget._matrix_view_range_changed()
-    original_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+    original_cell_size = view_box.geometry().width() / view_box.viewRect().width()
 
     widget.set_matrix_spec(
         correlation_matrix_spec(values, ("A", "B", "C", "D"), show_values=True, decimals=3)
@@ -226,7 +226,7 @@ def test_decimal_round_trip_keeps_complete_figure_centered():
 
     center = view_box.viewRect().center()
     content_center = widget._matrix_content_bounds.center()
-    final_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+    final_cell_size = view_box.geometry().width() / view_box.viewRect().width()
     assert center.x() == pytest.approx(content_center.x(), abs=1e-9)
     assert center.y() == pytest.approx(content_center.y(), abs=1e-9)
     assert final_cell_size == pytest.approx(original_cell_size, abs=0.02)
@@ -246,7 +246,7 @@ def test_palette_change_cannot_corrupt_cell_size_used_by_decimal_change():
     view_box = widget.matrix_plot.getViewBox()
     view_box.scaleBy((0.8, 0.8), QtCore.QPointF(1.5, 1.5))
     widget._matrix_view_range_changed()
-    selected_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+    selected_cell_size = view_box.geometry().width() / view_box.viewRect().width()
 
     widget.set_matrix_spec(
         correlation_matrix_spec(values, labels, palette="linnaea", show_values=True, decimals=2)
@@ -255,7 +255,7 @@ def test_palette_change_cannot_corrupt_cell_size_used_by_decimal_change():
         correlation_matrix_spec(values, labels, palette="linnaea", show_values=True, decimals=3)
     )
 
-    final_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+    final_cell_size = view_box.geometry().width() / view_box.viewRect().width()
     assert final_cell_size == pytest.approx(selected_cell_size, abs=0.02)
     assert widget._matrix_cell_size == pytest.approx(selected_cell_size, abs=0.02)
     widget.close()
@@ -274,13 +274,13 @@ def test_decimal_and_data_changes_preserve_cell_size():
     view_box = widget.matrix_plot.getViewBox()
     view_box.scaleBy((0.6, 0.6), QtCore.QPointF(1.5, 1.5))
     widget._matrix_view_range_changed()
-    selected_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+    selected_cell_size = view_box.geometry().width() / view_box.viewRect().width()
     assert widget._matrix_cell_size == pytest.approx(selected_cell_size, abs=0.02)
 
     widget.set_matrix_spec(
         distance_matrix_spec(values, labels, units="µm", show_values=True, decimals=3)
     )
-    decimal_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+    decimal_cell_size = view_box.geometry().width() / view_box.viewRect().width()
     assert decimal_cell_size == pytest.approx(selected_cell_size, abs=0.02)
 
     larger = np.eye(5) * 100
@@ -293,7 +293,7 @@ def test_decimal_and_data_changes_preserve_cell_size():
             decimals=3,
         )
     )
-    data_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+    data_cell_size = view_box.geometry().width() / view_box.viewRect().width()
     assert data_cell_size == pytest.approx(selected_cell_size, abs=0.02)
     assert widget._matrix_cell_size == pytest.approx(selected_cell_size, abs=0.02)
     widget.close()
@@ -318,7 +318,7 @@ def test_value_and_secondary_text_changes_preserve_cell_size_within_limits():
         )
     )
     view_box = widget.matrix_plot.getViewBox()
-    selected_cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+    selected_cell_size = view_box.geometry().width() / view_box.viewRect().width()
 
     for show_values, show_secondary in ((False, False), (True, True), (True, False)):
         widget.set_matrix_spec(
@@ -331,7 +331,7 @@ def test_value_and_secondary_text_changes_preserve_cell_size_within_limits():
                 show_secondary=show_secondary,
             )
         )
-        cell_size = view_box.sceneBoundingRect().width() / view_box.viewRect().width()
+        cell_size = view_box.geometry().width() / view_box.viewRect().width()
         assert cell_size == pytest.approx(selected_cell_size, abs=0.02)
     widget.close()
 
@@ -349,4 +349,84 @@ def test_matrix_zoom_allows_six_digits_of_padding():
     text = matrix_text_layout(spec, metrics.height(), metrics.horizontalAdvance)
     minimum_cell, maximum_cell = widget._matrix_cell_limits(text, spec)
     assert maximum_cell - minimum_cell == pytest.approx(6 * text.digit_width)
+    widget.close()
+
+
+def test_equal_matrix_specs_do_not_refit_or_rebuild_labels():
+    widget = CorrelationPlotWidget()
+    widget.resize(900, 700)
+    widget.show()
+    _APP.processEvents()
+    values = np.array(((1.0, np.nan), (2.0, 3.0)))
+    secondary = np.array(((0.0, np.nan), (0.5, 0.7)))
+    widget.set_matrix_spec(
+        distance_matrix_spec(values, ("A", "B"), units="nm", standard_deviations=secondary)
+    )
+    _APP.processEvents()
+    fit = Mock(wraps=widget._fit_matrix)
+    labels = Mock(wraps=widget._rebuild_axis_labels)
+    widget._fit_matrix = fit
+    widget._rebuild_axis_labels = labels
+    original_cell = widget._matrix_cell_size
+    original_range = QtCore.QRectF(widget.matrix_plot.getViewBox().viewRect())
+    for _ in range(20):
+        widget.set_matrix_spec(
+            distance_matrix_spec(
+                values.copy(), ("A", "B"), units="nm", standard_deviations=secondary.copy()
+            )
+        )
+        _APP.processEvents()
+    fit.assert_not_called()
+    labels.assert_not_called()
+    assert widget._matrix_cell_size == original_cell
+    assert widget.matrix_plot.getViewBox().viewRect() == original_range
+    widget.close()
+
+
+def test_repeated_matrix_fits_preserve_fractional_cell_size():
+    widget = CorrelationPlotWidget()
+    widget.resize(900, 700)
+    widget.show()
+    _APP.processEvents()
+    widget.set_matrix_spec(distance_matrix_spec(np.ones((4, 4)), ("A", "B", "C", "D"), units="nm"))
+    _APP.processEvents()
+    for cell in (widget._matrix_cell_size, widget._matrix_cell_size + 3.25):
+        widget._matrix_cell_size = cell
+        for _ in range(20):
+            widget._reset_matrix_view = True
+            widget._fit_matrix()
+            _APP.processEvents()
+            assert widget._matrix_cell_size == pytest.approx(cell, abs=1e-9)
+    widget.close()
+
+
+def test_initial_matrix_keeps_default_padding_when_scrolling_is_needed():
+    widget = CorrelationPlotWidget()
+    widget.resize(500, 400)
+    widget.show()
+    _APP.processEvents()
+    spec = correlation_matrix_spec(np.eye(12), tuple(str(index) for index in range(12)), decimals=2)
+    widget.set_matrix_spec(spec)
+    _APP.processEvents()
+    metrics = QtGui.QFontMetrics(QtWidgets.QApplication.font())
+    text = matrix_text_layout(spec, metrics.height(), metrics.horizontalAdvance)
+    assert widget._matrix_cell_size == pytest.approx(text.default_cell, abs=1e-9)
+    assert widget.matrix_plot.getViewBox().viewRect().width() < 12
+    widget.close()
+
+
+def test_density_one_point_reference_maps_to_ten_percent_after_smoothing():
+    from exhale.analysis.correlations import DensityGrid
+
+    widget = CorrelationPlotWidget()
+    for bins in (50, 100, 500):
+        edges = np.linspace(0.0, 0.01, bins + 1)
+        area = (edges[1] - edges[0]) ** 2
+        density = np.zeros((bins, bins))
+        density[bins // 2, bins // 2] = 1.0 / area
+        widget.show_density(DensityGrid(edges, edges, density, count=1), "A", "B")
+        lower, upper = widget.density_image.getLevels()
+        peak = widget.density_image.image.max()
+        assert (peak - lower) / (upper - lower) == pytest.approx(0.1)
+        assert widget.density_color_bar.levels() == pytest.approx((lower, upper))
     widget.close()

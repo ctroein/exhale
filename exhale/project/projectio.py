@@ -12,7 +12,9 @@ from ..data.elementsettings import ElementSettings, ElementSettingsDefaults, Nor
 from ..data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
 from ..data.projectdata import (
     ChannelOverride,
+    LayerPresentation,
     ProjectData,
+    SegmentationLayerSettings,
     SegmentationParameters,
     SegmentationResult,
 )
@@ -20,6 +22,44 @@ from ..data.source_refs import ElementRef, LoadedSource, open_source
 
 PROJECT_FORMAT = "exhale-project"
 PROJECT_VERSION = 6
+
+
+def _layer_settings_to_json(settings: SegmentationLayerSettings) -> dict:
+    return {
+        "order": list(settings.order),
+        "layers": {
+            key: {
+                "visible": layer.visible,
+                "opacity": layer.opacity,
+                "blending": layer.blending,
+                "color": None if layer.color is None else list(layer.color),
+                "label_mode": layer.label_mode,
+                "palette_index": layer.palette_index,
+                "gain": layer.gain,
+            }
+            for key, layer in sorted(settings.layers.items())
+        },
+    }
+
+
+def _layer_settings_from_json(obj) -> SegmentationLayerSettings:
+    if not isinstance(obj, dict):
+        return SegmentationLayerSettings()
+    layers = {}
+    for key, layer in obj.get("layers", {}).items():
+        color = layer.get("color")
+        layers[key] = LayerPresentation(
+            visible=bool(layer["visible"]),
+            opacity=float(layer["opacity"]),
+            blending=str(layer["blending"]),
+            color=None if color is None else tuple(map(float, color)),
+            label_mode=layer.get("label_mode"),
+            palette_index=(
+                None if layer.get("palette_index") is None else int(layer["palette_index"])
+            ),
+            gain=None if layer.get("gain") is None else float(layer["gain"]),
+        )
+    return SegmentationLayerSettings(tuple(map(str, obj.get("order", ()))), layers)
 
 
 def asset_path_to_json(asset, project_dir, external_data_root):
@@ -42,7 +82,11 @@ def asset_path_to_json(asset, project_dir, external_data_root):
 
 
 def asset_path_from_json(obj, project_dir, external_data_root):
-    """Resolve a saved asset path, preferring its relocatable forms."""
+    """Resolve a saved asset path, preferring relocatable forms that exist.
+
+    If none exist, return the first candidate so the asset can remain in the
+    project as an unavailable source and be relocated later.
+    """
     candidates = []
     if project_dir is not None and "project_relative" in obj:
         candidates.append(Path(project_dir) / obj["project_relative"])
@@ -100,6 +144,7 @@ def _settings_from_ref(obj, settings_by_ref):
 
 
 def _image_options_to_json(image, *, include_resolution=False):
+    """Serialize image presentation, including resolution only for defaults."""
     obj = {
         "layout": image.layout.name,
         "scalebar": image.scalebar.name,
@@ -125,6 +170,7 @@ def _image_options_to_json(image, *, include_resolution=False):
 
 
 def _apply_image_options(image, obj):
+    """Apply saved presentation fields, retaining defaults for absent fields."""
     import numpy as np
 
     image.layout = Layouts[obj.get("layout", image.layout.name)]
@@ -185,6 +231,7 @@ def _imagesettings_to_json(img_id: int, im: ImageSettings) -> dict[str, Any]:
 
 
 def _imagesettings_from_json(obj: dict[str, Any], project_data: ProjectData) -> ImageSettings:
+    """Restore an image, omitting slots whose source is absent from the model."""
     sample_source_ids = obj.get("sample_source_ids", ())
     sample_id = obj["sample_id"]
     if sample_id not in project_data.samples:
@@ -302,6 +349,7 @@ def export_project_state(
     segmentation_results = [
         {
             "sample_id": result.sample_id,
+            "method_id": result.method_id,
             "nuclei_ref": _ref_to_json(result.nuclei_ref),
             "tissue_ref": _ref_to_json(result.tissue_ref),
             "element_refs": [_ref_to_json(ref) for ref in result.element_refs],
@@ -311,10 +359,16 @@ def export_project_state(
                 "cluster_min_k": result.parameters.cluster_min_k,
                 "cluster_max_k": result.parameters.cluster_max_k,
             },
-            "sidecar": str(result_relative_path(result.sample_id)),
+            "layer_settings": _layer_settings_to_json(result.layer_settings),
+            "sidecar": str(result_relative_path(result.sample_id, result.method_id)),
         }
         for result in sorted(
-            project_data.segmentation_results.values(), key=lambda value: value.sample_id
+            (
+                result
+                for sample_results in project_data.segmentation_results.values()
+                for result in sample_results.values()
+            ),
+            key=lambda value: (value.sample_id, value.method_id),
         )
     ]
 
@@ -398,7 +452,11 @@ def load_project_state(
     open_files: bool = True,
     project_dir: str | Path | None = None,
 ) -> list[str]:
-    """Restore saved state into an empty ``ProjectData`` model."""
+    """Restore saved state into an empty ``ProjectData`` model.
+
+    Return recoverable loading issues. Missing data files retain their saved
+    channel identities so the user can relocate them after opening the project.
+    """
     validate_project_state(state)
 
     issues = []
@@ -560,6 +618,7 @@ def load_project_state(
         for result_obj in state.get("segmentation_results", []):
             try:
                 sample_id = result_obj["sample_id"]
+                method_id = result_obj.get("method_id", "stardist")
                 sample = project_data.samples[sample_id]
                 nuclei_ref = ElementRef.from_json(result_obj["nuclei_ref"])
                 tissue_ref = ElementRef.from_json(result_obj["tissue_ref"])
@@ -577,13 +636,22 @@ def load_project_state(
                     cluster_max_k=parameter_values["cluster_max_k"],
                 )
                 sidecar = Path(project_dir) / result_obj["sidecar"]
-                project_data.segmentation_results[sample_id] = SegmentationResult(
-                    sample_id,
-                    nuclei_ref,
-                    tissue_ref,
-                    element_refs,
-                    parameters,
-                    load_xrf_sample(sidecar),
+                try:
+                    layer_settings = _layer_settings_from_json(result_obj.get("layer_settings"))
+                except Exception as exc:
+                    layer_settings = SegmentationLayerSettings()
+                    issues.append(f"Segmentation layer presentation was ignored: {exc}")
+                project_data.set_segmentation_result(
+                    SegmentationResult(
+                        sample_id=sample_id,
+                        method_id=method_id,
+                        nuclei_ref=nuclei_ref,
+                        tissue_ref=tissue_ref,
+                        element_refs=element_refs,
+                        parameters=parameters,
+                        xrf_sample=load_xrf_sample(sidecar, expected_method_id=method_id),
+                        layer_settings=layer_settings,
+                    )
                 )
             except Exception as exc:
                 issues.append(f"One segmentation result was skipped: {exc}")

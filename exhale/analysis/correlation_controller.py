@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from concurrent.futures import CancelledError
+from dataclasses import dataclass, replace
 from functools import partial
+from math import ceil, log10
 
 import numpy as np
 from pyqtgraph.exporters import ImageExporter, SVGExporter
@@ -11,7 +13,7 @@ from qtpy import QtCore, QtWidgets
 
 from ..data.plotsettings import CLUSTER_DISTANCES, ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES
 from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
-from .cluster_distances import cluster_distance_matrix, normalize_cluster_distance_matrix
+from .cluster_distances import cluster_distance_matrix, random_placement_statistics
 from .correlations import (
     CorrelationMatrix,
     SampleSimilarityMatrix,
@@ -23,6 +25,7 @@ from .correlationwidgets import CorrelationMatrixView, CorrelationPlotWidget
 from .matrix_export_dialog import MatrixExportDialog
 from .matrixpdf import export_matrix_pdf, export_matrix_png, export_matrix_svg
 from .matrixplots import SEQUENTIAL_MATRIX_PALETTES, distance_matrix_spec
+from .segmentationmethods import SEGMENTATION_METHODS_BY_ID
 
 
 @dataclass(frozen=True)
@@ -31,20 +34,51 @@ class _ElementCacheEntry:
     result: CorrelationMatrix
 
 
-class CorrelationController:
+class _NullWorker(QtCore.QThread):
+    """Compute null statistics from private array snapshots without accessing Qt widgets."""
+
+    completed = QtCore.Signal(object, object, object)
+
+    def __init__(self, signature, counts, masks, observed, parent):
+        super().__init__(parent)
+        self.signature = signature
+        self.counts = np.array(counts, copy=True)
+        self.observed = np.array(observed, copy=True)
+        self.masks = tuple(np.array(mask, copy=True) for mask in masks)
+        for array in (self.counts, self.observed, *self.masks):
+            array.setflags(write=False)
+
+    def run(self):
+        try:
+            result = random_placement_statistics(
+                self.counts,
+                self.masks,
+                observed=self.observed,
+                cancelled=self.isInterruptionRequested,
+            )
+        except CancelledError:
+            return
+        except Exception as error:
+            self.completed.emit(self.signature, None, str(error))
+        else:
+            self.completed.emit(self.signature, result, None)
+
+
+class CorrelationController(QtCore.QObject):
     """Own the independent relationship analyses and their session caches."""
 
-    ELEMENT_MODE = "elements"
-    SCATTER_MODE = "scatter"
-    SAMPLE_MODE = "samples"
     SAMPLE_ID_ROLE = QtCore.Qt.UserRole
 
     def __init__(self, window):
+        super().__init__(window)
         self.window = window
         self._element_cache: dict[tuple[str, tuple[str, ...]], _ElementCacheEntry] = {}
         self._similarity_cache: dict[tuple, SampleSimilarityMatrix] = {}
         self._distance_cache: dict[tuple, object] = {}
-        self._normalized_distance_cache: dict[tuple, object] = {}
+        self._null_cache: dict[tuple, object] = {}
+        self._null_workers = {}
+        self._distance_request = None
+        self._distance_generation = 0
         self.element_matrix = CorrelationMatrixView(
             window.elementCorrelationPlotHost,
             window.showElementCorrelationValues,
@@ -74,8 +108,14 @@ class CorrelationController:
             window.project_data.matrix_plot_settings[CLUSTER_DISTANCES],
             palettes=SEQUENTIAL_MATRIX_PALETTES,
             spec_factory=self._distance_spec,
-            secondary_control=window.showClusterDistanceStandardDeviation,
         )
+
+        self._distance_placeholder = QtWidgets.QLabel(
+            "Computing random-placement statistics…", window.clusterDistancePlotHost
+        )
+        self._distance_placeholder.setAlignment(QtCore.Qt.AlignCenter)
+        window.clusterDistancePlotHost.layout().addWidget(self._distance_placeholder)
+        self._distance_placeholder.hide()
 
         excluded_header = window.sampleSimilarityExcluded.header()
         excluded_header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
@@ -97,8 +137,11 @@ class CorrelationController:
         window.elementCorrelationSample.currentIndexChanged.connect(self._element_sample_changed)
         window.elementScatterSample.currentIndexChanged.connect(self._scatter_sample_changed)
         window.clusterDistanceSample.currentIndexChanged.connect(self._distance_sample_changed)
+        window.clusterDistanceMethod.currentIndexChanged.connect(self._distance_options_changed)
         window.clusterDistanceMinimum.valueChanged.connect(self._distance_options_changed)
-        window.normalizeClusterDistances.toggled.connect(self._distance_normalization_changed)
+        window.showClusterDistanceValues.toggled.connect(self._distance_options_changed)
+        window.clusterDistanceValue.currentIndexChanged.connect(self._distance_presentation_changed)
+        window.clusterDistanceSecondary.toggled.connect(self._distance_presentation_changed)
         window.elementScatterX.currentIndexChanged.connect(self._update_scatter)
         window.elementScatterY.currentIndexChanged.connect(self._update_scatter)
         window.elementScatterPresentation.currentIndexChanged.connect(
@@ -135,14 +178,16 @@ class CorrelationController:
         )
         self.element_matrix.pairActivated.connect(self._show_pair)
         window.channelsChanged.connect(self.refresh_samples)
+        window.segmentationResultsChanged.connect(self._segmentation_results_changed)
         self._scatter_presentation_changed(update=False)
         self.refresh_samples()
 
     def clear_project(self) -> None:
         self._element_cache.clear()
         self._similarity_cache.clear()
+        self._cancel_null_workers()
         self._distance_cache.clear()
-        self._normalized_distance_cache.clear()
+        self._null_cache.clear()
         self.element_matrix.set_result(None)
         self.similarity_matrix.set_result(None)
         self.distance_matrix.set_result(None)
@@ -169,8 +214,22 @@ class CorrelationController:
         self.similarity_matrix.reload_settings()
         self.distance_matrix.reload_settings()
         distance_settings = window.project_data.matrix_plot_settings[CLUSTER_DISTANCES]
-        with QtCore.QSignalBlocker(window.normalizeClusterDistances):
-            window.normalizeClusterDistances.setChecked(distance_settings.normalize_to_random)
+        with (
+            QtCore.QSignalBlocker(window.clusterDistanceValue),
+            QtCore.QSignalBlocker(window.clusterDistanceSecondary),
+        ):
+            units = window.project_data.image_defaults.resolution[1]
+            window.clusterDistanceValue.setItemText(0, f"Physical distance ({units})")
+            window.clusterDistanceValue.setCurrentIndex(
+                3
+                if distance_settings.distance_percentile
+                else 2
+                if distance_settings.normalize_to_random
+                else int(distance_settings.distance_pixels)
+            )
+            window.clusterDistanceSecondary.setChecked(
+                distance_settings.distance_secondary == "observed"
+            )
         selected_element_sample = window.elementCorrelationSample.currentData()
         selected_scatter_sample = window.elementScatterSample.currentData()
         selected_distance_sample = window.clusterDistanceSample.currentData()
@@ -203,6 +262,7 @@ class CorrelationController:
                 )
         self._sample_selection_changed(recalculate=False)
         self._refresh_scatter_elements()
+        self._refresh_distance_methods()
         self._update_current_if_visible()
 
     def _correlations_visible(self) -> bool:
@@ -241,11 +301,40 @@ class CorrelationController:
             self._update_scatter()
 
     def _distance_sample_changed(self) -> None:
+        self._refresh_distance_methods()
         if (
             self._correlations_visible()
             and self.window.correlationModes.currentWidget() is self.window.clusterDistanceTab
         ):
             self.calculate_distances(show_errors=False)
+
+    def _segmentation_results_changed(self) -> None:
+        self._cancel_null_workers()
+        self._distance_cache.clear()
+        self._null_cache.clear()
+        self._refresh_distance_methods()
+        if (
+            self._correlations_visible()
+            and self.window.correlationModes.currentWidget() is self.window.clusterDistanceTab
+        ):
+            self.calculate_distances(show_errors=False)
+
+    def _refresh_distance_methods(self) -> None:
+        selector = self.window.clusterDistanceMethod
+        selected = selector.currentData()
+        sample_id = self.window.clusterDistanceSample.currentData()
+        results = self.window.project_data.segmentation_results_for_sample(sample_id)
+        compatible = [
+            method
+            for method_id, method in SEGMENTATION_METHODS_BY_ID.items()
+            if method.supports_cluster_distances and method_id in results
+        ]
+        with QtCore.QSignalBlocker(selector):
+            selector.clear()
+            for method in compatible:
+                selector.addItem(method.name, method.method_id)
+            index = selector.findData(selected)
+            selector.setCurrentIndex(index if index >= 0 else (0 if compatible else -1))
 
     def _distance_options_changed(self) -> None:
         if (
@@ -254,101 +343,199 @@ class CorrelationController:
         ):
             self.calculate_distances(show_errors=False)
 
-    def _distance_normalization_changed(self, enabled: bool) -> None:
+    def _distance_presentation_changed(self) -> None:
         settings = self.window.project_data.matrix_plot_settings[CLUSTER_DISTANCES]
-        settings.normalize_to_random = enabled
-        if (
-            self._correlations_visible()
-            and self.window.correlationModes.currentWidget() is self.window.clusterDistanceTab
-        ):
-            self.calculate_distances(show_errors=False)
+        mode = self.window.clusterDistanceValue.currentIndex()
+        settings.distance_pixels = mode == 1
+        settings.normalize_to_random = mode == 2
+        settings.distance_percentile = mode == 3
+        settings.distance_secondary = (
+            "observed" if self.window.clusterDistanceSecondary.isChecked() else "none"
+        )
+        settings.show_secondary = settings.distance_secondary != "none"
+        self._distance_options_changed()
 
     def _distance_spec(self, values, labels, **options):
-        units = self.window.project_data.image_defaults.resolution[1]
-        deviations = (
-            None
-            if self.distance_matrix.result is None
-            else self.distance_matrix.result.standard_deviations
-        )
-        return distance_matrix_spec(
+        settings = self.window.project_data.matrix_plot_settings[CLUSTER_DISTANCES]
+        result = self.distance_matrix.result
+        options["show_secondary"] = settings.distance_secondary != "none"
+        spec = distance_matrix_spec(
             values,
             labels,
-            units=units,
-            standard_deviations=deviations,
-            normalized=bool(
-                self.distance_matrix.result is not None and self.distance_matrix.result.normalized
+            units=(
+                result.units
+                if result is not None
+                else self.window.project_data.image_defaults.resolution[1]
             ),
+            standard_deviations=None if result is None else result.standard_deviations,
+            normalized=bool(result is not None and result.normalized),
             **options,
         )
+        if result is not None and result.percentile:
+            return replace(
+                spec,
+                levels=(0.0, 100.0),
+                color_bar_label="Null-model percentile (%)",
+                decimals=max(0, ceil(log10(result.simulations)) - 2),
+                secondary_values=None,
+                show_secondary=False,
+            )
+        return spec
+
+    def _cancel_null_workers(self) -> None:
+        """Invalidate pending results and request cooperative cancellation."""
+        self._distance_generation += 1
+        self._distance_request = None
+        for worker in self._null_workers.values():
+            worker.requestInterruption()
+        self.window.clusterDistancePlotHost.unsetCursor()
+        self._distance_placeholder.hide()
+        self.distance_matrix.plot.show()
+
+    def shutdown(self) -> None:
+        """Stop workers before destroying their Qt owners."""
+        self._cancel_null_workers()
+        for worker in tuple(self._null_workers.values()):
+            worker.wait()
+
+    def _null_completed(self, signature, result, error) -> None:
+        """Use a worker result only if its project generation and request still match.
+
+        A completed calculation may still be cached when another distance view
+        has since been requested within the same project generation.
+        """
+        if signature[0] != self._distance_generation:
+            return
+        if result is not None:
+            self._null_cache[signature] = result
+        if signature != self._distance_request:
+            return
+        self.window.clusterDistancePlotHost.unsetCursor()
+        if error is not None:
+            self._distance_calculation_failed(error, False)
+        else:
+            self.calculate_distances(show_errors=False)
+
+    def _null_finished(self) -> None:
+        worker = self.sender()
+        self._null_workers.pop(worker.signature, None)
+        worker.deleteLater()
 
     def calculate_distances(self, *, show_errors=True) -> None:
-        """Show directed mean nearest-centroid distances for one analyzed sample."""
+        """Show cached distances, starting null calculations asynchronously when needed."""
+        self._distance_request = None
+        self.window.clusterDistancePlotHost.unsetCursor()
+        self._distance_placeholder.hide()
+        self.distance_matrix.plot.show()
         sample_id = self.window.clusterDistanceSample.currentData()
-        result = self.window.project_data.segmentation_results.get(sample_id)
+        method_id = self.window.clusterDistanceMethod.currentData()
+        result = self.window.project_data.segmentation_result(sample_id, method_id)
         if result is None:
             self._distance_calculation_failed(
                 "Run segmentation for the selected sample first.", show_errors
             )
             return
         resolution, units = self.window.project_data.image_defaults.resolution
-        minimum_clusters = self.window.clusterDistanceMinimum.value()
-        entries = tuple(
-            (channel, ref)
-            for channel, ref in zip(
-                result.xrf_sample.elements.values(), result.element_refs, strict=True
-            )
-            if (0 if channel.cluster_df is None else len(channel.cluster_df)) >= minimum_clusters
-        )
-        channels = tuple(channel for channel, _ref in entries)
-        if len(channels) < 2:
-            self._distance_calculation_failed(
-                "At least two segmented elements meet the minimum cluster count.", show_errors
-            )
-            return
-        labels = tuple(channel.name for channel in channels)
-        keys = tuple(str(ref) for _channel, ref in entries)
-        signature = (
-            sample_id,
-            id(result.xrf_sample),
-            keys,
-            float(resolution),
-            units,
-            minimum_clusters,
-        )
+        self.window.clusterDistanceValue.setItemText(0, f"Physical distance ({units})")
+        channels = tuple(result.xrf_sample.elements.values())
+        keys = tuple(str(ref) for ref in result.element_refs)
+        signature = (self._distance_generation, sample_id, method_id, id(result.xrf_sample), keys)
         try:
-            matrix = self._distance_cache.get(signature)
-            if matrix is None:
-                matrix = cluster_distance_matrix(
+            observed = self._distance_cache.get(signature)
+            if observed is None:
+                observed = cluster_distance_matrix(
                     channels,
-                    labels,
+                    tuple(channel.name for channel in channels),
                     keys,
-                    resolution=float(resolution),
-                    units=units,
+                    resolution=1.0,
+                    units="px",
                 )
-                self._distance_cache[signature] = matrix
-            if self.window.normalizeClusterDistances.isChecked():
-                normalized = self._normalized_distance_cache.get(signature)
-                if normalized is None:
-                    self.window.clusterDistanceStatus.setText(
-                        "Computing random-placement normalization…"
+                self._distance_cache[signature] = observed
+            indices = np.flatnonzero(observed.counts >= self.window.clusterDistanceMinimum.value())
+            if len(indices) < 2:
+                self._distance_calculation_failed(
+                    "At least two segmented elements meet the minimum cluster count.", show_errors
+                )
+                return
+            settings = self.window.project_data.matrix_plot_settings[CLUSTER_DISTANCES]
+            needs_null = settings.normalize_to_random or settings.distance_percentile
+            self.window.clusterDistanceSecondary.setEnabled(not settings.distance_percentile)
+            decimals_enabled = (
+                not settings.distance_percentile
+                and self.window.showClusterDistanceValues.isChecked()
+            )
+            with QtCore.QSignalBlocker(self.window.clusterDistanceDecimals):
+                self.window.clusterDistanceDecimals.setValue(
+                    1 if settings.distance_percentile else settings.decimals
+                )
+            self.window.clusterDistanceDecimals.setEnabled(decimals_enabled)
+            self.window.clusterDistanceDecimalsLabel.setEnabled(decimals_enabled)
+            null = self._null_cache.get(signature)
+            if needs_null and null is None:
+                self._distance_request = signature
+                self.distance_matrix.set_result(None)
+                self.distance_matrix.plot.hide()
+                self._distance_placeholder.show()
+                self.window.clusterDistanceStatus.setText("Computing random-placement statistics…")
+                self.window.clusterDistancePlotHost.setCursor(QtCore.Qt.BusyCursor)
+                if signature not in self._null_workers:
+                    masks = tuple(
+                        channel.cluster_labels
+                        for channel in channels
+                        if channel.cluster_labels is not None
                     )
-                    normalized = normalize_cluster_distance_matrix(
-                        matrix,
-                        tuple(result.xrf_sample.elements.values()),
-                        resolution=float(resolution),
+                    worker = _NullWorker(
+                        signature, observed.counts, masks, observed.values, self.window
                     )
-                    self._normalized_distance_cache[signature] = normalized
-                matrix = normalized
+                    worker.completed.connect(self._null_completed)
+                    worker.finished.connect(self._null_finished)
+                    self._null_workers[signature] = worker
+                    worker.start()
+                return
+            scale = np.full(
+                observed.values.shape, 1.0 if settings.distance_pixels else float(resolution)
+            )
+            if settings.normalize_to_random:
+                scale = np.divide(
+                    1.0,
+                    null.means,
+                    out=np.full_like(null.means, np.nan),
+                    where=np.isfinite(null.means) & (null.means > 0),
+                )
+            spread = observed.standard_deviations
+            selection = np.ix_(indices, indices)
+            matrix = replace(
+                observed,
+                labels=tuple(channels[index].name for index in indices),
+                keys=tuple(keys[index] for index in indices),
+                counts=observed.counts[indices],
+                values=(
+                    null.percentiles if settings.distance_percentile else observed.values * scale
+                )[selection],
+                variances=(np.square(spread * scale))[selection],
+                standard_deviations=(spread * scale)[selection],
+                units=""
+                if settings.normalize_to_random
+                else "px"
+                if settings.distance_pixels
+                else units,
+                normalized=settings.normalize_to_random,
+                percentile=settings.distance_percentile,
+                simulations=0 if null is None else null.simulations,
+                random_expectations=None if null is None else null.means[selection] * resolution,
+            )
         except (RuntimeError, ValueError, KeyError) as error:
             self._distance_calculation_failed(str(error), show_errors)
             return
         self.distance_matrix.set_result(matrix)
-        nonempty = int(np.count_nonzero(matrix.counts))
         self.window.clusterDistanceStatus.setText(
-            f"{len(channels)} elements; {nonempty} with detected clusters"
+            f"{len(indices)} elements; {np.count_nonzero(matrix.counts)} with detected clusters"
         )
 
     def _distance_calculation_failed(self, message: str, show_error: bool) -> None:
+        self._distance_placeholder.hide()
+        self.distance_matrix.plot.show()
+        self.window.clusterDistancePlotHost.unsetCursor()
         self.distance_matrix.set_result(None)
         self.window.clusterDistanceStatus.setText(message)
         if show_error:
@@ -656,6 +843,7 @@ class CorrelationController:
             spec,
             self.window,
             palettes=matrix.palettes,
+            fixed_decimals=spec.decimals if getattr(matrix.result, "percentile", False) else None,
         )
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
@@ -709,10 +897,6 @@ class CorrelationController:
                 "The matrix was exported with these temporary adjustments:\n\n"
                 + "\n".join(adjustments),
             )
-
-    def copy_table(self, mode=ELEMENT_MODE) -> None:
-        matrix = self.element_matrix if mode == self.ELEMENT_MODE else self.similarity_matrix
-        matrix.copy_table()
 
     def _show_input_error(self, message: str) -> None:
         QtWidgets.QMessageBox.warning(
