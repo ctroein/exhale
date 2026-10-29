@@ -6,7 +6,10 @@ import numpy as np
 import pyqtgraph as pg
 from qtpy import QtCore, QtGui, QtWidgets
 
+from .. import icons
 from ..data.plotsettings import MatrixPlotSettings
+from ..tooltips import SCATTER_FIT
+from ..widgets import IconToolButton
 from .correlations import (
     CorrelationMatrix,
     DensityGrid,
@@ -127,8 +130,17 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         self.stack = QtWidgets.QStackedWidget(self)
         layout.addWidget(self.stack, 1)
         self.matrix_plot = pg.PlotWidget(self.stack, viewBox=_MatrixViewBox())
+        self.matrix_plot.hideButtons()
         self.matrix_plot.installEventFilter(self)
         self.scatter_plot = pg.PlotWidget(self.stack)
+        self.scatter_plot.hideButtons()
+        self.scatter_fit_button = IconToolButton(
+            icons.IconName.MAXIMIZE, self.scatter_plot.viewport()
+        )
+        self.scatter_fit_button.setToolTip(SCATTER_FIT)
+        self.scatter_fit_button.setAutoRaise(True)
+        self.scatter_fit_button.clicked.connect(lambda: self.scatter_plot.autoRange())
+        self.scatter_plot.getViewBox().sigResized.connect(self._place_scatter_fit_button)
         self.scatter_plot.installEventFilter(self)
         self.density_image = None
         self._density_bar_inserted = False
@@ -429,11 +441,21 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         self._fit_pending = True
         QtCore.QTimer.singleShot(0, self._fit_matrix)
 
+    def _place_scatter_fit_button(self) -> None:
+        """Place the fit action inside the plot area's upper-left corner."""
+        corner = self.scatter_plot.mapFromScene(
+            self.scatter_plot.getViewBox().sceneBoundingRect().topLeft()
+        )
+        self.scatter_fit_button.adjustSize()
+        self.scatter_fit_button.move(corner + QtCore.QPoint(6, 6))
+        self.scatter_fit_button.raise_()
+
     def eventFilter(self, watched, event):
         if watched is self.scatter_plot and event.type() in (
             QtCore.QEvent.Show,
             QtCore.QEvent.Resize,
         ):
+            self._place_scatter_fit_button()
             QtCore.QTimer.singleShot(0, self._resize_density_color_bar)
         if watched is self.matrix_plot and event.type() in (
             QtCore.QEvent.Show,
@@ -667,6 +689,7 @@ class CorrelationPlotWidget(QtWidgets.QWidget):
         return current.getPlotItem()
 
     def reload_appearance(self) -> None:
+        self.scatter_fit_button.reload_icon()
         palette = QtWidgets.QApplication.palette()
         background = _plot_background(palette)
         foreground = palette.color(QtGui.QPalette.Text)

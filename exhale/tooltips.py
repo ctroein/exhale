@@ -133,6 +133,8 @@ SETTINGS_DIALOG = {
     ),
 }
 
+SCATTER_FIT = "Fit the data to the plot area"
+
 IMAGE_CANVAS_FIT = "Fit the full image (Home)"
 IMAGE_ELEMENT_ADJUST = "Edit this element's presentation while keeping the composed image visible."
 IMAGE_BORDER_COLOR = "Choose the border color for the composed image."
