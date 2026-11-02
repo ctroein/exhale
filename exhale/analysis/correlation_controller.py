@@ -6,6 +6,7 @@ from concurrent.futures import CancelledError
 from dataclasses import dataclass, replace
 from functools import partial
 from math import ceil, log10
+from time import monotonic
 
 import numpy as np
 from pyqtgraph.exporters import ImageExporter, SVGExporter
@@ -25,7 +26,6 @@ from .correlationwidgets import CorrelationMatrixView, CorrelationPlotWidget
 from .matrix_export_dialog import MatrixExportDialog
 from .matrixpdf import export_matrix_pdf, export_matrix_png, export_matrix_svg
 from .matrixplots import SEQUENTIAL_MATRIX_PALETTES, distance_matrix_spec
-from .segmentationmethods import SEGMENTATION_METHODS_BY_ID
 
 
 @dataclass(frozen=True)
@@ -38,15 +38,26 @@ class _NullWorker(QtCore.QThread):
     """Compute null statistics from private array snapshots without accessing Qt widgets."""
 
     completed = QtCore.Signal(object, object, object)
+    progress = QtCore.Signal(object, int, int)
 
     def __init__(self, signature, counts, masks, observed, parent):
         super().__init__(parent)
         self.signature = signature
+        self.progress_counts = (0, 1000)
+        self._last_progress_time = float("-inf")
         self.counts = np.array(counts, copy=True)
         self.observed = np.array(observed, copy=True)
         self.masks = tuple(np.array(mask, copy=True) for mask in masks)
         for array in (self.counts, self.observed, *self.masks):
             array.setflags(write=False)
+
+    def _report_progress(self, completed: int, total: int) -> None:
+        """Keep current progress and send at most four UI updates per second."""
+        self.progress_counts = (completed, total)
+        now = monotonic()
+        if now - self._last_progress_time >= 0.25:
+            self._last_progress_time = now
+            self.progress.emit(self.signature, completed, total)
 
     def run(self):
         try:
@@ -55,6 +66,7 @@ class _NullWorker(QtCore.QThread):
                 self.masks,
                 observed=self.observed,
                 cancelled=self.isInterruptionRequested,
+                progress=self._report_progress,
             )
         except CancelledError:
             return
@@ -137,7 +149,6 @@ class CorrelationController(QtCore.QObject):
         window.elementCorrelationSample.currentIndexChanged.connect(self._element_sample_changed)
         window.elementScatterSample.currentIndexChanged.connect(self._scatter_sample_changed)
         window.clusterDistanceSample.currentIndexChanged.connect(self._distance_sample_changed)
-        window.clusterDistanceMethod.currentIndexChanged.connect(self._distance_options_changed)
         window.clusterDistanceMinimum.valueChanged.connect(self._distance_options_changed)
         window.showClusterDistanceValues.toggled.connect(self._distance_options_changed)
         window.clusterDistanceValue.currentIndexChanged.connect(self._distance_presentation_changed)
@@ -178,7 +189,7 @@ class CorrelationController(QtCore.QObject):
         )
         self.element_matrix.pairActivated.connect(self._show_pair)
         window.channelsChanged.connect(self.refresh_samples)
-        window.segmentationResultsChanged.connect(self._segmentation_results_changed)
+        window.clusteringResultsChanged.connect(self._clustering_results_changed)
         self._scatter_presentation_changed(update=False)
         self.refresh_samples()
 
@@ -262,7 +273,6 @@ class CorrelationController(QtCore.QObject):
                 )
         self._sample_selection_changed(recalculate=False)
         self._refresh_scatter_elements()
-        self._refresh_distance_methods()
         self._update_current_if_visible()
 
     def _correlations_visible(self) -> bool:
@@ -301,40 +311,21 @@ class CorrelationController(QtCore.QObject):
             self._update_scatter()
 
     def _distance_sample_changed(self) -> None:
-        self._refresh_distance_methods()
         if (
             self._correlations_visible()
             and self.window.correlationModes.currentWidget() is self.window.clusterDistanceTab
         ):
             self.calculate_distances(show_errors=False)
 
-    def _segmentation_results_changed(self) -> None:
+    def _clustering_results_changed(self) -> None:
         self._cancel_null_workers()
         self._distance_cache.clear()
         self._null_cache.clear()
-        self._refresh_distance_methods()
         if (
             self._correlations_visible()
             and self.window.correlationModes.currentWidget() is self.window.clusterDistanceTab
         ):
             self.calculate_distances(show_errors=False)
-
-    def _refresh_distance_methods(self) -> None:
-        selector = self.window.clusterDistanceMethod
-        selected = selector.currentData()
-        sample_id = self.window.clusterDistanceSample.currentData()
-        results = self.window.project_data.segmentation_results_for_sample(sample_id)
-        compatible = [
-            method
-            for method_id, method in SEGMENTATION_METHODS_BY_ID.items()
-            if method.supports_cluster_distances and method_id in results
-        ]
-        with QtCore.QSignalBlocker(selector):
-            selector.clear()
-            for method in compatible:
-                selector.addItem(method.name, method.method_id)
-            index = selector.findData(selected)
-            selector.setCurrentIndex(index if index >= 0 else (0 if compatible else -1))
 
     def _distance_options_changed(self) -> None:
         if (
@@ -398,6 +389,14 @@ class CorrelationController(QtCore.QObject):
         for worker in tuple(self._null_workers.values()):
             worker.wait()
 
+    def _null_progress(self, signature, completed: int, total: int) -> None:
+        """Update the placeholder only for the currently requested calculation."""
+        if signature[0] != self._distance_generation or signature != self._distance_request:
+            return
+        self._distance_placeholder.setText(
+            f"Computing random-placement statistics…\n{completed:,} / {total:,}"
+        )
+
     def _null_completed(self, signature, result, error) -> None:
         """Use a worker result only if its project generation and request still match.
 
@@ -428,18 +427,17 @@ class CorrelationController(QtCore.QObject):
         self._distance_placeholder.hide()
         self.distance_matrix.plot.show()
         sample_id = self.window.clusterDistanceSample.currentData()
-        method_id = self.window.clusterDistanceMethod.currentData()
-        result = self.window.project_data.segmentation_result(sample_id, method_id)
+        result = self.window.project_data.clustering_results.get(sample_id)
         if result is None:
             self._distance_calculation_failed(
-                "Run segmentation for the selected sample first.", show_errors
+                "Run element clustering for the selected sample first.", show_errors
             )
             return
         resolution, units = self.window.project_data.image_defaults.resolution
         self.window.clusterDistanceValue.setItemText(0, f"Physical distance ({units})")
         channels = tuple(result.xrf_sample.elements.values())
         keys = tuple(str(ref) for ref in result.element_refs)
-        signature = (self._distance_generation, sample_id, method_id, id(result.xrf_sample), keys)
+        signature = (self._distance_generation, sample_id, id(result.xrf_sample), keys)
         try:
             observed = self._distance_cache.get(signature)
             if observed is None:
@@ -454,7 +452,7 @@ class CorrelationController(QtCore.QObject):
             indices = np.flatnonzero(observed.counts >= self.window.clusterDistanceMinimum.value())
             if len(indices) < 2:
                 self._distance_calculation_failed(
-                    "At least two segmented elements meet the minimum cluster count.", show_errors
+                    "At least two elements meet the cluster count minimum.", show_errors
                 )
                 return
             settings = self.window.project_data.matrix_plot_settings[CLUSTER_DISTANCES]
@@ -487,10 +485,12 @@ class CorrelationController(QtCore.QObject):
                     worker = _NullWorker(
                         signature, observed.counts, masks, observed.values, self.window
                     )
+                    worker.progress.connect(self._null_progress)
                     worker.completed.connect(self._null_completed)
                     worker.finished.connect(self._null_finished)
                     self._null_workers[signature] = worker
                     worker.start()
+                self._null_progress(signature, *self._null_workers[signature].progress_counts)
                 return
             scale = np.full(
                 observed.values.shape, 1.0 if settings.distance_pixels else float(resolution)

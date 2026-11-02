@@ -7,17 +7,26 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from ..analysis.segmentationio import load_xrf_sample, result_relative_path
+from ..analysis.segmentationio import (
+    clustering_relative_path,
+    load_segmentation,
+    load_xrf_sample,
+    result_relative_path,
+)
 from ..data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from ..data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
 from ..data.projectdata import (
     ChannelOverride,
+    ClusteringParameters,
+    ClusteringResult,
     LayerPresentation,
     ProjectData,
     SegmentationLayerSettings,
     SegmentationParameters,
+    SegmentationPreview,
     SegmentationResult,
 )
+from ..data.segmentation import SegmentationPostprocessing
 from ..data.source_refs import ElementRef, LoadedSource, open_source
 
 PROJECT_FORMAT = "exhale-project"
@@ -350,16 +359,19 @@ def export_project_state(
         {
             "sample_id": result.sample_id,
             "method_id": result.method_id,
-            "nuclei_ref": _ref_to_json(result.nuclei_ref),
-            "tissue_ref": _ref_to_json(result.tissue_ref),
-            "element_refs": [_ref_to_json(ref) for ref in result.element_refs],
+            "input_ref": _ref_to_json(result.input_ref),
+            "model_id": result.output.model_id,
+            "model_version": result.output.model_version,
             "parameters": {
-                "nuclei_expansion": result.parameters.nuclei_expansion,
-                "nuclei_min_area": result.parameters.nuclei_min_area,
-                "cluster_min_k": result.parameters.cluster_min_k,
-                "cluster_max_k": result.parameters.cluster_max_k,
+                "clip_percentile": result.parameters.clip_percentile,
+                "method_options": dict(result.parameters.method_options),
             },
             "layer_settings": _layer_settings_to_json(result.layer_settings),
+            "postprocessing": {
+                "minimum_area": result.postprocessing.minimum_area,
+                "expansion": result.postprocessing.expansion,
+            },
+            "reference_refs": [_ref_to_json(ref) for ref in result.reference_refs],
             "sidecar": str(result_relative_path(result.sample_id, result.method_id)),
         }
         for result in sorted(
@@ -387,6 +399,29 @@ def export_project_state(
         "element_settings": element_settings,
         "images": images,
         "segmentation_results": segmentation_results,
+        "segmentation_previews": [
+            {
+                "sample_id": sample_id,
+                "method_id": method_id,
+                "input_ref": None if preview.input_ref is None else _ref_to_json(preview.input_ref),
+                "reference_refs": [_ref_to_json(ref) for ref in preview.reference_refs],
+                "layer_settings": _layer_settings_to_json(preview.layer_settings),
+            }
+            for sample_id, previews in sorted(project_data.segmentation_previews.items())
+            for method_id, preview in sorted(previews.items())
+        ],
+        "clustering_results": [
+            {
+                "sample_id": result.sample_id,
+                "element_refs": [_ref_to_json(ref) for ref in result.element_refs],
+                "parameters": {"min_k": result.parameters.min_k, "max_k": result.parameters.max_k},
+                "layer_settings": _layer_settings_to_json(result.layer_settings),
+                "sidecar": str(clustering_relative_path(result.sample_id)),
+            }
+            for result in sorted(
+                project_data.clustering_results.values(), key=lambda result: result.sample_id
+            )
+        ],
         "matrix_plots": {
             key: settings.to_json()
             for key, settings in sorted(project_data.matrix_plot_settings.items())
@@ -615,25 +650,41 @@ def load_project_state(
     # Segmentation results are independent derived objects. A damaged or
     # missing sidecar must not prevent the rest of the project from loading.
     if project_dir is not None:
+        for obj in state.get("segmentation_previews", []):
+            try:
+                sample = project_data.samples[obj["sample_id"]]
+                available = {channel.ref for channel in sample.channels.values()}
+                input_ref = ElementRef.from_json(obj["input_ref"]) if obj.get("input_ref") else None
+                project_data.segmentation_previews.setdefault(sample.sample_id, {})[
+                    obj["method_id"]
+                ] = SegmentationPreview(
+                    input_ref=input_ref if input_ref in available else None,
+                    reference_refs=tuple(
+                        ref
+                        for value in obj.get("reference_refs", [])
+                        if (ref := ElementRef.from_json(value)) in available
+                    ),
+                    layer_settings=_layer_settings_from_json(obj.get("layer_settings")),
+                )
+            except Exception as exc:
+                issues.append(f"One segmentation preview was skipped: {exc}")
+
         for result_obj in state.get("segmentation_results", []):
             try:
                 sample_id = result_obj["sample_id"]
                 method_id = result_obj.get("method_id", "stardist")
                 sample = project_data.samples[sample_id]
-                nuclei_ref = ElementRef.from_json(result_obj["nuclei_ref"])
-                tissue_ref = ElementRef.from_json(result_obj["tissue_ref"])
-                element_refs = tuple(
-                    ElementRef.from_json(ref) for ref in result_obj.get("element_refs", [])
+                input_ref = ElementRef.from_json(
+                    result_obj.get("input_ref", result_obj.get("nuclei_ref"))
                 )
-                sample_refs = {channel.ref for channel in sample.channels.values()}
-                if not {nuclei_ref, tissue_ref, *element_refs} <= sample_refs:
-                    raise ValueError("input element maps no longer belong to the sample")
-                parameter_values = result_obj["parameters"]
+                if input_ref not in {channel.ref for channel in sample.channels.values()}:
+                    raise ValueError("input element map no longer belongs to the sample")
+                parameter_values = result_obj.get("parameters", {})
+                options = dict(parameter_values.get("method_options", {}))
+                options.pop("model_path", None)
                 parameters = SegmentationParameters(
-                    nuclei_expansion=parameter_values["nuclei_expansion"],
-                    nuclei_min_area=parameter_values["nuclei_min_area"],
-                    cluster_min_k=parameter_values["cluster_min_k"],
-                    cluster_max_k=parameter_values["cluster_max_k"],
+                    clip_percentile=parameter_values.get("clip_percentile"),
+                    method_options=options,
                 )
                 sidecar = Path(project_dir) / result_obj["sidecar"]
                 try:
@@ -645,16 +696,50 @@ def load_project_state(
                     SegmentationResult(
                         sample_id=sample_id,
                         method_id=method_id,
-                        nuclei_ref=nuclei_ref,
-                        tissue_ref=tissue_ref,
-                        element_refs=element_refs,
+                        input_ref=input_ref,
                         parameters=parameters,
-                        xrf_sample=load_xrf_sample(sidecar, expected_method_id=method_id),
+                        output=load_segmentation(sidecar, expected_method_id=method_id),
                         layer_settings=layer_settings,
+                        postprocessing=SegmentationPostprocessing(
+                            result_obj.get("postprocessing", {}).get("minimum_area", 0),
+                            expansion=result_obj.get("postprocessing", {}).get("expansion", 0),
+                        ),
+                        reference_refs=tuple(
+                            ref
+                            for value in result_obj.get("reference_refs", [])
+                            if (ref := ElementRef.from_json(value))
+                            in {channel.ref for channel in sample.channels.values()}
+                        ),
                     )
                 )
             except Exception as exc:
                 issues.append(f"One segmentation result was skipped: {exc}")
+
+    if project_dir is not None:
+        for obj in state.get("clustering_results", []):
+            try:
+                sample = project_data.samples[obj["sample_id"]]
+                refs = tuple(ElementRef.from_json(ref) for ref in obj["element_refs"])
+                if not set(refs) <= {channel.ref for channel in sample.channels.values()}:
+                    raise ValueError("input element maps no longer belong to the sample")
+                parameters = ClusteringParameters(**obj["parameters"])
+                try:
+                    layer_settings = _layer_settings_from_json(obj.get("layer_settings"))
+                except Exception as exc:
+                    layer_settings = SegmentationLayerSettings()
+                    issues.append(f"Element-cluster layer presentation was ignored: {exc}")
+                result = ClusteringResult(
+                    sample.sample_id,
+                    refs,
+                    parameters,
+                    load_xrf_sample(
+                        Path(project_dir) / obj["sidecar"], expected_method_id="element-clusters"
+                    ),
+                    layer_settings,
+                )
+                project_data.clustering_results[sample.sample_id] = result
+            except Exception as exc:
+                issues.append(f"One element-clustering result was skipped: {exc}")
 
     return issues
 

@@ -2,26 +2,30 @@
 
 from __future__ import annotations
 
-import json
 from copy import deepcopy
+from html import escape
+from pathlib import Path
 from time import strftime
 
+import numpy as np
+import pyqtgraph as pg
 from qtpy import QtCore, QtGui, QtWidgets
-from qtpy.QtCore import Qt
+from tifffile import imwrite
 
 from .. import appearance, icons
+from ..data.constants import DISPLAY_UNITS
 from ..data.projectdata import (
     SegmentationLayerSettings,
     SegmentationParameters,
+    SegmentationPreview,
     SegmentationResult,
 )
+from ..data.segmentation import SegmentationPostprocessing
 from ..data.source_refs import SourceUnavailableError
-from ..imaging.listwidgets import ElementListWidget
+from ..model_settings import model_directory
 from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
-from ..tooltips import ANALYSIS_SETTINGS_DIALOG, apply_tooltips
-from ..widgets import IconCheckDelegate
-from .analysis_settings_dialog import AnalysisSettingsDialog
-from .segmentationio import result_relative_path, save_xrf_sample
+from .segmentation_options_dialog import SegmentationOptionsDialog
+from .segmentationio import result_relative_path, save_segmentation
 from .segmentationmethods import SEGMENTATION_METHODS, segmentation_method
 
 LOAD_NAPARI_EARLY = True
@@ -44,8 +48,13 @@ class AnalysisController(QtCore.QObject):
         self.thread = None
         self._result_sample_id = None
         self._result_method_id = None
-        self._element_signatures = {}
+        self._display_result = None
         self._view_fitted_on_show = False
+        self._viewer_canvas = None
+        self._initial_fit_timer = QtCore.QTimer(self)
+        self._initial_fit_timer.setSingleShot(True)
+        self._initial_fit_timer.setInterval(50)
+        self._initial_fit_timer.timeout.connect(self._fit_view_on_first_show)
         window.napariWidget.installEventFilter(self)
         for method in SEGMENTATION_METHODS:
             window.analysisPipelineComboBox.addItem(method.name, method.method_id)
@@ -56,28 +65,47 @@ class AnalysisController(QtCore.QObject):
                 )
                 item.setEnabled(False)
                 item.setToolTip(reason)
-        window.analysisElements.enable_multi_check_selection()
-        window.analysisElements.setItemDelegate(IconCheckDelegate(window.analysisElements))
 
-        dialog = AnalysisSettingsDialog(window)
-        self.settings_dialog = dialog
-        self.cluster_min_k = dialog.clusterMinK
-        self.cluster_max_k = dialog.clusterMaxK
-        self.nuclei_expansion = dialog.nucleiExpansion
-        self.nuclei_min_area = dialog.nucleiMinArea
-        apply_tooltips(dialog, ANALYSIS_SETTINGS_DIALOG)
+        self.settings_dialog = SegmentationOptionsDialog(window)
         window.analysisOptions.clicked.connect(self._show_method_options)
-        dialog.buttonBox.clicked.connect(dialog.hide)
+        window.analysisMinimumArea.valueChanged.connect(self._postprocessing_changed)
+        window.analysisExpansion.valueChanged.connect(self._postprocessing_changed)
+        window.analysisShowOverview.clicked.connect(self._show_overview)
+        window.analysisAddReference.clicked.connect(self._add_reference)
+        window.analysisLayerList.removeRequested.connect(self._remove_reference)
+        self._area_plot = pg.PlotWidget()
+        self._area_plot.setBackground(None)
+        self._area_plot.setLabel("bottom", "Segment area", units="px")
+        self._area_plot.setLabel("left", "Segments")
+        self._area_plot.setMouseEnabled(x=False, y=False)
+        self._area_plot.setMenuEnabled(False)
+        self._area_plot.getPlotItem().hideButtons()
+        plot_layout = QtWidgets.QVBoxLayout(window.analysisAreaPlotContainer)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
+        plot_layout.addWidget(self._area_plot)
+        window.appearance.changed.connect(self._reload_plot_appearance)
+        self._reload_plot_appearance()
+        window.analysisPostprocessing.setEnabled(False)
 
     def current_method_id(self) -> str | None:
         return self.window.analysisPipelineComboBox.currentData()
 
     def _show_method_options(self) -> None:
-        if self.current_method_id() == "stardist":
+        method_id = self.current_method_id()
+        if method_id is not None and segmentation_method(method_id).has_options:
+            self.settings_dialog.set_method(method_id)
             self.settings_dialog.show()
             self.settings_dialog.raise_()
 
     def eventFilter(self, watched, event):
+        if (
+            watched is self._viewer_canvas
+            and event.type() in (QtCore.QEvent.Type.Paint, QtCore.QEvent.Type.Resize)
+            and not self._view_fitted_on_show
+        ):
+            # Coalesce startup layout changes, including those after the first paint.
+            if event.type() == QtCore.QEvent.Type.Resize or not self._initial_fit_timer.isActive():
+                self._initial_fit_timer.start()
         if watched is self.window.napariWidget and event.type() in (
             QtCore.QEvent.Type.Resize,
             QtCore.QEvent.Type.Show,
@@ -107,8 +135,11 @@ class AnalysisController(QtCore.QObject):
                 self.initialize_view()
             self._select_default_nuclei_channel()
             self.refresh_result_view()
-            if not self._view_fitted_on_show:
-                QtCore.QTimer.singleShot(0, self._fit_view_on_first_show)
+            self._update_overview(show=False)
+            if self._display_result is not None:
+                self.naparihelper.update_reference_maps(
+                    self._reference_maps(self._display_result.reference_refs)
+                )
 
         self.window.tabWidget.currentChanged.connect(tab_check)
         if initialize_view:
@@ -126,7 +157,7 @@ class AnalysisController(QtCore.QObject):
             not self._view_fitted_on_show
             and self.window.tabWidget.currentWidget() == self.window.analysisTab
             and self.naparihelper is not None
-            and self.naparihelper.sample is not None
+            and (self.naparihelper.result is not None or self.naparihelper.input_map is not None)
         ):
             self.fit_view()
             self._view_fitted_on_show = True
@@ -138,35 +169,39 @@ class AnalysisController(QtCore.QObject):
 
     def initialize_view(self) -> None:
         """Create the embedded Napari viewer and connect analysis controls."""
-        from .naparihelper import NapariHelper
+        from .segmentation_viewer import SegmentationViewer
 
         window = self.window
-        self.naparihelper = NapariHelper(
+        self.naparihelper = SegmentationViewer(
             "dark" if appearance.is_dark() else "light",
             self.window.project_data.abundance_units,
         )
         window.analysisLayerList.set_helper(self.naparihelper)
         window.analysisLayerList.presentationChanged.connect(self._layer_settings_changed)
         self.naparihelper.set_info_widget(window.analysisInfo)
+        self.naparihelper.inspection_callback = lambda: window.analysisInfoStack.setCurrentWidget(
+            window.analysisDetails
+        )
 
         layout = QtWidgets.QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.naparihelper.qtwidget, 1)
         window.napariWidget.setLayout(layout)
+        self._viewer_canvas = self.naparihelper.qtwidget.canvas.native
+        self._viewer_canvas.installEventFilter(self)
         self._place_view_buttons()
 
         _scale_font(window.analysisStatus, 0.8)
         window.analysisSampleComboBox.currentIndexChanged.connect(self.sample_changed)
         window.analysisPipelineComboBox.currentIndexChanged.connect(self.method_changed)
         window.channelsChanged.connect(self.update_channels)
-        window.channelsChanged.connect(self.update_elements)
         self.update_channels()
-        self.update_elements()
         window.analysisRun.pressed.connect(self.run)
         window.analysisAbort.pressed.connect(self.abort)
         window.analysisExport.clicked.connect(self.export_results)
         window.analysisSaveView.clicked.connect(self.save_current_view)
         window.analysisFit.clicked.connect(self.fit_view)
+        window.analysisChNuclei.currentIndexChanged.connect(self._input_changed)
         self.set_busy(False)
 
     def abort(self) -> None:
@@ -198,19 +233,30 @@ class AnalysisController(QtCore.QObject):
         sample = self.current_sample()
         sample_id = None if sample is None else sample.sample_id
         self.update_channels()
-        self.update_elements()
+        self._refresh_reference_choices()
         result = self.window.project_data.segmentation_result(sample_id, self.current_method_id())
         if result is None:
+            preview = self._preview()
+            if preview is not None and preview.input_ref is not None:
+                selector = self.window.analysisChNuclei
+                with QtCore.QSignalBlocker(selector):
+                    index = self._combo_index_for_data(selector, preview.input_ref)
+                    if index >= 0:
+                        selector.setCurrentIndex(index)
             self.clear_result_view()
         else:
-            self.show_result(result)
+            self.show_result(result, fit=self._result_sample_id != sample_id)
 
     def method_changed(self) -> None:
         """Show the selected method's stored result for the current sample."""
+        method_id = self.current_method_id()
+        if method_id is not None:
+            self.settings_dialog.set_method(method_id)
+        self.set_busy(self.worker is not None)
         self.sample_changed()
 
     def refresh_result_view(self) -> None:
-        """Refresh only changed element maps when the displayed result is unchanged."""
+        """Keep the current segmentation view unless its result changes."""
         sample = self.current_sample()
         sample_id = None if sample is None else sample.sample_id
         method_id = self.current_method_id()
@@ -220,96 +266,264 @@ class AnalysisController(QtCore.QObject):
             or self.naparihelper is None
             or self._result_sample_id != sample_id
             or self._result_method_id != method_id
-            or self.naparihelper.sample is not result.xrf_sample
+            or self._display_result is not result
         ):
             self.sample_changed()
             return
 
-        settings = self._segmentation_element_settings(result)
-        changed_maps = {}
-        for name, ref, element_settings in zip(
-            result.xrf_sample.elements, result.element_refs, settings, strict=True
-        ):
-            signature = self._element_transform_signature(element_settings)
-            if self._element_signatures.get(ref) != signature:
-                changed_maps[name] = element_settings.transformedData()
-                self._element_signatures[ref] = signature
-        if changed_maps:
-            self.naparihelper.update_element_maps(changed_maps)
-
     def segmentation_parameters(self) -> SegmentationParameters:
-        return SegmentationParameters(
-            nuclei_expansion=self.nuclei_expansion.value(),
-            nuclei_min_area=self.nuclei_min_area.value(),
-            cluster_min_k=self.cluster_min_k.value(),
-            cluster_max_k=self.cluster_max_k.value(),
-        )
+        self.settings_dialog.set_method(self.current_method_id())
+        return self.settings_dialog.parameters()
 
     def _set_segmentation_parameters(self, parameters: SegmentationParameters) -> None:
-        controls = (
-            (self.nuclei_expansion, parameters.nuclei_expansion),
-            (self.nuclei_min_area, parameters.nuclei_min_area),
-            (self.cluster_min_k, parameters.cluster_min_k),
-            (self.cluster_max_k, parameters.cluster_max_k),
-        )
-        blockers = [QtCore.QSignalBlocker(control) for control, _value in controls]
-        for control, value in controls:
-            control.setValue(value)
-        del blockers
+        self.settings_dialog.set_method(self.current_method_id())
+        self.settings_dialog.set_parameters(parameters)
 
     def clear_result_view(self) -> None:
         if self.naparihelper is None:
             return
-        self.naparihelper.set_sample(None)
-        self._result_sample_id = None
+        sample = self.current_sample()
+        sample_id = None if sample is None else sample.sample_id
+        preview = self._preview()
+        refs = () if preview is None else preview.reference_refs
+        self.naparihelper.set_result(
+            None,
+            self._preview_input(),
+            self._reference_maps(refs),
+            fit=self._result_sample_id != sample_id or self.naparihelper.input_map is None,
+        )
+        self._result_sample_id = sample_id
         self._result_method_id = None
-        self._element_signatures = {}
+        self._display_result = None
+        if preview is not None:
+            self.naparihelper.apply_layer_settings(preview.layer_settings)
         self.window.analysisInfo.clear()
+        self.window.analysisPostprocessing.setEnabled(False)
+        self._update_overview()
         self.update_layer_controls()
         self.window.analysisExport.setEnabled(False)
-        self.window.analysisSaveView.setEnabled(False)
+        self.window.analysisSaveView.setEnabled(self.naparihelper.input_map is not None)
+        self._refresh_reference_choices()
 
-    def show_result(self, result: SegmentationResult) -> None:
+    def show_result(self, result: SegmentationResult, *, fit=True) -> None:
         window = self.window
-        for selector, ref in (
-            (window.analysisChNuclei, result.nuclei_ref),
-            (window.analysisChTissue, result.tissue_ref),
-        ):
-            index = self._combo_index_for_data(selector, ref)
+        selector = window.analysisChNuclei
+        index = self._combo_index_for_data(selector, result.input_ref)
+        with QtCore.QSignalBlocker(selector):
             if index >= 0:
                 selector.setCurrentIndex(index)
 
-        selected_refs = set(result.element_refs)
-        with QtCore.QSignalBlocker(window.analysisElements):
-            for row in range(window.analysisElements.count()):
-                item = window.analysisElements.item(row)
-                ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
-                item.setCheckState(
-                    Qt.CheckState.Checked if ref in selected_refs else Qt.CheckState.Unchecked
-                )
         self._set_segmentation_parameters(result.parameters)
         if self.naparihelper is None:
             return
-        settings = self._segmentation_element_settings(result)
-        self.naparihelper.set_sample(
-            result.xrf_sample,
-            tuple(element_settings.transformedData() for element_settings in settings),
-            tuple(self._element_layer_id(ref) for ref in result.element_refs),
+        self._display_result = None
+        self.naparihelper.set_result(
+            result, self._input_map(result), self._reference_maps(result.reference_refs), fit=fit
         )
         self.naparihelper.apply_layer_settings(result.layer_settings)
+        self._display_result = result
         self._result_sample_id = result.sample_id
         self._result_method_id = result.method_id
-        self._element_signatures = {
-            ref: self._element_transform_signature(element_settings)
-            for ref, element_settings in zip(result.element_refs, settings, strict=True)
-        }
+        with QtCore.QSignalBlocker(window.analysisMinimumArea):
+            window.analysisMinimumArea.setValue(result.postprocessing.minimum_area)
+        with QtCore.QSignalBlocker(window.analysisExpansion):
+            window.analysisExpansion.setValue(result.postprocessing.expansion)
+        window.analysisPostprocessing.setEnabled(self.worker is None)
+        self._update_overview()
+        self._refresh_reference_choices()
         self.update_layer_controls()
         window.analysisExport.setEnabled(True)
         window.analysisSaveView.setEnabled(True)
 
-    @staticmethod
-    def _element_layer_id(ref) -> str:
-        return json.dumps(ref.to_json(), sort_keys=True, separators=(",", ":"))
+    def _preview_input(self):
+        """Read the selected input for inspection before a method has produced labels."""
+        ref = self.window.analysisChNuclei.currentData()
+        if ref is None:
+            return None
+        try:
+            return self.window.element_controller.ensure_settings(ref).data
+        except (SourceUnavailableError, KeyError, RuntimeError, ValueError):
+            return None
+
+    def _input_changed(self):
+        if self.naparihelper is not None and self._display_result is None:
+            preview = self._preview()
+            if preview is not None:
+                preview.input_ref = self.window.analysisChNuclei.currentData()
+                self.window.project_state_manager.project_changed()
+            self.clear_result_view()
+        self._refresh_reference_choices()
+
+    def _reference_refs(self):
+        if self._display_result is not None:
+            return self._display_result.reference_refs
+        preview = self._preview()
+        return () if preview is None else preview.reference_refs
+
+    def _preview(self, *, create=False):
+        """Use saved inspection state only while this sample/method has no result."""
+        sample = self.current_sample()
+        method = self.current_method_id()
+        if sample is None or method is None:
+            return None
+        previews = self.window.project_data.segmentation_previews
+        if create:
+            return previews.setdefault(sample.sample_id, {}).setdefault(
+                method, SegmentationPreview()
+            )
+        return previews.get(sample.sample_id, {}).get(method)
+
+    def _refresh_reference_choices(self):
+        """Offer sample-local maps not already present as input or reference layers."""
+        selector = self.window.analysisReferenceCombo
+        previous = selector.currentData()
+        excluded = {*self._reference_refs(), self.window.analysisChNuclei.currentData()}
+        with QtCore.QSignalBlocker(selector):
+            selector.clear()
+            sample = self.current_sample()
+            if sample is not None:
+                for channel in sorted(sample.channels.values(), key=lambda c: c.name.casefold()):
+                    if channel.ref not in excluded:
+                        selector.addItem(channel.name, channel.ref)
+            index = selector.findData(previous)
+            if index >= 0:
+                selector.setCurrentIndex(index)
+        self.window.analysisAddReference.setEnabled(selector.count() > 0 and self.worker is None)
+
+    def _reference_maps(self, refs):
+        """Resolve optional display maps without changing the segmentation input."""
+        maps = []
+        for ref in refs:
+            try:
+                settings = self.window.element_controller.ensure_settings(ref)
+                maps.append((ref, settings.name, settings.transformedData()))
+            except (SourceUnavailableError, KeyError, RuntimeError, ValueError):
+                continue
+        return maps
+
+    def _add_reference(self):
+        ref = self.window.analysisReferenceCombo.currentData()
+        if ref is not None:
+            self._set_reference_refs((*self._reference_refs(), ref))
+
+    def _remove_reference(self, ref):
+        self._set_reference_refs(tuple(item for item in self._reference_refs() if item != ref))
+
+    def _set_reference_refs(self, refs):
+        result = self._display_result
+        presentation = self.naparihelper.layer_settings()
+        if result is not None:
+            result.reference_refs = tuple(refs)
+            result.layer_settings = presentation
+            self.show_result(result, fit=False)
+            result.layer_settings = self.naparihelper.layer_settings()
+            self.window.project_state_manager.project_changed()
+        else:
+            preview = self._preview(create=True)
+            if preview is None:
+                return
+            preview.reference_refs = tuple(refs)
+            preview.input_ref = self.window.analysisChNuclei.currentData()
+            preview.layer_settings = presentation
+            self.clear_result_view()
+            preview.layer_settings = self.naparihelper.layer_settings()
+            self.window.project_state_manager.project_changed()
+        self._refresh_reference_choices()
+
+    def _postprocessing_changed(self, _value):
+        """Recompute the disposable filtered result while preserving layer presentation."""
+        result = self._display_result
+        if result is None:
+            return
+        result.layer_settings = self.naparihelper.layer_settings()
+        result.postprocessing = SegmentationPostprocessing(
+            self.window.analysisMinimumArea.value(), self.window.analysisExpansion.value()
+        )
+        self.show_result(result, fit=False)
+        self.window.project_state_manager.project_changed()
+        self.window.segmentationResultsChanged.emit()
+
+    def _show_overview(self):
+        self.window.analysisInfoStack.setCurrentWidget(self.window.analysisOverview)
+
+    def _reload_plot_appearance(self):
+        color = self.window.palette().text().color()
+        for name in ("bottom", "left"):
+            axis = self._area_plot.getAxis(name)
+            axis.setPen(color)
+            axis.setTextPen(color)
+        for curve in self._area_plot.listDataItems():
+            curve.setPen(color)
+
+    def _update_overview(self, *, show=True):
+        result = self._display_result
+        self._area_plot.clear()
+        if result is None:
+            self.window.analysisSummary.setText("No segmentation result")
+        else:
+            _ids, areas = result.segment_areas
+            resolution, unit = self.window.project_data.image_defaults.resolution
+            units = list(DISPLAY_UNITS)
+            area_unit = units[min(units.index(unit) + 1, len(units) - 1)]
+            pixel_area = (resolution * DISPLAY_UNITS[unit] / DISPLAY_UNITS[area_unit]) ** 2
+            total = result.processed_labels.size
+            statistics = [("Total", areas.sum())]
+            statistics.extend(
+                (name, function(areas) if len(areas) else None)
+                for name, function in (
+                    ("Minimum", np.min),
+                    ("Maximum", np.max),
+                    ("Mean", np.mean),
+                    ("Median", np.median),
+                )
+            )
+            rows = "".join(
+                f'<tr><td>{name}</td><td align="right">{format(area, ".1f" if name == "Mean" else "g")}</td>'
+                f'<td align="right">{100 * area / total:.3g}%</td>'
+                f'<td align="right">{area * pixel_area:.5g}</td></tr>'
+                if area is not None
+                else f"<tr><td>{name}</td><td>—</td><td>—</td><td>—</td></tr>"
+                for name, area in statistics
+            )
+            self.window.analysisSummary.setText(
+                f'<table cellspacing="6"><tr><td colspan="4">Segments: {len(areas)}</td></tr>'
+                '<tr><th></th><th align="right">px</th><th align="right">fraction</th>'
+                f'<th align="right">{escape(area_unit)}²</th></tr>'
+                f"{rows}</table>"
+            )
+            _unfiltered_ids, unfiltered_areas = result.unfiltered_segment_areas
+            if len(unfiltered_areas):
+                values, counts = np.unique(unfiltered_areas, return_counts=True)
+                x = np.repeat(np.r_[0, values], 2)[1:]
+                y = np.repeat(np.r_[0, np.cumsum(counts)], 2)[:-1]
+                self._area_plot.plot(x, y, pen=pg.mkPen(self.window.palette().text().color()))
+                self._area_plot.setYRange(0, len(unfiltered_areas) * 1.05, padding=0)
+                self._area_plot.addItem(
+                    pg.InfiniteLine(
+                        result.postprocessing.minimum_area,
+                        angle=90,
+                        movable=False,
+                        pen=pg.mkPen(
+                            self.window.palette().text().color(), style=QtCore.Qt.DashLine
+                        ),
+                    )
+                )
+                self._area_plot.enableAutoRange(axis="x")
+        if show:
+            self._show_overview()
+
+    def _input_map(self, result: SegmentationResult):
+        """Resolve display data independently of the saved segmentation labels."""
+        try:
+            raw = self.window.element_controller.ensure_settings(result.input_ref).data
+        except (SourceUnavailableError, KeyError, RuntimeError, ValueError):
+            return None
+        if raw.shape != result.output.labels.shape:
+            self._append_status(
+                "The source map size has changed; displaying segmentation labels only."
+            )
+            return None
+        return raw
 
     def _layer_settings_changed(self) -> None:
         """Store the current viewer presentation in its sample/method result."""
@@ -318,33 +532,24 @@ class AnalysisController(QtCore.QObject):
         result = self.window.project_data.segmentation_result(
             self._result_sample_id, self._result_method_id
         )
-        if result is None or self.naparihelper.sample is not result.xrf_sample:
+        if (
+            result is None
+            and self._display_result is None
+            and self.naparihelper.input_map is not None
+        ):
+            preview = self._preview(create=True)
+            if preview is not None:
+                preview.input_ref = self.window.analysisChNuclei.currentData()
+                preview.layer_settings = self.naparihelper.layer_settings()
+                self.window.project_state_manager.project_changed()
+            return
+        if result is None or self._display_result is not result:
             return
         settings = self.naparihelper.layer_settings()
         if settings == result.layer_settings:
             return
         result.layer_settings = settings
         self.window.project_state_manager.project_changed()
-
-    def _segmentation_element_settings(self, result: SegmentationResult):
-        project_data = self.window.project_data
-        sample = project_data.samples[result.sample_id]
-        effective_by_ref = {
-            channel.ref: channel
-            for channel in sample.effective_channels(project_data.project_channels).values()
-        }
-        settings_by_ref = []
-        for ref in result.element_refs:
-            channel = effective_by_ref.get(ref)
-            settings = None if channel is None else channel.settings
-            if settings is None:
-                settings = self.window.element_controller.ensure_settings(ref)
-            settings_by_ref.append(settings)
-        return tuple(settings_by_ref)
-
-    @staticmethod
-    def _element_transform_signature(settings):
-        return settings.normalizer, settings.gamma, tuple(settings.trfRange)
 
     @staticmethod
     def _combo_index_for_data(combo, target) -> int:
@@ -354,18 +559,18 @@ class AnalysisController(QtCore.QObject):
         return -1
 
     def update_channels(self) -> None:
-        """Update the nuclei/tissue selectors from the active sample."""
+        """Update the input-map selector from the active sample."""
         channels = self._effective_channels()
-        for selector in (self.window.analysisChNuclei, self.window.analysisChTissue):
-            selected_ref = selector.currentData()
-            with QtCore.QSignalBlocker(selector):
-                selector.clear()
-                selector.addItem("None", None)
-                for channel in channels:
-                    selector.addItem(channel.name, userData=channel.ref)
-                index = self._combo_index_for_data(selector, selected_ref)
-                if index >= 0:
-                    selector.setCurrentIndex(index)
+        selector = self.window.analysisChNuclei
+        selected_ref = selector.currentData()
+        with QtCore.QSignalBlocker(selector):
+            selector.clear()
+            selector.addItem("None", None)
+            for channel in channels:
+                selector.addItem(channel.name, userData=channel.ref)
+            index = self._combo_index_for_data(selector, selected_ref)
+            if index >= 0:
+                selector.setCurrentIndex(index)
         self._select_default_nuclei_channel(channels)
 
     def _select_default_nuclei_channel(self, channels=None) -> None:
@@ -384,27 +589,6 @@ class AnalysisController(QtCore.QObject):
         )
         if index >= 0:
             selector.setCurrentIndex(index)
-
-    def update_elements(self) -> None:
-        """Update the analysis element list from the active sample."""
-        element_list = self.window.analysisElements
-        unchecked_refs = {
-            element_list.item(row).data(ElementListWidget.ELEMENT_REF_ROLE)
-            for row in range(element_list.count())
-            if element_list.item(row).checkState() == Qt.CheckState.Unchecked
-        }
-        with QtCore.QSignalBlocker(element_list):
-            element_list.clear()
-            for channel in self._effective_channels():
-                element_list.addChannel(
-                    channel.name,
-                    channel.key,
-                    channel.ref,
-                    Qt.CheckState.Unchecked
-                    if channel.ref in unchecked_refs
-                    else Qt.CheckState.Checked,
-                    element_icon=False,
-                )
 
     def _effective_channels(self):
         sample = self.current_sample()
@@ -446,23 +630,46 @@ class AnalysisController(QtCore.QObject):
             window.analysisPipelineComboBox,
             window.analysisSampleComboBox,
             window.analysisChNuclei,
-            window.analysisChTissue,
-            window.analysisElements,
             window.analysisOptions,
-            self.cluster_min_k,
-            self.cluster_max_k,
-            self.nuclei_expansion,
-            self.nuclei_min_area,
+            window.analysisReferenceCombo,
+            window.analysisAddReference,
+            self.settings_dialog,
         ):
             widget.setEnabled(not busy)
         window.analysisProgress.setRange(0, 0 if busy else 1)
+        window.analysisProgress.setTextVisible(False)
+        self._model_progress_phase = None
         window.analysisExport.setEnabled(
-            not busy and self.naparihelper is not None and self.naparihelper.sample is not None
+            not busy and self.naparihelper is not None and self.naparihelper.result is not None
         )
         window.analysisSaveView.setEnabled(
-            not busy and self.naparihelper is not None and self.naparihelper.sample is not None
+            not busy and self.naparihelper is not None and bool(self.naparihelper.user_layers())
+        )
+        method_id = self.current_method_id()
+        window.analysisOptions.setEnabled(
+            not busy and method_id is not None and segmentation_method(method_id).has_options
         )
         window.analysisAbort.setEnabled(busy)
+        window.analysisPostprocessing.setEnabled(not busy and self._display_result is not None)
+        if not busy:
+            self._refresh_reference_choices()
+
+    def _model_progress(self, phase, completed, total) -> None:
+        """Show bounded transfer/checksum progress using the existing progress bar."""
+        if self.worker is None:
+            return
+        if phase != self._model_progress_phase:
+            self._append_status(f"{phase} trained model")
+            self._model_progress_phase = phase
+        bar = self.window.analysisProgress
+        bar.setRange(0, 1000)
+        bar.setValue(round(1000 * completed / total))
+        bar.setFormat(f"{completed / 1024**2:.0f} / {total / 1024**2:.0f} MiB")
+        bar.setTextVisible(True)
+
+    def _model_ready(self) -> None:
+        self.window.analysisProgress.setTextVisible(False)
+        self.window.analysisProgress.setRange(0, 0)
 
     def _append_status(self, message) -> None:
         self.window.analysisStatus.appendPlainText(strftime("[%T] ") + message)
@@ -471,8 +678,9 @@ class AnalysisController(QtCore.QObject):
     def run(self) -> None:
         """Validate the selected sample and start its background segmentation."""
         window = self.window
-        if self.worker is not None:
-            raise RuntimeError("Analysis worker already running")
+        if self.worker is not None or window.clustering_controller.worker is not None:
+            window.show_error("Another analysis is running.")
+            return
         if not window.project_manager.require_project_directory(
             "Segmentation results are stored in the project directory."
         ):
@@ -494,22 +702,15 @@ class AnalysisController(QtCore.QObject):
         if unavailable_reason is not None:
             window.show_error("The selected segmentation method is unavailable", unavailable_reason)
             return
-        selectors = (window.analysisChNuclei, window.analysisChTissue)
-        selected_refs = [selector.currentData() for selector in selectors]
-        if None in selected_refs:
-            window.show_error("Select channels for nuclei and tissue first.")
+        input_ref = window.analysisChNuclei.currentData()
+        if input_ref is None:
+            window.show_error("Select an input channel first.")
             return
-        element_refs = [
-            item.data(ElementListWidget.ELEMENT_REF_ROLE)
-            for item in (
-                window.analysisElements.item(row) for row in range(window.analysisElements.count())
-            )
-            if item.checkState() == Qt.CheckState.Checked
-        ]
         parameters = self.segmentation_parameters()
+        preview = self._preview()
         try:
-            nuclei_settings, tissue_settings = self.element_settings(selected_refs)
-            element_settings = self.element_settings(element_refs)
+            input_settings = self.element_settings([input_ref])[0]
+            image = input_settings.data
         except SourceUnavailableError as exc:
             window.show_source_unavailable(exc.source_id)
             return
@@ -519,46 +720,53 @@ class AnalysisController(QtCore.QObject):
 
         thread = QtCore.QThread(window)
         worker = method.create_worker(
-            nuclei_settings,
-            tissue_settings,
-            element_settings,
-            sample_name=sample.name,
-            nuclei_expansion_px=parameters.nuclei_expansion,
-            nuclei_min_area=parameters.nuclei_min_area,
-            cluster_min_k=parameters.cluster_min_k,
-            cluster_max_k=parameters.cluster_max_k,
+            image,
+            parameters=parameters,
+            model_directory=model_directory(window.settings),
         )
         worker.moveToThread(thread)
         worker.progress.connect(self._append_status)
+        worker.model_progress.connect(self._model_progress)
+        worker.model_ready.connect(self._model_ready)
 
         def worker_cleanup():
-            self.worker.deleteLater()
             self.worker = None
-            self.thread.quit()
             self.thread = None
             self.set_busy(False)
 
         @QtCore.Slot()
-        def on_finished(xrf_sample):
+        def on_finished(output):
             self._append_status("Saving results")
             previous = window.project_data.segmentation_result(analysis_sample_id, method_id)
             result = SegmentationResult(
                 sample_id=analysis_sample_id,
                 method_id=method_id,
-                nuclei_ref=selected_refs[0],
-                tissue_ref=selected_refs[1],
-                element_refs=tuple(element_refs),
+                input_ref=input_ref,
                 parameters=parameters,
-                xrf_sample=xrf_sample,
+                output=output,
                 layer_settings=(
                     deepcopy(previous.layer_settings)
                     if previous is not None
+                    else deepcopy(preview.layer_settings)
+                    if preview is not None
                     else SegmentationLayerSettings()
+                ),
+                postprocessing=(
+                    previous.postprocessing
+                    if previous is not None
+                    else SegmentationPostprocessing()
+                ),
+                reference_refs=(
+                    previous.reference_refs
+                    if previous is not None
+                    else preview.reference_refs
+                    if preview is not None
+                    else ()
                 ),
             )
             try:
-                save_xrf_sample(
-                    xrf_sample,
+                save_segmentation(
+                    output,
                     window.project_dir / result_relative_path(analysis_sample_id, method_id),
                     method_id=method_id,
                 )
@@ -577,25 +785,35 @@ class AnalysisController(QtCore.QObject):
 
         @QtCore.Slot()
         def on_failed(details):
+            model_error = worker.model_error
+            # A modal dialog can process thread deletion before returning.
+            worker_cleanup()
             if details == "":
                 self._append_status("Interrupted")
             else:
                 self._append_status("Failed")
-                window.show_error("Analysis failed", details)
-            worker_cleanup()
+                if model_error is not None:
+                    QtWidgets.QMessageBox.warning(
+                        window, "Cannot obtain trained model", model_error
+                    )
+                else:
+                    window.show_error("Analysis failed", details)
 
         self.set_busy(True)
         worker.finished.connect(on_finished)
         worker.failed.connect(on_failed)
+        worker.finished.connect(thread.quit, QtCore.Qt.DirectConnection)
+        worker.failed.connect(thread.quit, QtCore.Qt.DirectConnection)
         thread.started.connect(worker.run)
+        thread.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         self.worker = worker
         self.thread = thread
         thread.start()
 
     def export_results(self) -> None:
-        """Export the currently displayed analysis tables to a chosen directory."""
-        if self.naparihelper is None or self.naparihelper.sample is None:
+        """Export the displayed instance-label image as a TIFF in the chosen directory."""
+        if self.naparihelper is None or self.naparihelper.result is None:
             return
         window = self.window
         default_directory = window.project_manager.default_export_directory()
@@ -610,14 +828,20 @@ class AnalysisController(QtCore.QObject):
             return
         window.settings.setValue(EXPORT_DIRECTORY_SETTING, directory)
         try:
-            output = self.naparihelper.sample.export_results(directory)
+            output = Path(directory) / strftime("export_%F_%H%M%S")
+            output.mkdir(parents=True, exist_ok=True)
+            imwrite(
+                output / "nuclei_labels.tif",
+                self._display_result.processed_labels,
+                photometric="minisblack",
+            )
         except Exception as exc:
             window.show_error("Export failed", str(exc))
             return
         message = QtWidgets.QMessageBox(
             QtWidgets.QMessageBox.Icon.Information,
             "Export complete",
-            f"Analysis results exported to:\n{output}",
+            f"Segmentation mask exported to:\n{output}",
             parent=window,
         )
         open_directory = message.addButton(
@@ -631,7 +855,7 @@ class AnalysisController(QtCore.QObject):
 
     def save_current_view(self) -> None:
         """Save the currently displayed segmentation canvas as a PNG image."""
-        if self.naparihelper is None or self.naparihelper.sample is None:
+        if self.naparihelper is None or not self.naparihelper.user_layers():
             return
         window = self.window
         directory = window.project_manager.default_export_directory()
@@ -658,7 +882,7 @@ class AnalysisController(QtCore.QObject):
 
     def clear_project(self) -> None:
         """Clear controller-owned derived display state for a new project."""
+        self._view_fitted_on_show = False
         self.window.analysisSampleComboBox.clear()
-        self.window.analysisElements.clear()
         if self.naparihelper is not None:
             self.clear_result_view()

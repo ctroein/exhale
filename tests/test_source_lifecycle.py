@@ -22,7 +22,7 @@ from qtpy import QtCore, QtTest, QtWidgets
 from exhale import icons
 from exhale.analysis.controller import AnalysisController
 from exhale.analysis.correlations import correlation_matrix
-from exhale.analysis.segmentationio import result_relative_path, save_xrf_sample
+from exhale.analysis.segmentationio import result_relative_path, save_segmentation
 from exhale.data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from exhale.data.imagesettings import ImageSettings, Layouts
 from exhale.data.projectdata import (
@@ -32,6 +32,7 @@ from exhale.data.projectdata import (
     SegmentationParameters,
     SegmentationResult,
 )
+from exhale.data.segmentation import SegmentationOutput
 from exhale.data.source_refs import SourceUnavailableError, open_source
 from exhale.imaging.listwidgets import ElementListWidget, SampleElementCheckDelegate
 from exhale.main_window import ACTIVE_TAB_SETTINGS_KEY, SPLITTER_SETTINGS_PREFIX, MainWindow
@@ -74,7 +75,7 @@ class SourceLifecycleTests(unittest.TestCase):
         tabs = self.win.tabWidget
         self.assertEqual(
             [tabs.tabText(i) for i in range(tabs.count())],
-            ["Project data", "Element maps", "Segmentation", "Relationships"],
+            ["Project data", "Element maps", "Segmentation", "Element clusters", "Relationships"],
         )
         self.assertEqual(tabs.currentIndex(), 0)
         tabs.setCurrentWidget(self.win.analysisTab)
@@ -144,6 +145,9 @@ class SourceLifecycleTests(unittest.TestCase):
             "analysis",
             "analysis_left",
             "analysis_right",
+            "clustering",
+            "clustering_left",
+            "clustering_right",
             "element_correlations",
             "element_scatter",
             "sample_similarities",
@@ -709,12 +713,15 @@ class SourceLifecycleTests(unittest.TestCase):
             self.win.analysisSampleComboBox.findData(first_id)
         )
         self.win.analysis_controller.update_channels()
-        self.win.analysis_controller.update_elements()
+        self.win.clusteringSampleComboBox.setCurrentIndex(
+            self.win.clusteringSampleComboBox.findData(first_id)
+        )
+        self.win.clustering_controller.sample_changed()
         self.assertEqual(
             {self.win.analysisChNuclei.itemText(row) for row in range(1, 3)},
             {"Fe", "Zn"},
         )
-        self.assertEqual(self.win.analysisElements.count(), 2)
+        self.assertEqual(self.win.clusteringElements.count(), 2)
 
         first_ref = self.win.analysisChNuclei.itemData(1)
         self.win.analysisChNuclei.setCurrentIndex(1)
@@ -726,11 +733,14 @@ class SourceLifecycleTests(unittest.TestCase):
             self.win.analysisSampleComboBox.findData(second_id)
         )
         self.win.analysis_controller.update_channels()
-        self.win.analysis_controller.update_elements()
+        self.win.clusteringSampleComboBox.setCurrentIndex(
+            self.win.clusteringSampleComboBox.findData(second_id)
+        )
+        self.win.clustering_controller.sample_changed()
 
         refs = {
-            self.win.analysisElements.item(row).data(ElementListWidget.ELEMENT_REF_ROLE)
-            for row in range(self.win.analysisElements.count())
+            self.win.clusteringElements.item(row).data(ElementListWidget.ELEMENT_REF_ROLE)
+            for row in range(self.win.clusteringElements.count())
         }
         self.assertEqual({ref.source_id for ref in refs}, {other})
         self.assertEqual(
@@ -766,8 +776,8 @@ class SourceLifecycleTests(unittest.TestCase):
             self.win.project_data.add_project_channel_from_sample(sample_id, key)
         self.win.element_controller.effective_channels_changed()
         self.win.analysisSampleComboBox.addItem("elements", sample_id)
-        self.win.analysis_controller.update_elements()
-        element_list = self.win.analysisElements
+        self.win.clustering_controller.sample_changed()
+        element_list = self.win.clusteringElements
         self.assertEqual(
             element_list.selectionMode(),
             QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection,
@@ -798,19 +808,19 @@ class SourceLifecycleTests(unittest.TestCase):
             self.win.analysisPipelineComboBox,
             self.win.analysisSampleComboBox,
             self.win.analysisChNuclei,
-            self.win.analysisChTissue,
-            self.win.analysisElements,
             self.win.analysisOptions,
-            self.win.analysis_controller.cluster_min_k,
-            self.win.analysis_controller.cluster_max_k,
-            self.win.analysis_controller.nuclei_expansion,
-            self.win.analysis_controller.nuclei_min_area,
+            self.win.analysis_controller.settings_dialog,
+            self.win.analysis_controller.settings_dialog.cellposeMinSize,
         ):
             self.assertFalse(widget.isEnabled())
 
         self.win.analysis_controller.set_busy(False)
         self.assertTrue(self.win.analysisSampleComboBox.isEnabled())
-        self.assertTrue(self.win.analysisElements.isEnabled())
+        self.win.clustering_controller.set_busy(True)
+        self.assertFalse(self.win.clusteringElements.isEnabled())
+        self.assertFalse(self.win.clusteringSampleComboBox.isEnabled())
+        self.win.clustering_controller.set_busy(False)
+        self.assertTrue(self.win.clusteringElements.isEnabled())
 
     def test_analysis_elements_use_standard_check_state_with_custom_glyphs(self):
         self.win.source_manager.open_files([self.h5])
@@ -819,9 +829,9 @@ class SourceLifecycleTests(unittest.TestCase):
             self.win.project_data.add_project_channel_from_sample(sample_id, key)
         self.win.element_controller.effective_channels_changed()
         self.win.analysisSampleComboBox.addItem("elements", sample_id)
-        self.win.analysis_controller.update_elements()
+        self.win.clustering_controller.sample_changed()
 
-        element_list = self.win.analysisElements
+        element_list = self.win.clusteringElements
         item = element_list.item(0)
         delegate = element_list.itemDelegate()
         self.assertIsInstance(delegate, IconCheckDelegate)
@@ -847,7 +857,9 @@ class SourceLifecycleTests(unittest.TestCase):
 
     def test_segmentation_current_view_saves_the_canvas(self):
         viewer = Mock()
-        self.win.analysis_controller.naparihelper = SimpleNamespace(sample=object(), viewer=viewer)
+        self.win.analysis_controller.naparihelper = SimpleNamespace(
+            result=object(), viewer=viewer, user_layers=lambda: (object(),)
+        )
         filename = str(Path(self.temp.name) / "segmentation.png")
 
         with patch.object(self.win, "askFileName", return_value=filename):
@@ -876,7 +888,9 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(ask.call_args.kwargs["directory"], expected)
         self.assertEqual(ask.call_args.kwargs["settingname"], EXPORT_DIRECTORY_SETTING)
 
-        self.win.analysis_controller.naparihelper = SimpleNamespace(sample=object(), viewer=Mock())
+        self.win.analysis_controller.naparihelper = SimpleNamespace(
+            result=object(), viewer=Mock(), user_layers=lambda: (object(),)
+        )
         with patch.object(self.win, "askFileName", return_value=None) as ask:
             self.win.analysis_controller.save_current_view()
         self.assertEqual(ask.call_args.kwargs["directory"], expected)
@@ -934,33 +948,29 @@ class SourceLifecycleTests(unittest.TestCase):
         sample = self.win.project_data.samples[first_id]
         fe_ref = sample.channels["Fe"].ref
         zn_ref = sample.channels["Zn"].ref
-        parameters = SegmentationParameters(7, 19, 3, 8)
-        xrf_sample = SimpleNamespace(elements={"Zn": object()})
+        parameters = SegmentationParameters(clip_percentile=99.7)
+        output = SegmentationOutput(np.ones_like(self.data), "model", "1")
         self.win.project_data.set_segmentation_result(
-            SegmentationResult(
-                first_id, "stardist", fe_ref, zn_ref, (zn_ref,), parameters, xrf_sample
-            )
+            SegmentationResult(first_id, "stardist", fe_ref, parameters, output)
         )
 
         class FakeNapariHelper:
             def __init__(self):
-                self.sample = None
-                self.element_maps = None
+                self.result = None
+                self.input_map = None
                 self.viewer = SimpleNamespace(layers=[])
-                self.set_sample_calls = 0
-                self.updated_element_maps = []
+                self.set_result_calls = 0
 
-            def set_sample(self, value, element_maps=None, element_ids=None):
-                self.sample = value
-                self.element_maps = element_maps
-                self.element_ids = element_ids
-                self.set_sample_calls += 1
+            def set_result(self, result, input_map=None, reference_maps=(), *, fit=True):
+                self.result = result
+                self.input_map = input_map
+                self.set_result_calls += 1
 
             def apply_layer_settings(self, settings):
                 self.layer_settings_applied = settings
 
-            def update_element_maps(self, maps):
-                self.updated_element_maps.append(maps)
+            def user_layers(self):
+                return () if self.input_map is None else (object(),)
 
         controller = self.win.analysis_controller
         controller.naparihelper = FakeNapariHelper()
@@ -969,40 +979,29 @@ class SourceLifecycleTests(unittest.TestCase):
         )
         controller.sample_changed()
 
-        self.assertIs(controller.naparihelper.sample, xrf_sample)
-        expected_map = self.win.project_data.element_settings[zn_ref].transformedData()
-        self.assertEqual(len(controller.naparihelper.element_maps), 1)
-        np.testing.assert_array_equal(controller.naparihelper.element_maps[0], expected_map)
+        np.testing.assert_array_equal(controller.naparihelper.result.output.labels, output.labels)
+        np.testing.assert_array_equal(controller.naparihelper.input_map, self.data)
         self.assertEqual(self.win.analysisChNuclei.currentData(), fe_ref)
-        self.assertEqual(self.win.analysisChTissue.currentData(), zn_ref)
-        checked = {
-            self.win.analysisElements.item(row).data(ElementListWidget.ELEMENT_REF_ROLE)
-            for row in range(self.win.analysisElements.count())
-            if self.win.analysisElements.item(row).checkState() == QtCore.Qt.Checked
-        }
-        self.assertEqual(checked, {zn_ref})
         self.assertEqual(controller.segmentation_parameters(), parameters)
 
         settings = self.win.project_data.element_settings[zn_ref]
-        set_sample_calls = controller.naparihelper.set_sample_calls
+        set_result_calls = controller.naparihelper.set_result_calls
         with patch.object(settings, "transformedData", wraps=settings.transformedData) as transform:
             controller.refresh_result_view()
             transform.assert_not_called()
-            self.assertEqual(controller.naparihelper.set_sample_calls, set_sample_calls)
+            self.assertEqual(controller.naparihelper.set_result_calls, set_result_calls)
 
             settings.gamma += 0.1
             controller.refresh_result_view()
-            transform.assert_called_once_with()
-            self.assertEqual(controller.naparihelper.set_sample_calls, set_sample_calls)
-            self.assertEqual(len(controller.naparihelper.updated_element_maps), 1)
-            self.assertEqual(set(controller.naparihelper.updated_element_maps[0]), {"Zn"})
+            transform.assert_not_called()
+            self.assertEqual(controller.naparihelper.set_result_calls, set_result_calls)
 
         self.win.analysisSampleComboBox.setCurrentIndex(
             self.win.analysisSampleComboBox.findData(second_id)
         )
         controller.sample_changed()
 
-        self.assertIsNone(controller.naparihelper.sample)
+        self.assertIsNone(controller.naparihelper.result)
         self.assertEqual(controller.segmentation_parameters(), parameters)
 
     def test_project_roundtrip_restores_segmentation_result(self):
@@ -1014,8 +1013,7 @@ class SourceLifecycleTests(unittest.TestCase):
         for key in sample.channels:
             self.win.project_data.add_project_channel_from_sample(sample.sample_id, key)
         fe_ref = sample.channels["Fe"].ref
-        zn_ref = sample.channels["Zn"].ref
-        parameters = SegmentationParameters(6, 18, 3, 7)
+        parameters = SegmentationParameters(clip_percentile=99.7)
         xrf_sample = XRFSample(sample.name)
         xrf_sample.nuclei = NucleiChannel(self.data)
         xrf_sample.nuclei.nuclei_labels = np.ones_like(self.data)
@@ -1044,16 +1042,18 @@ class SourceLifecycleTests(unittest.TestCase):
                 sample.sample_id,
                 "stardist",
                 fe_ref,
-                zn_ref,
-                (fe_ref,),
                 parameters,
-                xrf_sample,
+                SegmentationOutput(xrf_sample.nuclei.nuclei_labels, "model", "1"),
                 layer_settings,
             )
         )
         project_dir = Path(self.temp.name) / "segmentation-project"
 
-        save_xrf_sample(xrf_sample, project_dir / result_relative_path(sample.sample_id))
+        save_segmentation(
+            self.win.project_data.segmentation_result(sample.sample_id, "stardist").output,
+            project_dir / result_relative_path(sample.sample_id),
+            method_id="stardist",
+        )
         projectio.save_project(self.win.project_data, project_dir / "project.xhp")
         self.win.project_state_manager.mark_saved()
         self.assertTrue(self.win.project_manager.load_project_dir(project_dir))
@@ -1061,11 +1061,10 @@ class SourceLifecycleTests(unittest.TestCase):
         restored = self.win.project_data.segmentation_result(sample.sample_id, "stardist")
         self.assertEqual(restored.method_id, "stardist")
         self.assertEqual(restored.parameters, parameters)
-        self.assertEqual(restored.nuclei_ref, fe_ref)
-        self.assertEqual(restored.element_refs, (fe_ref,))
+        self.assertEqual(restored.input_ref, fe_ref)
         self.assertEqual(restored.layer_settings, layer_settings)
         np.testing.assert_array_equal(
-            restored.xrf_sample.nuclei.nuclei_labels,
+            restored.output.labels,
             xrf_sample.nuclei.nuclei_labels,
         )
 
@@ -1078,10 +1077,8 @@ class SourceLifecycleTests(unittest.TestCase):
                 sample.sample_id,
                 "stardist",
                 refs[0],
-                refs[1],
-                refs[:1],
-                SegmentationParameters(6, 18, 3, 7),
-                SimpleNamespace(),
+                SegmentationParameters(),
+                SegmentationOutput(np.ones_like(self.data), "model", "1"),
             )
         )
         project_dir = Path(self.temp.name) / "sidecar-project"
@@ -1691,3 +1688,72 @@ class SourceLifecycleTests(unittest.TestCase):
             self.assertIs(self.win.project_data.sources[filename], original)
             self.assertTrue(original.is_open)
         self.assertEqual(self.win.loadedFileComboBox.count(), 2)
+
+    def test_segmentation_and_clustering_run_and_persist_independently(self):
+        self.win.show_error = Mock()
+        from time import monotonic
+
+        from exhale.analysis.segmentationio import clustering_relative_path
+        from exhale.analysis.segmentationmethods import SegmentationMethod
+
+        self.win.source_manager.open_files([self.h5])
+        sample_id = next(iter(self.win.project_data.samples))
+        sample = self.win.project_data.samples[sample_id]
+        for key in sample.channels:
+            self.win.project_data.add_project_channel_from_sample(sample_id, key)
+        self.win.element_controller.effective_channels_changed()
+        self.win.project_dir = Path(self.temp.name) / "project"
+        self.win.project_dir.mkdir()
+        clustering = self.win.clustering_controller
+        clustering.dialog.clusterMinK.setValue(2)
+        clustering.dialog.clusterMaxK.setValue(2)
+        clustering.run()
+        deadline = monotonic() + 10
+        while clustering.worker is not None and monotonic() < deadline:
+            self.app.processEvents()
+            QtTest.QTest.qWait(10)
+        self.assertIsNone(clustering.worker)
+        self.win.show_error.assert_not_called()
+        self.assertIn(sample_id, self.win.project_data.clustering_results)
+        cluster_result = self.win.project_data.clustering_results[sample_id]
+        self.assertIsNone(cluster_result.xrf_sample.nuclei)
+        self.assertIsNone(cluster_result.xrf_sample.tissue)
+        self.assertFalse(self.win.project_data.segmentation_results)
+        sidecar = self.win.project_dir / clustering_relative_path(sample_id)
+        timestamp = sidecar.stat().st_mtime_ns
+
+        self.win.analysis_controller.update_channels()
+        combo = self.win.analysisChNuclei
+        combo.setCurrentIndex(combo.findData(sample.channels["Fe"].ref))
+        with (
+            patch(
+                "exhale.analysis.segmentation_backends.run_segmentation",
+                return_value=SegmentationOutput(np.ones_like(self.data), "model", "1"),
+            ),
+            patch.object(SegmentationMethod, "unavailable_reason", return_value=None),
+        ):
+            analysis = self.win.analysis_controller
+            analysis.run()
+            deadline = monotonic() + 10
+            while analysis.worker is not None and monotonic() < deadline:
+                self.app.processEvents()
+                QtTest.QTest.qWait(10)
+        self.assertIsNone(analysis.worker)
+        self.win.show_error.assert_not_called()
+        segmented = self.win.project_data.segmentation_result(sample_id, "stardist")
+        self.assertIsNotNone(segmented)
+        np.testing.assert_array_equal(segmented.output.labels, np.ones_like(self.data))
+        self.assertFalse(hasattr(segmented, "xrf_sample"))
+        self.assertIs(self.win.project_data.clustering_results[sample_id], cluster_result)
+        self.assertEqual(sidecar.stat().st_mtime_ns, timestamp)
+
+        state = projectio.export_project_state(
+            self.win.project_data, project_dir=self.win.project_dir
+        )
+        restored = type(self.win.project_data)()
+        issues = projectio.load_project_state(restored, state, project_dir=self.win.project_dir)
+        self.addCleanup(restored.clear)
+        self.assertFalse(issues)
+        self.assertIn(sample_id, restored.clustering_results)
+        self.assertIsNotNone(restored.segmentation_result(sample_id, "stardist"))
+        self.assertTrue(restored.clustering_results[sample_id].xrf_sample.is_clustered)

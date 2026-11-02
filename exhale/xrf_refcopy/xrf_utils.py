@@ -1,10 +1,5 @@
-"""Numerical segmentation and intensity-partition helpers for XRF analysis.
+"""Numerical region and intensity-partition helpers for element clustering."""
 
-Importing this module configures TensorFlow logging and CUDA visibility. Model
-loading is lazy and uses the base directory supplied by ``AnalysisWorker``.
-"""
-
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -12,16 +7,6 @@ import numpy as np
 import pandas as pd
 from skimage import measure
 from skimage.segmentation import expand_labels
-
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "1")
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
-from csbdeep.utils import normalize
-from stardist.models import StarDist2D
-
-# import tensorflow as tf
-# print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
-model = None
-_model_basedir = "."
 
 # =============================================================================
 # Image transformation
@@ -53,34 +38,6 @@ def log_transform(img: np.ndarray) -> np.ndarray:
 # =============================================================================
 # Label / mask operations
 # =============================================================================
-
-
-def set_model_basedir(path):
-    """Set the StarDist model directory before the shared model is loaded."""
-
-    global model, _model_basedir
-    if model is not None and path != _model_basedir:
-        raise RuntimeError(f"Model already loaded from {_model_basedir}")
-    _model_basedir = path
-
-
-def load_model():
-    """Load the bundled StarDist model once for all subsequent segmentations."""
-
-    global model
-    if model is None:
-        model = StarDist2D(None, "2D_versatile_fluo_copy", basedir=_model_basedir)
-
-
-def segment_nuclei(img_nuclei):
-    """Return StarDist instance labels for a nuclei-channel image."""
-
-    load_model()
-    # Run deep learning segmentation model on nuclei channel
-    labels, _ = model.predict_instances(
-        normalize(img_nuclei)
-    )  # labels, flows, styles = model.eval(img_nuclei, diameter=None, channels=[0,0]) #
-    return labels
 
 
 def create_membrane(

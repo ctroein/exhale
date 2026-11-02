@@ -42,14 +42,12 @@ class XRFSample:
     def __init__(self, name: str):
         self.name = name
 
-        self._is_nuclei = True
         self._nuclei_key = "wP_"
         self.nuclei: NucleiChannel | None = None
         self._df_nuclei: pd.DataFrame | None = None
         self._df_membrane: pd.DataFrame | None = None
         self._df_background: pd.DataFrame | None = None
 
-        self._is_tissue = True
         self._tissue_key = "wCl_"
         self.tissue: TissueChannel | None = None
 
@@ -80,7 +78,7 @@ class XRFSample:
 
         Returns
         -------
-        XRFSample (unprocessed — call .process() to run the pipeline)
+        XRFSample (unprocessed — call .cluster_elements() to cluster element channels)
         """
         sample_name = os.path.basename(folder.rstrip(os.sep))
         sample = cls(sample_name)
@@ -119,64 +117,42 @@ class XRFSample:
     # Processing
     # ------------------------------------------------------------------
 
-    def process(
+    def _invalidate_combination(self) -> None:
+        """Discard region assignments when either source stage is recomputed."""
+        self._combined = False
+        self.results_df = None
+        self._df_nuclei = None
+        self._df_membrane = None
+        self._df_background = None
+
+    def cluster_elements(
         self,
-        nuclei_expansion_px: int = 15,
-        nuclei_min_area: int = 100,
-        cluster_min_k: int = 3,
-        cluster_max_k: int = 25,
-        cluster_n_init: int = 50,
-        callback: Callable[[str], None] = None,
+        *,
+        min_k: int = 3,
+        max_k: int = 25,
+        n_init: int = 50,
+        callback: Callable[[str], None] | None = None,
     ) -> "XRFSample":
-        """
-        Process all channels in order: nuclei -> tissue -> elements.
-
-        Parameters
-        ----------
-        nuclei_expansion_px : int
-            Pixel expansion for membrane ring around nuclei.
-        nuclei_min_area : int
-            Minimum nucleus area to retain.
-        cluster_min_k, cluster_max_k : int
-            Intensity-class count search range for element channels.
-        cluster_n_init : int
-            Retained for compatibility; ignored by deterministic clustering.
-        callback : Callable[str]
-            Progress callback function, optional.
-
-        Returns
-        -------
-        self
-        """
-        if self.nuclei is None or self.tissue is None:
-            raise RuntimeError(
-                f"Sample '{self.name}' is missing nuclei ('{self._nuclei_key}')"
-                f" channel or tissue ('{self._tissue_key}') channel."
-            )
-        # if not self.elements:
-        #     raise RuntimeError(
-        #         f"Sample '{self.name}' has no element channels to process."
-        #     )
-        if callback is None:
-
-            def callback(_message):
-                pass
-
-        if self._is_nuclei:
-            self.nuclei.process(
-                expansion_px=nuclei_expansion_px, min_area=nuclei_min_area, callback=callback
-            )
-        if self._is_tissue:
-            callback("Processing tissue")
-            self.tissue.process()
-
+        """Cluster element intensities without requiring or changing segmentation."""
+        self._invalidate_combination()
+        self._processed = False
         for channel in self.elements.values():
-            channel.process(
-                min_k=cluster_min_k, max_k=cluster_max_k, n_init=cluster_n_init, callback=callback
-            )
-
-        self._processed = True
+            channel.process(min_k=min_k, max_k=max_k, n_init=n_init, callback=callback)
+        self._processed = self.is_segmented and self.is_clustered
         return self
+
+    @property
+    def is_segmented(self) -> bool:
+        return (
+            self.nuclei is not None
+            and self.nuclei.is_processed
+            and self.tissue is not None
+            and self.tissue.is_processed
+        )
+
+    @property
+    def is_clustered(self) -> bool:
+        return all(channel.is_processed for channel in self.elements.values())
 
     # ------------------------------------------------------------------
     # Combining results
@@ -187,14 +163,16 @@ class XRFSample:
         Assign clusters to regions (nuclei / membrane / background) and
         build the flat results dataframe.
 
-        Must be called after process().
+        Requires processed nucleus-region, tissue and element-clustering data.
 
         Returns
         -------
         self
         """
         if not self._processed:
-            raise RuntimeError("Call process() before combine().")
+            raise RuntimeError(
+                "Region assignments require processed nucleus, tissue and element channels."
+            )
 
         df_nuclei, df_membrane, df_background = [], [], []
 
@@ -530,6 +508,14 @@ class XRFSample:
     # ------------------------------------------------------------------
     # Convenience accessors
     # ------------------------------------------------------------------
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        """Return the map shape even when only one processing stage is present."""
+        for channel in (self.nuclei, self.tissue, *self.elements.values()):
+            if channel is not None:
+                return channel.raw.shape
+        raise ValueError("The sample contains no maps")
 
     @property
     def is_processed(self) -> bool:

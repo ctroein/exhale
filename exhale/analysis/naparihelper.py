@@ -336,6 +336,8 @@ class NapariHelper:
     def _build_tooltip_text(
         self, label_val: int, region_df, element_names: list[str], region_name: str
     ) -> str:
+        if region_df is None or "label" not in region_df:
+            return f"{region_name}: {label_val}"
         rows = region_df[region_df["label"] == label_val]
         if rows.empty:
             return ""
@@ -390,22 +392,22 @@ class NapariHelper:
         if point is None:
             return self._tt_hide()
         y, x = point
-        nuclei = sample.nuclei.nuclei_labels
-        membrane = sample.nuclei.membrane_labels
-        if not (0 <= y < nuclei.shape[0] and 0 <= x < nuclei.shape[1]):
+        nuclei = None if sample.nuclei is None else sample.nuclei.nuclei_labels
+        membrane = None if sample.nuclei is None else sample.nuclei.membrane_labels
+        if not (0 <= y < sample.shape[0] and 0 <= x < sample.shape[1]):
             return self._tt_hide()
 
-        nuc_label = int(nuclei[y, x])
-        mem_label = int(membrane[y, x])
+        nuc_label = 0 if nuclei is None else int(nuclei[y, x])
+        mem_label = 0 if membrane is None else int(membrane[y, x])
 
         text = None
-        if self.nuc_layer.visible and nuc_label > 0:
+        if self.nuc_layer is not None and self.nuc_layer.visible and nuc_label > 0:
             text = self._build_tooltip_text(
-                nuc_label, sample.df_nuclei, sample.element_names, "Nucleus"
+                nuc_label, sample._df_nuclei, sample.element_names, "Nucleus"
             )
-        elif self.mem_layer.visible and mem_label > 0:
+        elif self.mem_layer is not None and self.mem_layer.visible and mem_label > 0:
             text = self._build_tooltip_text(
-                mem_label, sample.df_membrane, sample.element_names, "Membrane"
+                mem_label, sample._df_membrane, sample.element_names, "Membrane"
             )
         cluster_text = self._cluster_tooltip_text(y, x)
         if text and cluster_text:
@@ -433,26 +435,26 @@ class NapariHelper:
             return
         y, x = point
         sample = self.sample
-        nuclei = sample.nuclei.nuclei_labels
-        membrane = sample.nuclei.membrane_labels
+        nuclei = None if sample.nuclei is None else sample.nuclei.nuclei_labels
+        membrane = None if sample.nuclei is None else sample.nuclei.membrane_labels
         self.info_widget.clear()
 
-        if not (0 <= y < nuclei.shape[0] and 0 <= x < nuclei.shape[1]):
+        if not (0 <= y < sample.shape[0] and 0 <= x < sample.shape[1]):
             return
 
-        nuc_label = int(nuclei[y, x])
-        mem_label = int(membrane[y, x])
+        nuc_label = 0 if nuclei is None else int(nuclei[y, x])
+        mem_label = 0 if membrane is None else int(membrane[y, x])
 
         if nuc_label > 0:
             region_name = "Nucleus"
             region_label = nuc_label
             region_labels = nuclei
-            region_df = sample.df_nuclei
+            region_df = sample._df_nuclei
         elif mem_label > 0:
             region_name = "Membrane"
             region_label = mem_label
             region_labels = membrane
-            region_df = sample.df_membrane
+            region_df = sample._df_membrane
         else:
             region_name = "Background"
             region_label = 0
@@ -470,7 +472,8 @@ class NapariHelper:
         else:
             region_mask = None
 
-        for elem, ch in sample.elements.items():
+        elements = sample.elements.items()
+        for elem, ch in elements:
             lines.extend(["", elem])
 
             if 0 <= y < ch.raw.shape[0] and 0 <= x < ch.raw.shape[1]:
@@ -537,6 +540,10 @@ class NapariHelper:
 
     def _fixed_image(self, role, data, *, name, visible, colormap):
         layer = self._fixed_layers.get(role)
+        if data is None:
+            if layer is not None:
+                self._set_layer_active(layer, False)
+            return None
         if layer is None:
             layer = self.viewer.add_image(
                 data,
@@ -566,6 +573,10 @@ class NapariHelper:
 
     def _fixed_labels(self, role, data, *, name, visible, opacity=1.0):
         layer = self._fixed_layers.get(role)
+        if data is None:
+            if layer is not None:
+                self._set_layer_active(layer, False)
+            return None
         if layer is None:
             layer = self.viewer.add_labels(
                 data,
@@ -586,10 +597,10 @@ class NapariHelper:
             layer.visible = visible
             layer.opacity = opacity
             layer.blending = self.BLENDING_NORMAL
-            layer.new_colormap(seed=0)
             layer.metadata[self.LAYER_ID_KEY] = f"role:{role}"
             self._set_layer_active(layer, True)
-        self._label_presentations.pop(layer, None)
+        presentation = self._label_presentation(layer)
+        self.set_label_presentation(layer, self.LABEL_CATEGORICAL, presentation["color"], 0)
         return layer
 
     def _pooled_element_layer(self, index, name, element_id, data):
@@ -644,11 +655,11 @@ class NapariHelper:
             layer.visible = False
             layer.opacity = 1.0
             layer.blending = self.BLENDING_NORMAL
-            layer.new_colormap(seed=index + 1)
             layer.metadata["exhale_element"] = name
             layer.metadata[self.LAYER_ID_KEY] = f"element-clusters:{element_id}"
             self._set_layer_active(layer, True)
-        self._label_presentations.pop(layer, None)
+        presentation = self._label_presentation(layer)
+        self.set_label_presentation(layer, self.LABEL_CATEGORICAL, presentation["color"], 0)
         return layer
 
     def _deactivate_unused_layers(self, element_count, cluster_count):
@@ -665,7 +676,7 @@ class NapariHelper:
             for layer in self.viewer.layers
             if not self.is_background_layer(layer) and not self.is_active_layer(layer)
         ]
-        desired = backgrounds + inactive + list(active_layers)
+        desired = backgrounds + inactive + [layer for layer in active_layers if layer is not None]
         layers = self.viewer.layers
         for target, layer in enumerate(desired):
             source = layers.index(layer)
@@ -704,29 +715,31 @@ class NapariHelper:
 
         self._fixed_image(
             self.BACKGROUND_ROLE,
-            np.zeros(sample.tissue.raw.shape, dtype=np.uint8),
+            np.zeros(sample.shape, dtype=np.uint8),
             name="Background",
             visible=True,
             colormap=Colormap(colors=("black", "black"), name="Exhale black backing"),
         )
         tissue_layer = self._fixed_image(
             self.TISSUE_RAW_ROLE,
-            sample.tissue.raw,
+            None if sample.tissue is None else sample.tissue.raw,
             name="Tissue raw",
             visible=False,
             colormap="blue",
         )
-        tissue_layer.reset_contrast_limits()
-        tissue_layer.metadata[self.GAIN_BASE_UPPER] = tissue_layer.contrast_limits[1]
+        if tissue_layer is not None:
+            tissue_layer.reset_contrast_limits()
+            tissue_layer.metadata[self.GAIN_BASE_UPPER] = tissue_layer.contrast_limits[1]
         nuclei_layer = self._fixed_image(
             self.NUCLEI_RAW_ROLE,
-            sample.nuclei.raw,
+            None if sample.nuclei is None else sample.nuclei.raw,
             name="Nuclei raw",
             visible=True,
             colormap="green",
         )
-        nuclei_layer.reset_contrast_limits()
-        nuclei_layer.metadata[self.GAIN_BASE_UPPER] = nuclei_layer.contrast_limits[1]
+        if nuclei_layer is not None:
+            nuclei_layer.reset_contrast_limits()
+            nuclei_layer.metadata[self.GAIN_BASE_UPPER] = nuclei_layer.contrast_limits[1]
 
         cluster_layers = []
         element_layers = []
@@ -746,13 +759,17 @@ class NapariHelper:
 
         self.mem_layer = self._fixed_labels(
             "membrane_labels",
-            sample.nuclei.membrane_labels,
+            None if sample.nuclei is None else sample.nuclei.membrane_labels,
             name="Membrane labels",
             visible=False,
         )
         self.nuc_layer = self._fixed_labels(
             "nuclei_labels",
-            morphology.erosion(sample.nuclei.nuclei_labels),
+            (
+                morphology.erosion(sample.nuclei.nuclei_labels)
+                if sample.nuclei is not None and sample.nuclei.nuclei_labels is not None
+                else None
+            ),
             name="Nuclei labels",
             visible=True,
             opacity=0.6,

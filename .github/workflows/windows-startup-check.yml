@@ -31,7 +31,7 @@ jobs:
       - name: Install EXHALE
         run: |
           python -m pip install --upgrade pip
-          pip install .
+          pip install . -r requirements-cellpose.txt
 
       - name: Test application startup
         working-directory: ${{ runner.temp }}

@@ -184,6 +184,7 @@ def _run_application(pyi_splash=None):
             "main_window": package_dir,
             "image_settings_dialog": os.path.join(package_dir, "imaging"),
             "analysis_settings_dialog": os.path.join(package_dir, "analysis"),
+            "segmentation_options_dialog": os.path.join(package_dir, "analysis"),
             "matrix_export_dialog": os.path.join(package_dir, "analysis"),
             "settings_dialog": package_dir,
         }
@@ -263,8 +264,14 @@ def _run_application(pyi_splash=None):
         from .runtimeinfo import runtime_environment
 
         importlib.import_module(f"{__package__}.analysis.naparihelper")
+        from .analysis.segmentation_backends import prepare_segmentation_runtime
+
+        prepare_segmentation_runtime()
         importlib.import_module("tensorflow")
-        importlib.import_module(f"{__package__}.xrf_refcopy.xrf_utils")
+        importlib.import_module("stardist.models")
+        cellpose_vit = importlib.import_module("cellpose.vit")
+        if not callable(getattr(cellpose_vit, "dinov3_vitl16", None)):
+            raise RuntimeError("CellposeDINO is unavailable: DINOv3 failed to import")
         for name, version in runtime_environment():
             print(f"{name}: {version}")
         window.close()

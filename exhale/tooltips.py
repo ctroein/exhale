@@ -5,7 +5,8 @@ from qtpy import QtCore, QtWidgets
 MAIN_WINDOW_TABS = {
     "projectDataTab": "Organize samples, source files and element selection.",
     "dataTab": "Adjust element-map presentation and compose 3-channel images.",
-    "analysisTab": "Segmentation and clustering of cells and elements.",
+    "clusteringTab": "Cluster element maps independently of nuclei and tissue segmentation.",
+    "analysisTab": "Segment nuclei, refine masks and inspect element maps.",
     "correlationsTab": (
         "Explore correlations, intensity relationships and distances between segmented clusters."
     ),
@@ -66,11 +67,17 @@ MAIN_WINDOW = {
     "elementSDButton": "Set the display limits to the mean plus or minus three standard deviations.",
     "analysisSampleComboBox": "Select the sample to analyze or whose saved result is displayed.",
     "analysisChNuclei": "Element map used to detect nuclei (usually P).",
-    "analysisChTissue": "Element map used to identify tissue.",
-    "label_8": "Select the element maps to partition and measure in detected regions.",
-    "analysisRun": "Run segmentation and clustering for this sample.",
-    "analysisOptions": "Configure nucleus filtering, expansion, and element-intensity clustering.",
-    "analysisExport": "Export channels, masks, cluster labels, and tables from this result.",
+    "analysisRun": "Run segmentation for this sample.",
+    "analysisOptions": "Configure inference parameters for the selected segmentation method.",
+    "analysisExport": "Export the segmentation labels as a TIFF image.",
+    "analysisMinimumArea": "Remove whole segments smaller than this pixel area; zero keeps all segments.",
+    "analysisExpansion": "Expand segments with positive values or shrink with negative values, before area filtering. Zero keeps the original boundaries.",
+    "clusteringSampleComboBox": "Select the sample whose element maps are clustered.",
+    "clusteringOptions": "Configure element-intensity clustering.",
+    "clusteringRun": "Cluster the selected element maps.",
+    "clusteringExport": "Export element maps, cluster labels and measurements.",
+    "clusteringSaveView": "Save current view",
+    "clusteringFit": "Fit image to view",
     "analysisSaveView": "Save current view",
     "analysisFit": "Fit image to view",
     "showElementCorrelationValues": "Show correlation coefficients inside matrix cells.",
@@ -124,7 +131,15 @@ ANALYSIS_SETTINGS_DIALOG = {
     "nucleiMinArea": "Discard detected nuclei smaller than this many pixels.",
 }
 
+SEGMENTATION_OPTIONS_DIALOG = {
+    "cellposeMinSize": "Discard Cellpose nuclei smaller than this many pixels.",
+    "flowThreshold": "Reject masks whose flow error exceeds this threshold.",
+    "cellprobThreshold": "Cell probability threshold used to construct Cellpose masks.",
+}
+
 SETTINGS_DIALOG = {
+    "modelDirectoryEdit": "Models are downloaded here when first needed for segmentation.",
+    "modelDirectoryBrowse": "Choose the directory for downloaded trained models.",
     "saveProjectOnExitCheckBox": (
         "Save changes to an existing project when Exhale closes, without asking first."
     ),

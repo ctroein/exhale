@@ -169,6 +169,21 @@ class LayerRowWidget(QtWidgets.QWidget):
         )
         layout.addWidget(self.name_label, 1)
 
+        if layer_list.remove_width:
+            remove_cell = QtWidgets.QWidget()
+            remove_cell.setFixedWidth(layer_list.remove_width)
+            remove_layout = QtWidgets.QHBoxLayout(remove_cell)
+            remove_layout.setContentsMargins(0, 0, 0, 0)
+            if "exhale_reference_ref" in layer.metadata:
+                remove = QtWidgets.QToolButton()
+                remove.setObjectName("removeReferenceLayer")
+                remove.setIcon(icons.icon(icons.IconName.DELETE))
+                remove.clicked.connect(
+                    lambda: layer_list.removeRequested.emit(layer.metadata["exhale_reference_ref"])
+                )
+                remove_layout.addWidget(remove)
+            layout.addWidget(remove_cell)
+
         self.color_button = LayerColorButton()
         self.color_button.clicked.connect(self._pick_color)
         self.color_button.modeSelected.connect(self._color_menu_selected)
@@ -219,8 +234,12 @@ class LayerRowWidget(QtWidgets.QWidget):
         )
         self.gain.valueChanged.connect(self._set_gain)
         gain_layout.addWidget(self.gain)
-        outer_layout.addWidget(self.gain_row)
-        self.gain_row.setVisible(False)
+        self._inline_gain = layer.metadata.get("exhale_role") == self.helper.NUCLEI_RAW_ROLE
+        if self._inline_gain:
+            layout.insertWidget(layout.indexOf(color_cell), self.gain_row)
+        else:
+            outer_layout.addWidget(self.gain_row)
+        self.gain_row.setVisible(self._inline_gain)
 
         self._refresh_previews()
 
@@ -254,7 +273,9 @@ class LayerRowWidget(QtWidgets.QWidget):
         self.layer_list.presentationChanged.emit()
 
     def set_selected(self, selected):
-        self.gain_row.setVisible(selected and self.helper.layer_has_gain(self.layer))
+        self.gain_row.setVisible(
+            self._inline_gain or (selected and self.helper.layer_has_gain(self.layer))
+        )
         self.adjustSize()
         self.item.setSizeHint(self.sizeHint())
         self.layer_list.scheduleDelayedItemsLayout()
@@ -433,6 +454,7 @@ class _LayerHeaderWidget(QtWidgets.QWidget):
         layout.addWidget(visibility_space)
         for text, width, stretch in (
             ("Layer", None, 1),
+            *((("", layer_list.remove_width, 0),) if layer_list.remove_width else ()),
             ("Color", layer_list.color_width, 0),
             ("Opacity", layer_list.opacity_width, 0),
             ("+", layer_list.blend_width, 0),
@@ -452,10 +474,12 @@ class LayerListWidget(QtWidgets.QListWidget):
     """List of embedded Napari layers with direct presentation controls."""
 
     presentationChanged = QtCore.Signal()
+    removeRequested = QtCore.Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.helper = None
+        self.remove_width = 0
         self._initialize_column_widths()
         margins = [
             max(0, self.style().pixelMetric(metric, None, self))
@@ -506,6 +530,12 @@ class LayerListWidget(QtWidgets.QListWidget):
         if selected_layer is None and self.currentItem() is not None:
             row = self.itemWidget(self.currentItem())
             selected_layer = None if row is None else getattr(row, "layer", None)
+        self.remove_width = (
+            self.fontMetrics().height() + 8
+            if self.helper is not None
+            and any("exhale_reference_ref" in layer.metadata for layer in self.helper.user_layers())
+            else 0
+        )
         self.clear()
         header_item = QtWidgets.QListWidgetItem()
         header_item.setFlags(QtCore.Qt.ItemIsEnabled)

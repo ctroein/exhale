@@ -370,7 +370,7 @@
             <number>8</number>
            </property>
            <widget class="QWidget" name="analysisControlsWidget">
-            <layout class="QVBoxLayout" name="verticalLayout_7" stretch="0,0,0,2">
+            <layout class="QVBoxLayout" name="verticalLayout_7" stretch="0,0,0,0,1">
              <property name="spacing">
               <number>5</number>
              </property>
@@ -417,38 +417,14 @@
                <item row="1" column="1">
                 <widget class="QComboBox" name="analysisChNuclei"/>
                </item>
-               <item row="2" column="0">
-                <widget class="QLabel" name="label_10">
-                 <property name="text">
-                  <string>Tissue channel</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="2" column="1">
-                <widget class="QComboBox" name="analysisChTissue"/>
-               </item>
-              </layout>
+</layout>
              </item>
-             <item>
-              <widget class="QLabel" name="label_8">
-               <property name="text">
-                <string>Elements</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="ElementListWidget" name="analysisElements"/>
-             </item>
-            </layout>
-           </widget>
-           <widget class="QWidget" name="analysisLayersWidget">
-            <layout class="QVBoxLayout" name="analysisLayersLayout" stretch="0,1,0">
              <item>
               <layout class="QHBoxLayout" name="horizontalLayout_8" stretch="1,3,0">
                <item>
                 <widget class="QPushButton" name="analysisRun">
                  <property name="text">
-                  <string>Analyze</string>
+                  <string>Segment</string>
                  </property>
                 </widget>
                </item>
@@ -474,6 +450,28 @@
                </item>
               </layout>
              </item>
+<item>
+ <widget class="QGroupBox" name="analysisPostprocessing">
+  <property name="title"><string>Post-processing</string></property>
+  <layout class="QFormLayout" name="analysisPostprocessingLayout">
+   <item row="0" column="0"><widget class="QLabel" name="analysisExpansionLabel"><property name="text"><string>Expand / shrink</string></property></widget></item>
+   <item row="0" column="1"><widget class="QSpinBox" name="analysisExpansion"><property name="minimum"><number>-2147483647</number></property><property name="maximum"><number>2147483647</number></property><property name="suffix"><string> px</string></property></widget></item>
+   <item row="1" column="0"><widget class="QLabel" name="analysisMinimumAreaLabel"><property name="text"><string>Minimum area</string></property></widget></item>
+   <item row="1" column="1"><widget class="QSpinBox" name="analysisMinimumArea"><property name="singleStep"><number>25</number></property><property name="maximum"><number>2147483647</number></property><property name="suffix"><string> px</string></property></widget></item>
+  </layout>
+ </widget>
+</item>
+<item><spacer name="segmentationControlsSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item></layout>
+           </widget>
+           <widget class="QWidget" name="analysisLayersWidget">
+            <layout class="QVBoxLayout" name="analysisLayersLayout" stretch="0,1,0">
+             <item>
+              <layout class="QHBoxLayout" name="analysisReferenceLayout">
+               <item><widget class="QLabel" name="analysisReferenceLabel"><property name="text"><string>Element layer</string></property></widget></item>
+               <item><widget class="QComboBox" name="analysisReferenceCombo"/></item>
+               <item><widget class="QPushButton" name="analysisAddReference"><property name="text"><string>Add</string></property></widget></item>
+              </layout>
+             </item>
              <item>
               <widget class="LayerListWidget" name="analysisLayerList">
                <property name="sizePolicy">
@@ -487,7 +485,7 @@
              <item>
               <widget class="QPushButton" name="analysisExport">
                <property name="text">
-                <string>Export results…</string>
+                <string>Export mask…</string>
                </property>
               </widget>
              </item>
@@ -529,8 +527,184 @@
            <property name="handleWidth">
             <number>8</number>
            </property>
-           <widget class="QTextEdit" name="analysisInfo"/>
+           <widget class="QStackedWidget" name="analysisInfoStack">
+ <widget class="QWidget" name="analysisOverview">
+  <layout class="QVBoxLayout" name="analysisOverviewLayout" stretch="0,0,1">
+   <item><widget class="QLabel" name="analysisSummary"><property name="text"><string>No segmentation result</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><widget class="QWidget" name="analysisAreaPlotContainer" native="true"><property name="minimumSize"><size><width>0</width><height>195</height></size></property><property name="maximumSize"><size><width>16777215</width><height>234</height></size></property></widget></item>
+   <item><spacer name="analysisOverviewSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+  </layout>
+ </widget>
+ <widget class="QWidget" name="analysisDetails">
+  <layout class="QVBoxLayout" name="analysisDetailsLayout" stretch="0,1">
+   <item><widget class="QPushButton" name="analysisShowOverview"><property name="text"><string>Overview</string></property></widget></item>
+   <item><widget class="QTextEdit" name="analysisInfo"><property name="readOnly"><bool>true</bool></property></widget></item>
+  </layout>
+ </widget>
+</widget>
            <widget class="QPlainTextEdit" name="analysisStatus">
+            <property name="verticalScrollBarPolicy">
+             <enum>Qt::ScrollBarAlwaysOn</enum>
+            </property>
+            <property name="horizontalScrollBarPolicy">
+             <enum>Qt::ScrollBarAlwaysOff</enum>
+            </property>
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </widget>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="clusteringTab">
+       <attribute name="title">
+        <string>Element clusters</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="clustering_verticalLayout_8">
+        <item>
+         <widget class="QSplitter" name="clusteringSplitter">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="opaqueResize">
+           <bool>true</bool>
+          </property>
+          <property name="childrenCollapsible">
+           <bool>true</bool>
+          </property>
+          <property name="handleWidth">
+           <number>8</number>
+          </property>
+          <widget class="QSplitter" name="clusteringLeftSplitter">
+           <property name="orientation">
+            <enum>Qt::Vertical</enum>
+           </property>
+           <property name="handleWidth">
+            <number>8</number>
+           </property>
+           <widget class="QWidget" name="clusteringControlsWidget">
+            <layout class="QVBoxLayout" name="clustering_verticalLayout_7" stretch="0,0,1">
+             <property name="spacing">
+              <number>5</number>
+             </property>
+             <item>
+              <layout class="QGridLayout" name="clusteringInputsLayout" columnstretch="1,3">
+               <item row="0" column="0">
+                <widget class="QLabel" name="clusteringSampleLabel">
+                 <property name="text">
+                  <string>Sample</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QComboBox" name="clusteringSampleComboBox"/>
+               </item>
+               <item row="0" column="2"><widget class="QPushButton" name="clusteringOptions"><property name="text"><string>Options</string></property></widget></item></layout>
+             </item>
+             <item>
+              <widget class="QLabel" name="clustering_label_8">
+               <property name="text">
+                <string>Elements</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="ElementListWidget" name="clusteringElements"/>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="clusteringLayersWidget">
+            <layout class="QVBoxLayout" name="clusteringLayersLayout" stretch="0,1,0">
+             <item>
+              <layout class="QHBoxLayout" name="clustering_horizontalLayout_8" stretch="1,3,0">
+               <item>
+                <widget class="QPushButton" name="clusteringRun">
+                 <property name="text">
+                  <string>Cluster elements</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QProgressBar" name="clusteringProgress">
+                 <property name="value">
+                  <number>0</number>
+                 </property>
+                 <property name="textVisible">
+                  <bool>false</bool>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="clusteringAbort">
+                 <property name="enabled">
+                  <bool>false</bool>
+                 </property>
+                 <property name="text">
+                  <string>Stop</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="LayerListWidget" name="clusteringLayerList">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="clusteringExport">
+               <property name="text">
+                <string>Export results…</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+          <widget class="QWidget" name="clusteringNapariWidget" native="true">
+           <widget class="IconToolButton" name="clusteringSaveView">
+            <property name="geometry">
+             <rect>
+              <x>0</x>
+              <y>0</y>
+              <width>32</width>
+              <height>32</height>
+             </rect>
+            </property>
+            <property name="autoRaise">
+             <bool>true</bool>
+            </property>
+           </widget>
+           <widget class="IconToolButton" name="clusteringFit">
+            <property name="geometry">
+             <rect>
+              <x>38</x>
+              <y>0</y>
+              <width>32</width>
+              <height>32</height>
+             </rect>
+            </property>
+            <property name="autoRaise">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </widget>
+          <widget class="QSplitter" name="clusteringRightSplitter">
+           <property name="orientation">
+            <enum>Qt::Vertical</enum>
+           </property>
+           <property name="handleWidth">
+            <number>8</number>
+           </property>
+           <widget class="QTextEdit" name="clusteringInfo"/>
+           <widget class="QPlainTextEdit" name="clusteringStatus">
             <property name="verticalScrollBarPolicy">
              <enum>Qt::ScrollBarAlwaysOn</enum>
             </property>
@@ -625,6 +799,12 @@
                        <property name="sizeType">
                         <enum>QSizePolicy::Expanding</enum>
                        </property>
+                      <property name="sizeHint" stdset="0">
+                       <size>
+                        <width>0</width>
+                        <height>0</height>
+                       </size>
+                      </property>
                       </spacer>
                      </item>
                      <item>
@@ -698,6 +878,12 @@
                   <property name="sizeType">
                    <enum>QSizePolicy::Expanding</enum>
                   </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>0</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  </spacer>
                 </item>
                 <item>
@@ -917,6 +1103,12 @@
                        <property name="sizeType">
                         <enum>QSizePolicy::Expanding</enum>
                        </property>
+                      <property name="sizeHint" stdset="0">
+                       <size>
+                        <width>0</width>
+                        <height>0</height>
+                       </size>
+                      </property>
                       </spacer>
                      </item>
                     </layout>
@@ -932,6 +1124,12 @@
                   <property name="sizeType">
                    <enum>QSizePolicy::Expanding</enum>
                   </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>0</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  </spacer>
                 </item>
                 <item>
@@ -1080,6 +1278,12 @@
                     <property name="sizeType">
                      <enum>QSizePolicy::Expanding</enum>
                     </property>
+                   <property name="sizeHint" stdset="0">
+                    <size>
+                     <width>0</width>
+                     <height>0</height>
+                    </size>
+                   </property>
                    </spacer>
                   </item>
                   <item>
@@ -1224,20 +1428,6 @@
                     <widget class="QComboBox" name="clusterDistanceSample" />
                    </item>
                    <item>
-                    <layout class="QHBoxLayout" name="clusterDistanceMethodLayout" stretch="1,3">
-                     <item>
-                      <widget class="QLabel" name="clusterDistanceMethodLabel">
-                       <property name="text">
-                        <string>Method</string>
-                       </property>
-                      </widget>
-                     </item>
-                     <item>
-                      <widget class="QComboBox" name="clusterDistanceMethod" />
-                     </item>
-                    </layout>
-                   </item>
-                   <item>
                     <layout class="QHBoxLayout" name="clusterDistanceValueLayout">
                      <item><widget class="QLabel" name="clusterDistanceValueLabel">
                       <property name="text"><string>Show distances as</string></property>
@@ -1359,6 +1549,12 @@
                   <property name="sizeType">
                    <enum>QSizePolicy::Expanding</enum>
                   </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>0</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  </spacer>
                 </item>
                 <item>
@@ -1374,9 +1570,9 @@
                 <item>
                  <widget class="QLabel" name="clusterDistanceNullHelp">
                   <property name="text">
-                   <string>The null model compares the observed distances with those expected if clusters were randomly scattered across the areas occupied by any of the segmented elements. Each element keeps its observed number of clusters, but their positions are randomized independently.
+                   <string>The null model compares the observed distances with those expected if clusters were randomly scattered across the areas occupied by any of the clustered elements. Each element keeps its observed number of clusters, but their positions are randomized independently.
 
-Expected distances and percentiles are estimated from 1,000 random arrangements (with a fixed seed). All segmented elements define the available area, including those hidden by the cluster-count filter.
+Expected distances and percentiles are estimated from 1,000 random arrangements (with a fixed seed). All clustered elements define the available area, including those hidden by the cluster-count filter.
 
 Normalized distances are observed means divided by their random expectations. Percentiles give the percentage of random arrangements with a smaller mean distance than observed.</string>
                   </property>

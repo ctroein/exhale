@@ -1,16 +1,19 @@
-"""HDF5 persistence for derived segmentation results."""
+"""HDF5 persistence for independent segmentation and element-clustering results."""
 
 from __future__ import annotations
 
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import h5py
 import numpy as np
 import pandas as pd
+
+from ..data.segmentation import SegmentationOutput
 
 if TYPE_CHECKING:
     from ..xrf_refcopy.xrf_sample_class import XRFSample
@@ -23,6 +26,11 @@ SEGMENTATION_VERSION = 1
 def result_relative_path(sample_id: str, method_id: str = "stardist") -> Path:
     """Return the project-relative sidecar path for one sample and method."""
     return Path(SEGMENTATION_DIRECTORY) / method_id / f"{sample_id}.h5"
+
+
+def clustering_relative_path(sample_id: str) -> Path:
+    """Return the independent element-clustering sidecar location."""
+    return Path("element-clusters") / f"{sample_id}.h5"
 
 
 def _write_optional_array(group, name, value) -> None:
@@ -67,6 +75,57 @@ def _read_dataframe(group, name):
     return pd.DataFrame(payload["records"], columns=payload["columns"])
 
 
+@contextmanager
+def _atomic_hdf5(filename: str | Path):
+    """Replace a completed sidecar atomically, preserving the previous file on error."""
+    filename = Path(filename)
+    filename.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=filename.parent, prefix=f".{filename.name}.", suffix=".tmp", delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+        with h5py.File(temporary, "w") as handle:
+            yield handle
+            handle.flush()
+        os.replace(temporary, filename)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def save_segmentation(output: SegmentationOutput, filename: str | Path, *, method_id: str):
+    """Save only instance labels and model provenance, without raw maps or XRF state."""
+    with _atomic_hdf5(filename) as handle:
+        handle.attrs["format"] = SEGMENTATION_FORMAT
+        handle.attrs["version"] = SEGMENTATION_VERSION
+        handle.attrs["method_id"] = method_id
+        handle.attrs["model_id"] = output.model_id
+        handle.attrs["model_version"] = output.model_version
+        handle.create_dataset("labels", data=output.labels, compression="gzip")
+
+
+def load_segmentation(filename: str | Path, *, expected_method_id: str) -> SegmentationOutput:
+    """Read labels directly, including structurally usable existing sidecars."""
+    with h5py.File(filename, "r") as handle:
+        if handle.attrs.get("format") != SEGMENTATION_FORMAT:
+            raise ValueError("Not an Exhale segmentation result")
+        if int(handle.attrs.get("version", 0)) > SEGMENTATION_VERSION:
+            raise ValueError("Unsupported newer segmentation result version")
+        stored_method = handle.attrs.get("method_id", expected_method_id)
+        if stored_method != expected_method_id:
+            raise ValueError("Segmentation result belongs to another method")
+        key = "labels" if "labels" in handle else "nuclei/nuclei_labels"
+        if key not in handle:
+            raise ValueError("Segmentation result has no instance labels")
+        return SegmentationOutput(
+            handle[key][()],
+            str(handle.attrs.get("model_id", "unknown")),
+            str(handle.attrs.get("model_version", "unknown")),
+        )
+
+
 def save_xrf_sample(
     sample: XRFSample, filename: str | Path, *, method_id: str = "stardist"
 ) -> None:
@@ -90,21 +149,26 @@ def save_xrf_sample(
             handle.attrs["processed"] = sample.is_processed
             handle.attrs["combined"] = sample.is_combined
 
-            nuclei = handle.create_group("nuclei")
-            _write_optional_array(nuclei, "raw", sample.nuclei.raw)
-            _write_optional_array(nuclei, "nuclei_labels", sample.nuclei.nuclei_labels)
-            _write_optional_array(nuclei, "expanded_labels", sample.nuclei.expanded_labels)
-            _write_optional_array(nuclei, "membrane_labels", sample.nuclei.membrane_labels)
+            if sample.nuclei is not None:
+                nuclei = handle.create_group("nuclei")
+                nuclei.attrs["processed"] = sample.nuclei.is_processed
+                _write_optional_array(nuclei, "raw", sample.nuclei.raw)
+                _write_optional_array(nuclei, "nuclei_labels", sample.nuclei.nuclei_labels)
+                _write_optional_array(nuclei, "expanded_labels", sample.nuclei.expanded_labels)
+                _write_optional_array(nuclei, "membrane_labels", sample.nuclei.membrane_labels)
 
-            tissue = handle.create_group("tissue")
-            _write_optional_array(tissue, "raw", sample.tissue.raw)
-            _write_optional_array(tissue, "log_image", sample.tissue.log_image)
-            _write_optional_array(tissue, "tissue_mask", sample.tissue.tissue_mask)
-            _write_optional_array(tissue, "tissue_labels", sample.tissue.tissue_labels)
+            if sample.tissue is not None:
+                tissue = handle.create_group("tissue")
+                tissue.attrs["processed"] = sample.tissue.is_processed
+                _write_optional_array(tissue, "raw", sample.tissue.raw)
+                _write_optional_array(tissue, "log_image", sample.tissue.log_image)
+                _write_optional_array(tissue, "tissue_mask", sample.tissue.tissue_mask)
+                _write_optional_array(tissue, "tissue_labels", sample.tissue.tissue_labels)
 
             elements = handle.create_group("elements")
             for index, channel in enumerate(sample.elements.values()):
                 element = elements.create_group(str(index))
+                element.attrs["processed"] = channel.is_processed
                 element.attrs["name"] = channel.name
                 _write_optional_array(element, "raw", channel.raw)
                 _write_optional_array(element, "log_image", channel.log_image)
@@ -151,19 +215,25 @@ def load_xrf_sample(filename: str | Path, *, expected_method_id: str | None = No
             )
 
         sample = XRFSample(str(handle.attrs["name"]))
-        nuclei_group = handle["nuclei"]
-        sample.nuclei = NucleiChannel(nuclei_group["raw"][()])
-        sample.nuclei.nuclei_labels = _read_optional_array(nuclei_group, "nuclei_labels")
-        sample.nuclei.expanded_labels = _read_optional_array(nuclei_group, "expanded_labels")
-        sample.nuclei.membrane_labels = _read_optional_array(nuclei_group, "membrane_labels")
-        sample.nuclei._processed = bool(handle.attrs["processed"])
+        if "nuclei" in handle:
+            nuclei_group = handle["nuclei"]
+            sample.nuclei = NucleiChannel(nuclei_group["raw"][()])
+            sample.nuclei.nuclei_labels = _read_optional_array(nuclei_group, "nuclei_labels")
+            sample.nuclei.expanded_labels = _read_optional_array(nuclei_group, "expanded_labels")
+            sample.nuclei.membrane_labels = _read_optional_array(nuclei_group, "membrane_labels")
+            sample.nuclei._processed = bool(
+                nuclei_group.attrs.get("processed", handle.attrs["processed"])
+            )
 
-        tissue_group = handle["tissue"]
-        sample.tissue = TissueChannel(tissue_group["raw"][()])
-        sample.tissue.log_image = _read_optional_array(tissue_group, "log_image")
-        sample.tissue.tissue_mask = _read_optional_array(tissue_group, "tissue_mask")
-        sample.tissue.tissue_labels = _read_optional_array(tissue_group, "tissue_labels")
-        sample.tissue._processed = bool(handle.attrs["processed"])
+        if "tissue" in handle:
+            tissue_group = handle["tissue"]
+            sample.tissue = TissueChannel(tissue_group["raw"][()])
+            sample.tissue.log_image = _read_optional_array(tissue_group, "log_image")
+            sample.tissue.tissue_mask = _read_optional_array(tissue_group, "tissue_mask")
+            sample.tissue.tissue_labels = _read_optional_array(tissue_group, "tissue_labels")
+            sample.tissue._processed = bool(
+                tissue_group.attrs.get("processed", handle.attrs["processed"])
+            )
 
         for key in sorted(handle["elements"], key=int):
             element_group = handle["elements"][key]
@@ -174,7 +244,9 @@ def load_xrf_sample(filename: str | Path, *, expected_method_id: str | None = No
                 element_group, "intensity_thresholds"
             )
             channel.cluster_df = _read_dataframe(element_group, "cluster_df")
-            channel._processed = bool(handle.attrs["processed"])
+            channel._processed = bool(
+                element_group.attrs.get("processed", handle.attrs["processed"])
+            )
             sample.elements[channel.name] = channel
 
         tables = handle["tables"]

@@ -2,6 +2,8 @@
 
 import unittest
 
+import numpy as np
+
 from exhale.data.projectdata import (
     Channel,
     ChannelOverride,
@@ -12,6 +14,7 @@ from exhale.data.projectdata import (
     SegmentationResult,
     shortest_unique_path_suffixes,
 )
+from exhale.data.segmentation import SegmentationOutput
 from exhale.data.source_refs import ElementRef
 
 
@@ -75,10 +78,14 @@ class ProjectDataTests(unittest.TestCase):
     def test_segmentation_result_is_removed_with_its_sample(self):
         project = ProjectData()
         project.samples["scan"] = self.sample
-        parameters = SegmentationParameters(5, 10, 2, 4)
+        parameters = SegmentationParameters(clip_percentile=99.9)
         project.set_segmentation_result(
             SegmentationResult(
-                "scan", "stardist", self.fe_ref, self.zn_ref, (self.fe_ref,), parameters, object()
+                "scan",
+                "stardist",
+                self.fe_ref,
+                parameters,
+                SegmentationOutput(np.zeros((2, 2), dtype=np.uint32), "model", "1"),
             )
         )
 
@@ -96,12 +103,20 @@ class ProjectDataTests(unittest.TestCase):
 
     def test_segmentation_results_are_kept_per_method(self):
         project = ProjectData()
-        parameters = SegmentationParameters(5, 10, 2, 4)
+        parameters = SegmentationParameters(clip_percentile=99.9)
         first = SegmentationResult(
-            "scan", "first", self.fe_ref, self.zn_ref, (), parameters, object()
+            "scan",
+            "first",
+            self.fe_ref,
+            parameters,
+            SegmentationOutput(np.zeros((2, 2), dtype=np.uint32), "model", "1"),
         )
         second = SegmentationResult(
-            "scan", "second", self.fe_ref, self.zn_ref, (), parameters, object()
+            "scan",
+            "second",
+            self.fe_ref,
+            parameters,
+            SegmentationOutput(np.zeros((2, 2), dtype=np.uint32), "model", "1"),
         )
 
         project.set_segmentation_result(first)

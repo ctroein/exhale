@@ -14,8 +14,6 @@ from .image_settings_dialog import ImageSettingsDialog
 from .imagecomposer import ImageComposer
 from .listwidgets import ElementListWidget, ImageElementBox, ImageHeaderBox, ImageListWidget
 
-PIXEL_TOOLTIP_DURATION_MS = 24 * 60 * 60 * 1000
-
 
 class ImageController:
     """Own the Element maps tab's composed-image state and behavior."""
@@ -24,6 +22,16 @@ class ImageController:
         self.window = window
         self.current_image = None
         self.composer = ImageComposer()
+        self._pixel_tooltip = QtWidgets.QLabel(window, QtCore.Qt.WindowType.ToolTip)
+        self._pixel_tooltip.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        self._pixel_tooltip.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self._pixel_tooltip.setAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._pixel_tooltip.setPalette(QtWidgets.QToolTip.palette())
+        self._pixel_tooltip.setForegroundRole(QtGui.QPalette.ColorRole.ToolTipText)
+        self._pixel_tooltip.setBackgroundRole(QtGui.QPalette.ColorRole.ToolTipBase)
+        self._pixel_tooltip.setAutoFillBackground(True)
+        self._pixel_tooltip.setMargin(4)
+        self._pixel_tooltip.hide()
 
         dialog = ImageSettingsDialog(window)
         self.settings_dialog = dialog
@@ -442,16 +450,16 @@ class ImageController:
 
     def _mouse_over_plot(self, canvas_pixel) -> None:
         if canvas_pixel is None:
-            QtWidgets.QToolTip.hideText()
+            self._pixel_tooltip.hide()
             return
         if self.window.elementPlot.composition_description is None:
             element = self.window.element_controller.current_element
             if element is None:
-                QtWidgets.QToolTip.hideText()
+                self._pixel_tooltip.hide()
                 return
             x, y = canvas_pixel
             if y >= element.data.shape[0] or x >= element.data.shape[1]:
-                QtWidgets.QToolTip.hideText()
+                self._pixel_tooltip.hide()
                 return
             info = (
                 f"Pos ({x}, {y}):\n"
@@ -462,11 +470,11 @@ class ImageController:
             return
         image = self.current_image
         if image is None:
-            QtWidgets.QToolTip.hideText()
+            self._pixel_tooltip.hide()
             return
         coordinates = self.composer.map_coordinates(*canvas_pixel)
         if coordinates is None:
-            QtWidgets.QToolTip.hideText()
+            self._pixel_tooltip.hide()
             return
         x, y = coordinates
         info = f"Pos ({x}, {y}):\n" + "\n".join(
@@ -477,14 +485,24 @@ class ImageController:
         self._show_pixel_tooltip(info)
 
     def _show_pixel_tooltip(self, text: str) -> None:
-        plot = self.window.elementPlot
-        QtWidgets.QToolTip.showText(
-            QtGui.QCursor.pos(),
-            text,
-            plot,
-            plot.rect(),
-            PIXEL_TOOLTIP_DURATION_MS,
-        )
+        tooltip = self._pixel_tooltip
+        tooltip.setPalette(QtWidgets.QToolTip.palette())
+        tooltip.setFont(QtWidgets.QToolTip.font())
+        tooltip.setText(text)
+        tooltip.adjustSize()
+        cursor = QtGui.QCursor.pos()
+        position = cursor + QtCore.QPoint(16, 16)
+        screen = QtGui.QGuiApplication.screenAt(cursor)
+        if screen is not None:
+            bounds = screen.availableGeometry()
+            if position.x() + tooltip.width() > bounds.right():
+                position.setX(cursor.x() - tooltip.width() - 16)
+            if position.y() + tooltip.height() > bounds.bottom():
+                position.setY(cursor.y() - tooltip.height() - 16)
+            position.setX(max(bounds.left(), position.x()))
+            position.setY(max(bounds.top(), position.y()))
+        tooltip.move(position)
+        tooltip.show()
 
     def _plot_clicked(self, canvas_pixel) -> None:
         description = self.window.elementPlot.composition_description

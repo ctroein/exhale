@@ -55,7 +55,7 @@ def _wheel(widget, delta):
     position = QtCore.QPointF(viewport.rect().center())
     event = QtGui.QWheelEvent(
         position,
-        widget.matrix_plot.mapToGlobal(position.toPoint()),
+        QtCore.QPointF(widget.matrix_plot.mapToGlobal(position.toPoint())),
         QtCore.QPoint(),
         QtCore.QPoint(0, delta),
         QtCore.Qt.MouseButton.NoButton,
@@ -405,13 +405,16 @@ def test_initial_matrix_keeps_default_padding_when_scrolling_is_needed():
     widget.resize(500, 400)
     widget.show()
     _APP.processEvents()
-    spec = correlation_matrix_spec(np.eye(12), tuple(str(index) for index in range(12)), decimals=2)
+    size = 20
+    spec = correlation_matrix_spec(
+        np.eye(size), tuple(str(index) for index in range(size)), decimals=2
+    )
     widget.set_matrix_spec(spec)
     _APP.processEvents()
     metrics = QtGui.QFontMetrics(QtWidgets.QApplication.font())
     text = matrix_text_layout(spec, metrics.height(), metrics.horizontalAdvance)
     assert widget._matrix_cell_size == pytest.approx(text.default_cell, abs=1e-9)
-    assert widget.matrix_plot.getViewBox().viewRect().width() < 12
+    assert widget.matrix_plot.getViewBox().viewRect().width() < size
     widget.close()
 
 

@@ -18,6 +18,14 @@ from .plotsettings import (
     MatrixPlotSettings,
     MatrixPublicationSettings,
 )
+from .segmentation import (
+    SegmentationOutput,
+    SegmentationParameters,
+    SegmentationPostprocessing,
+    filter_segments,
+    resize_segments,
+    segment_areas,
+)
 from .source_refs import ElementRef, LoadedSource
 from .tiffimport import infer_tiff_import
 
@@ -112,16 +120,6 @@ class ResolvedChannel:
 
 
 @dataclass(frozen=True)
-class SegmentationParameters:
-    """Parameters used to produce one segmentation result."""
-
-    nuclei_expansion: int
-    nuclei_min_area: int
-    cluster_min_k: int
-    cluster_max_k: int
-
-
-@dataclass(frozen=True)
 class LayerPresentation:
     """Saved presentation of one segmentation viewer layer."""
 
@@ -143,15 +141,79 @@ class SegmentationLayerSettings:
 
 
 @dataclass
+class SegmentationPreview:
+    """Inspection layers selected before a sample/method has a completed run."""
+
+    input_ref: ElementRef | None = None
+    reference_refs: tuple[ElementRef, ...] = ()
+    layer_settings: SegmentationLayerSettings = field(default_factory=SegmentationLayerSettings)
+
+
+@dataclass
 class SegmentationResult:
     """The most recent successful run of one method for one sample."""
 
     sample_id: str
     method_id: str
-    nuclei_ref: ElementRef
-    tissue_ref: ElementRef
-    element_refs: tuple[ElementRef, ...]
+    input_ref: ElementRef
     parameters: SegmentationParameters
+    output: SegmentationOutput
+    layer_settings: SegmentationLayerSettings = field(default_factory=SegmentationLayerSettings)
+    postprocessing: SegmentationPostprocessing = field(default_factory=SegmentationPostprocessing)
+    reference_refs: tuple[ElementRef, ...] = ()
+    _processed_cache: Any = field(default=None, init=False, repr=False, compare=False)
+    _resized_cache: Any = field(default=None, init=False, repr=False, compare=False)
+
+    @property
+    def resized_labels(self):
+        """Cache expansion/shrinking independently of the subsequent area cutoff."""
+        key = (self.output, self.postprocessing.expansion)
+        if self._resized_cache is None or self._resized_cache[0] != key:
+            labels = (
+                resize_segments(self.output.labels, self.postprocessing.expansion)
+                if self.postprocessing.expansion
+                else self.output.labels
+            )
+            self._resized_cache = key, labels, segment_areas(labels)
+        return self._resized_cache[1]
+
+    @property
+    def unfiltered_segment_areas(self):
+        """Areas after resizing, before removing whole undersized instances."""
+        _ = self.resized_labels
+        return self._resized_cache[2]
+
+    @property
+    def processed_labels(self):
+        """Cache corrected labels separately from the original method output."""
+        key = (self.output, self.postprocessing)
+        if self._processed_cache is None or self._processed_cache[0] != key:
+            labels = filter_segments(self.resized_labels, self.postprocessing.minimum_area)
+            self._processed_cache = key, labels, segment_areas(labels)
+        return self._processed_cache[1]
+
+    @property
+    def segment_areas(self):
+        """Return retained IDs and pixel areas for overview and inspection."""
+        _ = self.processed_labels
+        return self._processed_cache[2]
+
+
+@dataclass(frozen=True)
+class ClusteringParameters:
+    """Intensity partition settings independent of segmentation methods."""
+
+    min_k: int
+    max_k: int
+
+
+@dataclass
+class ClusteringResult:
+    """The latest successful element clustering for one sample."""
+
+    sample_id: str
+    element_refs: tuple[ElementRef, ...]
+    parameters: ClusteringParameters
     xrf_sample: Any
     layer_settings: SegmentationLayerSettings = field(default_factory=SegmentationLayerSettings)
 
@@ -297,6 +359,8 @@ class ProjectData:
         self.project_channels: dict[str, Channel] = {}
         self.images: dict[int, ImageSettings] = {}
         self.segmentation_results: dict[str, dict[str, SegmentationResult]] = {}
+        self.segmentation_previews: dict[str, dict[str, SegmentationPreview]] = {}
+        self.clustering_results: dict[str, ClusteringResult] = {}
         self.matrix_plot_settings = {key: MatrixPlotSettings() for key in MATRIX_PLOT_KEYS}
         self.matrix_plot_settings[CLUSTER_DISTANCES] = MatrixPlotSettings(
             palette="viridis", default_palette="viridis"
@@ -332,6 +396,7 @@ class ProjectData:
     def set_segmentation_result(self, result: SegmentationResult) -> None:
         """Store the latest result for its sample and method."""
         self.segmentation_results.setdefault(result.sample_id, {})[result.method_id] = result
+        self.segmentation_previews.get(result.sample_id, {}).pop(result.method_id, None)
 
     def segmentation_results_for_sample(self, sample_id: str | None):
         """Return the method-indexed results for one sample."""
@@ -704,6 +769,8 @@ class ProjectData:
         asset = self.assets[asset_id]
         sample = self.samples[asset.sample_id]
         self.segmentation_results.pop(sample.sample_id, None)
+        self.segmentation_previews.pop(sample.sample_id, None)
+        self.clustering_results.pop(sample.sample_id, None)
         removed = sample.remove_asset_channels(asset_id)
         asset.source.close()
         self.assets.pop(asset_id)
@@ -724,6 +791,8 @@ class ProjectData:
         for asset_id in list(sample.asset_ids):
             removed.extend(self.remove_asset(asset_id))
         self.segmentation_results.pop(sample_id, None)
+        self.segmentation_previews.pop(sample_id, None)
+        self.clustering_results.pop(sample_id, None)
         self.samples.pop(sample_id, None)
         return removed
 
@@ -761,6 +830,8 @@ class ProjectData:
         self.project_channels.clear()
         self.images.clear()
         self.segmentation_results.clear()
+        self.segmentation_previews.clear()
+        self.clustering_results.clear()
         for settings in self.matrix_plot_settings.values():
             settings.reset()
         self.matrix_publication_settings.reset()

@@ -1,8 +1,12 @@
 """Application settings dialog."""
 
+from pathlib import Path
+
 from qtpy import QtCore, QtWidgets
 
-from . import appearance
+from . import appearance, icons
+from .analysis.model_store import MODEL_DIRECTORY_SETTING
+from .model_settings import default_model_directory, model_directory
 from .project.projectstatemanager import PROJECT_AUTOSAVE_KEY, PROJECT_SAVE_ON_EXIT_KEY
 from .settings_dialog_ui import Ui_SettingsDialog
 from .tooltips import SETTINGS_DIALOG, apply_tooltips
@@ -25,9 +29,28 @@ class SettingsDialog(QtWidgets.QDialog, Ui_SettingsDialog):
         self.saveProjectOnExitCheckBox.setChecked(
             settings.value(PROJECT_SAVE_ON_EXIT_KEY, True, type=bool)
         )
+        self.modelDirectoryEdit.setText(str(model_directory(settings)))
+        self.modelDirectoryBrowse.setIcon(icons.icon(icons.IconName.FOLDER))
+        self.modelDirectoryBrowse.clicked.connect(self._choose_model_directory)
         apply_tooltips(self, SETTINGS_DIALOG)
 
+    def _choose_model_directory(self):
+        directory = self.modelDirectoryEdit.text().strip() or str(default_model_directory())
+        chosen = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Choose model directory", directory
+        )
+        if chosen:
+            self.modelDirectoryEdit.setText(chosen)
+
     def accept(self):
+        value = self.modelDirectoryEdit.text().strip()
+        directory = Path(value).expanduser().resolve() if value else default_model_directory()
+        if directory.exists() and not directory.is_dir():
+            QtWidgets.QMessageBox.warning(
+                self, "Invalid model directory", "Choose a directory for the trained models."
+            )
+            return
+        self.settings.setValue(MODEL_DIRECTORY_SETTING, str(directory))
         scheme = appearance.COLOR_SCHEMES[self.colourSchemeComboBox.currentIndex()]
         self.settings.setValue(appearance.COLOR_SCHEME_KEY, scheme)
         self.settings.setValue(PROJECT_AUTOSAVE_KEY, self.autosaveProjectCheckBox.isChecked())

@@ -202,7 +202,7 @@ class ImageCanvasTests(unittest.TestCase):
         before = np.asarray(self.canvas.view_box.viewRange())
         event = QtGui.QWheelEvent(
             pos,
-            self.canvas.mapToGlobal(pos.toPoint()),
+            QtCore.QPointF(self.canvas.mapToGlobal(pos.toPoint())),
             QtCore.QPoint(),
             QtCore.QPoint(0, 120),
             QtCore.Qt.MouseButton.NoButton,

@@ -161,3 +161,19 @@ def test_null_percentiles_preserve_missing_observations_and_validate_shape():
     assert np.isnan(result.percentiles[1]).all()
     with np.testing.assert_raises_regex(ValueError, "Observed distances must match"):
         random_placement_statistics((1, 2), (mask,), observed=np.ones((3, 3)))
+
+
+def test_null_progress_reports_completed_repetitions_without_changing_results():
+    progress = []
+    mask = np.ones((5, 5))
+    result = random_placement_statistics(
+        (2, 3),
+        (mask,),
+        simulations=10,
+        seed=4,
+        progress=lambda done, total: progress.append((done, total)),
+    )
+    reference = random_placement_statistics((2, 3), (mask,), simulations=10, seed=4)
+    assert progress == [(done, 10) for done in range(11)]
+    np.testing.assert_array_equal(result.means, reference.means)
+    np.testing.assert_array_equal(result.variances, reference.variances)

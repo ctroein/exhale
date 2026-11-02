@@ -499,6 +499,8 @@ class ProjectTab(QtCore.QObject):
         self.project.abundance_units = value
         if self.window.analysis_controller.naparihelper is not None:
             self.window.analysis_controller.naparihelper.abundance_units = value
+        if self.window.clustering_controller.naparihelper is not None:
+            self.window.clustering_controller.naparihelper.abundance_units = value
         self._mark_changed()
 
     def _sync_abundance_units_control(self):

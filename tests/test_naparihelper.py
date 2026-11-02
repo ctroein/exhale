@@ -116,6 +116,7 @@ class NapariPresentationTest(unittest.TestCase):
         self.helper.viewer = ViewerModel()
         raw = np.ones((3, 4), dtype=np.float32)
         sample = SimpleNamespace(
+            shape=raw.shape,
             tissue=SimpleNamespace(raw=raw),
             nuclei=SimpleNamespace(
                 raw=raw,
@@ -164,6 +165,7 @@ class NapariPresentationTest(unittest.TestCase):
         self.helper.viewer = ViewerModel()
         raw = np.ones((2, 2), dtype=np.float32)
         sample = SimpleNamespace(
+            shape=raw.shape,
             tissue=SimpleNamespace(raw=raw),
             nuclei=SimpleNamespace(
                 raw=raw,
@@ -180,6 +182,7 @@ class NapariPresentationTest(unittest.TestCase):
         self.helper.viewer = ViewerModel()
         raw = np.ones((3, 4), dtype=np.float32)
         sample = SimpleNamespace(
+            shape=raw.shape,
             tissue=SimpleNamespace(raw=raw),
             nuclei=SimpleNamespace(
                 raw=raw,
@@ -223,6 +226,7 @@ class NapariPresentationTest(unittest.TestCase):
         self.helper.viewer = ViewerModel()
         raw = np.ones((2, 3), dtype=np.float32)
         sample = SimpleNamespace(
+            shape=raw.shape,
             tissue=SimpleNamespace(raw=raw),
             nuclei=SimpleNamespace(
                 raw=raw,
@@ -255,6 +259,7 @@ class NapariPresentationTest(unittest.TestCase):
         def sample(names):
             raw = np.ones((3, 4), dtype=np.float32)
             return SimpleNamespace(
+                shape=raw.shape,
                 tissue=SimpleNamespace(raw=raw),
                 nuclei=SimpleNamespace(
                     raw=raw,
@@ -312,6 +317,7 @@ class NapariPresentationTest(unittest.TestCase):
 
         def sample(names):
             return SimpleNamespace(
+                shape=raw.shape,
                 tissue=SimpleNamespace(raw=raw),
                 nuclei=SimpleNamespace(
                     raw=raw,
@@ -339,6 +345,20 @@ class NapariPresentationTest(unittest.TestCase):
         self.assertEqual(len(self.helper._cluster_layer_pool), 3)
         self.assertIs(self.helper._element_layer_pool[0], first_element_layer)
         self.assertIs(self.helper._cluster_layer_pool[0], first_cluster_layer)
+
+    def test_clustering_viewer_has_only_element_maps_and_clusters(self):
+        from exhale.xrf_refcopy.xrf_sample_class import XRFSample
+
+        self.helper.viewer = ViewerModel()
+        raw = np.ones((4, 5), dtype=np.float32)
+        sample = XRFSample("test")
+        sample.add_element("Fe", raw)
+        sample.elements["Fe"].cluster_labels = np.ones_like(raw, dtype=np.int32)
+        self.helper.set_sample(sample)
+        self.assertIsNone(self.helper.nuc_layer)
+        self.assertIsNone(self.helper.mem_layer)
+        self.assertIn("Fe", self.helper._element_layers)
+        self.assertTrue(self.helper.is_active_layer(self.helper._cluster_layer_pool[0]))
 
 
 class NapariRenderingTest(unittest.TestCase):

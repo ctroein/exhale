@@ -18,3 +18,23 @@ class AnalysisWorkerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_backend_retained_stream_is_safe_after_the_worker_finishes(monkeypatch):
+    import io
+    import sys
+
+    from exhale.analysis.analysisworker import capture_analysis_output
+
+    original = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", original)
+    messages = []
+    with capture_analysis_output(messages.append):
+        retained = sys.stderr
+        retained.write("during work\n")
+    retained.write("after work\n")
+    retained.flush()
+    retained.close()
+    assert messages == ["during work"]
+    assert original.getvalue() == "after work\n"
+    assert not original.closed

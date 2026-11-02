@@ -39,7 +39,10 @@ independent of Qt widgets.
 
 Defines the authoritative project model. `ProjectData` owns assets, samples,
 composed-image settings, project channel choices, shared defaults, and
-segmentation results with their saved viewer-layer presentation. `Sample`, `Channel`, `ChannelOverride`, and
+segmentation results and independent element-clustering results, each with saved
+viewer-layer presentation. Segmentation results retain reversible post-processing
+and reference-map selections, with preview state before the first successful run.
+`Sample`, `Channel`, `ChannelOverride`, and
 `ResolvedChannel` express local versus inherited channel state; the remaining
 data classes describe assets and analysis metadata.
 
@@ -86,9 +89,10 @@ and prompts before replacing or closing a modified project.
 
 ### `exhale/analysis/segmentationio.py`
 
-Stores and restores analyzed `XRFSample` objects in atomic HDF5 sidecars. Raw
-and derived arrays remain datasets; pandas result tables use a JSON dataset
-representation.
+Stores segmentation-only labels and model provenance atomically in HDF5,
+indexed by method and sample. Reads existing nested label datasets directly.
+Separate `save_xrf_sample` / `load_xrf_sample` functions retain the element-clustering
+sidecars, indexed by sample, with arrays and JSON-encoded pandas tables.
 
 ## Settings and composition
 
@@ -157,8 +161,8 @@ remains owned by `ProjectData`.
 
 ### `exhale/analysis/analysis_settings_dialog.py`
 
-Provides the generated controls as a focused modal analysis-settings dialog;
-`AnalysisController` reads and restores those controls.
+Provides the generated controls used by the independent element-clustering
+options dialog.
 
 ### `exhale/imaging/image_settings_dialog.py`
 
@@ -179,10 +183,67 @@ visualization.
 
 ### `exhale/analysis/controller.py`
 
-Owns the Segmentation tab: its independent sample and channel selection,
-parameter dialog, worker and thread lifetime, saved-result display,
-incremental Napari updates, and result export. `MainWindow` supplies the
+Owns the Segmentation tab: its independent sample, method and single input-map
+selection, segmentation-only options, worker lifetime, saved-mask display,
+Napari view, reversible area filtering, input preview, reference-map selection,
+overview/cumulative area distribution, clicked-segment details and result export.
+Element selection and clustering options belong
+to the independent Element clusters controller. `MainWindow` supplies the
 generated widgets and application-level services but owns no analysis state.
+
+### `exhale/analysis/clustering_controller.py`
+
+Owns the independent Element clusters tab, selected maps and clustering options,
+background worker lifetime, sample-level result persistence, and the lazily
+created element-map/cluster Napari viewer. No segmentation backend is required.
+
+### `exhale/data/segmentation.py`
+
+Defines backend-independent parameter snapshots and validated segmentation output.
+Output owns a copy of integer instance labels and records trained-model identity
+and version, with no tissue, membrane or clustering state. Also defines Euclidean
+boundary expansion/shrinking, minimum-area post-processing and sparse-label area
+operations. The result model caches resizing separately from area filtering, so
+cutoff edits reuse the resized labels. Original output remains separate.
+
+### `exhale/analysis/segmentation_backends.py`
+
+Owns non-mutating percentile preprocessing, safe lazy neural-library initialization,
+direct StarDist and Cellpose inference, model caching and model-content provenance.
+Validates the labels against the input shape without downstream filtering or regions.
+
+### `exhale/analysis/segmentation_options_dialog.py`
+
+Snapshots and restores inference options using `segmentation_options_dialog.ui`.
+Clipping remains an internal method parameter. The Designer file exposes only
+Cellpose's minimum area, flow threshold and cell-probability threshold; StarDist
+has no exposed inference options.
+
+### `exhale/analysis/segmentation_viewer.py`
+
+Presents a `SegmentationResult` directly using pooled source-map and read-only
+instance-label layers, plus explicitly added reference maps. Reuses common Napari
+presentation controls while keeping hover/click inspection independent of the
+clustering model. Displays processed labels, supports input-only preview, and
+refreshes transformed reference maps without changing their presentation.
+Missing source data do not hide saved segmentation output.
+
+### `exhale/analysis/model_store.py`
+
+Defines pinned trained-model release metadata and cancellable HTTP/local transfer.
+Verifies file size and SHA-256, caches verification for unchanged files, and
+atomically installs complete weights. It imports neither Qt nor neural libraries.
+
+### `exhale/model_settings.py`
+
+Resolves the application model-directory preference and platform-appropriate
+per-user default, independently of projects and launcher paths.
+
+### `tools/prepare_model_release.py`
+
+Checks the supplied trained model against the pinned catalog and prepares a
+release asset, checksum file, JSON metadata and DINOv3 license. It never uploads or creates a
+GitHub release.
 
 ### `exhale/analysis/segmentationmethods.py`
 
@@ -214,15 +275,17 @@ simulated means.
 
 ### `exhale/analysis/analysisworker.py`
 
-Defines the StarDist background `AnalysisWorker`. It captures Python and native
-stderr, emits progress, constructs an `XRFSample`, runs processing and
-combination, and returns either the result or a traceback through Qt signals.
+Defines segmentation-only `AnalysisWorker` and independent `ClusteringWorker`,
+sharing only `AnalysisTask` execution, output capture, progress and cancellation.
+Segmentation returns a pure `SegmentationOutput`; only clustering imports and
+constructs the legacy `XRFSample`. Completion or failure is returned through Qt signals.
 
 ### `exhale/xrf_refcopy/xrf_sample_class.py`
 
-Defines `XRFSample`, the coordinator for nuclei, tissue, and element channels.
-It validates readiness, runs channel processing, and combines per-region data
-into result tables.
+Defines the legacy `XRFSample` used by element clustering and its sidecars.
+It clusters element channels and retains region-table/export data from existing
+results. Old combined `process()` and segmentation entry points are removed;
+segmentation uses the independent backend and result model.
 
 ### `exhale/xrf_refcopy/xrf_element_channel.py`
 
@@ -232,15 +295,15 @@ records their properties.
 
 ### `exhale/xrf_refcopy/xrf_other_channel.py`
 
-Defines `NucleiChannel` and `TissueChannel`. They segment nuclei, construct
-expanded membrane regions, and derive the tissue mask used by sample-level
-analysis.
+Retains `NucleiChannel` as a data container for legacy region results and
+`TissueChannel` for downstream tissue-mask processing. Neither calls a neural
+segmentation method.
 
 ### `exhale/xrf_refcopy/xrf_utils.py`
 
-Contains the numerical analysis functions: StarDist model loading, nuclei and
-membrane operations, connected-region filtering, exact weighted intensity
-partitioning, and compatibility wrappers used by the channel classes.
+Contains region operations, membrane expansion, intensity filtering and exact
+weighted intensity partitioning for downstream analysis. StarDist loading and
+inference helpers are removed; clustering imports no neural backend.
 
 ## Visualization and reusable widgets
 
@@ -345,6 +408,7 @@ dialog's runtime-information table.
 ## Generated UI modules and resources
 
 `exhale/analysis/analysis_settings_dialog_ui.py`,
+`exhale/analysis/segmentation_options_dialog_ui.py`,
 `exhale/imaging/image_settings_dialog_ui.py`, `exhale/main_window_ui.py`, and
 `exhale/settings_dialog_ui.py` are generated from the same base names under
 `exhale/resources/ui/`. Edit the `.ui` files and regenerate; never edit or
@@ -363,6 +427,10 @@ at runtime.
 `packaging/` contains the PyInstaller specification and hooks, Windows Inno
 Setup definition, Conda recipe, generated platform icon containers, and the
 utility which rebuilds those containers from a selected artwork source.
+`requirements-cellpose.txt` pins the extra DINOv3 source dependency for source/pip
+and frozen builds. The DINOv3 PyInstaller hook collects packaged configuration
+data; the specification collects dependency metadata and licenses without bundling
+large trained-model weights.
 `.github/workflows/build.yml` builds Windows, Linux, and macOS frozen
 applications and publishes tagged packages.
 

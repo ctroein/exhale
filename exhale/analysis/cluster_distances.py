@@ -86,6 +86,7 @@ def random_placement_statistics(
     observed: np.ndarray | None = None,
     seed: int = 0,
     cancelled: Callable[[], bool] | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> RandomPlacementStatistics:
     """Simulate complete distance matrices within the union of cluster masks.
 
@@ -93,7 +94,8 @@ def random_placement_statistics(
     observed cluster count. Centroids do not share a support pixel within one
     element, but sets belonging to different elements may overlap. If observed
     distances (in pixels) are supplied, percentiles count simulated means strictly
-    below each observation; unavailable cells remain NaN.
+    below each observation; unavailable cells remain NaN. The optional progress
+    callback receives completed and total repetition counts, starting at zero.
     """
     raw_counts = np.asarray(counts)
     if raw_counts.ndim != 1:
@@ -129,6 +131,8 @@ def random_placement_statistics(
     squared_differences = np.zeros_like(means)
     sample_counts = np.zeros((size, size), dtype=np.int64)
     rng = np.random.default_rng(seed)
+    if progress is not None:
+        progress(0, simulations)
     for _iteration in range(simulations):
         if cancelled is not None and cancelled():
             raise CancelledError("Random-placement calculation cancelled")
@@ -148,6 +152,8 @@ def random_placement_statistics(
         difference = values[finite] - means[finite]
         means[finite] += difference / sample_counts[finite]
         squared_differences[finite] += difference * (values[finite] - means[finite])
+        if progress is not None:
+            progress(_iteration + 1, simulations)
 
     means[sample_counts == 0] = np.nan
     variances = np.full_like(means, np.nan)

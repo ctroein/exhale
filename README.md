@@ -32,12 +32,31 @@ EXHALE can be installed from PyPI in an isolated environment with
 [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv tool install --python 3.12 exhale-lung
+uv tool install --python 3.12 --with-requirements https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt exhale-lung
 ```
 
 Windows and macOS users who prefer a packaged application over uv or pip can
 download it from the [GitHub releases page](https://github.com/ctroein/exhale/releases).
-Developers can also install EXHALE from a Git checkout.
+For a pip environment, install with the additional CellposeDINO requirement:
+
+```bash
+python -m pip install exhale-lung -r https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt
+```
+
+The requirements file pins DINOv3 to the upstream revision tested with Exhale.
+DINOv3 is not on PyPI, so a bare `pip install exhale-lung` does not provide
+CellposeDINO support. The pinned source archive is installed by pip; Git is not
+required. Frozen installers already contain these libraries.
+
+For a Git checkout, install the additional dependency with
+`python -m pip install -r requirements-cellpose.txt` and run `./run_exhale.py`.
+The regular dependencies declared in `pyproject.toml` must also be installed in
+that environment.
+
+Trained Cellpose weights are downloaded on first use to the model directory in
+application settings. The same mechanism is used for installed applications and
+Git checkouts; the large weights are not included in the application installer.
+DINOv3 code and derived model weights retain the [DINOv3 license](exhale/resources/licenses/DINOv3-LICENSE.md).
 
 On Linux, run the following command to add EXHALE to the current user's desktop
 environment and application menu:

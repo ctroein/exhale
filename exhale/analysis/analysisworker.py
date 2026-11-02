@@ -2,14 +2,16 @@
 """Background XRF analysis with Qt progress, completion, and failure signals."""
 
 import contextlib
-import importlib
+import logging
 import os
 import sys
 import threading
+from copy import copy, deepcopy
 
+import numpy as np
 from qtpy import QtCore
 
-from ..data.elementsettings import ElementSettings
+from ..data.segmentation import SegmentationParameters
 
 
 @contextlib.contextmanager
@@ -47,40 +49,80 @@ def capture_native_stderr(emit):
         reader.join()
 
 
-class AnalysisWorker(QtCore.QObject):
-    """Run one sample analysis outside the GUI thread.
+@contextlib.contextmanager
+def capture_analysis_output(emit):
+    """Forward Python/native output and backend logs for either analysis stage."""
 
-    Progress includes Python output and messages written directly to the native
-    stderr descriptor. Abortion is cooperative and is checked at progress
-    boundaries.
-    """
+    class ProgressStream:
+        def __init__(self):
+            self.pending = ""
+            self.active = True
+            self.fallback = sys.stderr
+
+        def write(self, text):
+            if not self.active:
+                return self.fallback.write(text)
+            self.pending += text
+            lines = self.pending.split("\n")
+            self.pending = lines.pop()
+            for line in lines:
+                if line:
+                    emit(line)
+
+        def flush(self):
+            if not self.active:
+                return self.fallback.flush()
+            if self.pending:
+                emit(self.pending)
+                self.pending = ""
+
+        def close(self):
+            # Backend logging may retain this wrapper; it owns no underlying file.
+            pass
+
+    class ProgressHandler(logging.Handler):
+        def emit(self, record):
+            emit(self.format(record))
+
+    handler = ProgressHandler()
+    handler.setFormatter(logging.Formatter("[%(name)s] %(levelname)s: %(message)s"))
+    loggers = [logging.getLogger(name) for name in ("tensorflow", "cellpose")]
+    levels = [logger.level for logger in loggers]
+    for logger in loggers:
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+    stream = ProgressStream()
+    try:
+        with (
+            capture_native_stderr(emit),
+            contextlib.redirect_stdout(stream),
+            contextlib.redirect_stderr(stream),
+        ):
+            yield
+            stream.flush()
+    finally:
+        stream.active = False
+        for logger, level in zip(loggers, levels, strict=True):
+            logger.removeHandler(handler)
+            logger.setLevel(level)
+
+
+class AnalysisTask(QtCore.QObject):
+    """Shared progress and cooperative cancellation for independent analysis jobs."""
 
     progress = QtCore.Signal(str)
-    finished = QtCore.Signal(object)  # XRFSample
+    finished = QtCore.Signal(object)
     failed = QtCore.Signal(str)
 
-    def __init__(
-        self,
-        nuclei_es: ElementSettings,
-        tissue_es: ElementSettings,
-        element_settings: list,
-        sample_name: str,
-        **process_args,
-    ):
+    def __init__(self):
         super().__init__()
-        self.nuclei_es = nuclei_es
-        self.tissue_es = tissue_es
-        self.element_settings = element_settings
-        self.sample_name = sample_name
-        self.process_args = process_args
         self._abort = False
 
     @QtCore.Slot()
     def run(self):
-        """Run the analysis and emit exactly one completion or failure signal."""
-
+        """Publish exactly one result or failure, never a cancelled result."""
         try:
-            sample = self.xrf_analysis()
+            result = self.execute()
         except InterruptedError:
             self.failed.emit("")
         except Exception:
@@ -88,95 +130,135 @@ class AnalysisWorker(QtCore.QObject):
 
             self.failed.emit(traceback.format_exc())
         else:
-            self.finished.emit(sample)
+            self.finished.emit(result)
 
     @QtCore.Slot()
     def abort(self):
-        """Request cooperative cancellation at the next progress boundary."""
-
         self._abort = True
 
-    def xrf_analysis(self):
-        """Build and process an ``XRFSample`` while forwarding library output."""
+    def report(self, message):
+        """Check cancellation at explicit computation boundaries."""
+        if self._abort:
+            raise InterruptedError("Aborted")
+        self.progress.emit(message)
 
-        def progress_or_abort(msg):
-            if self._abort:
-                raise InterruptedError("Aborted")
-            self.progress.emit(msg)
+    def execute(self):
+        """Compute privately; callers publish and persist only successful output."""
+        self.report("Initializing")
+        with capture_analysis_output(self.progress.emit):
+            result = self.compute()
+            self.report("Analysis complete")
+        return result
 
-        # Try to intercept logging
-        import logging
+    def compute(self):
+        raise NotImplementedError
 
-        class LogHandler(logging.Handler):
-            "Minimal logging handler"
 
-            def __init__(self):
-                logging.Handler.__init__(self, logging.DEBUG)
-                self.setFormatter(logging.Formatter("[%(name)s] %(levelname)s: %(message)s"))
+class AnalysisWorker(AnalysisTask):
+    """Acquire model weights and segment one map outside the GUI thread."""
 
-            def emit(self, record):
-                try:
-                    msg = self.format(record)
-                except Exception:
-                    msg = record.getMessage()
-                progress_or_abort(msg)
+    model_progress = QtCore.Signal(str, object, object)
+    model_ready = QtCore.Signal()
 
-        tfLogHandler = LogHandler()
-        tf_log = logging.getLogger("tensorflow")
-        previous_tf_level = tf_log.level
-        tf_log.setLevel(logging.DEBUG)
-        tf_log.addHandler(tfLogHandler)
+    def __init__(
+        self,
+        image: np.ndarray,
+        *,
+        method_id="stardist",
+        parameters: SegmentationParameters | None = None,
+        model_path=None,
+        model_directory=None,
+    ):
+        super().__init__()
+        self.image = np.array(image, copy=True)
+        self.method_id = method_id
+        self.parameters = deepcopy(parameters or SegmentationParameters())
+        self.model_path = model_path
+        self.model_directory = model_directory
+        self.model_error = None
 
-        class EmitStream:
-            "Stream that collects entire lines and emits them as progress"
+    def compute(self):
+        from .model_store import ModelDownloadError, ensure_model, model_for_method
+        from .segmentation_backends import run_segmentation
 
-            def __init__(self):
-                self._s = []
-
-            def write(self, text):
-                self._s.append(text)
-                if "\n" in text:
-                    self.flush()
-
-            def flush(self):
-                s = "".join(self._s)
-                for t in s.split("\n"):
-                    if t:
-                        progress_or_abort(t)
-                self._s = []
-
-            def close(self): ...
-
-        estream = EmitStream()
-
-        try:
-            # TensorFlow and StarDist also write directly to the native stderr
-            # descriptor while loading the model and starting CUDA.
-            with (
-                capture_native_stderr(self.progress.emit),
-                contextlib.redirect_stdout(estream),
-                contextlib.redirect_stderr(estream),
-            ):
-                from ..xrf_refcopy import xrf_utils
-
-                xrf_utils.set_model_basedir(
-                    importlib.resources.files("exhale").joinpath("resources/models")
+        model = model_for_method(self.method_id)
+        if model is not None and self.model_path is None:
+            try:
+                if self.model_directory is None:
+                    raise ModelDownloadError("The model directory is not configured.")
+                self.model_path = str(
+                    ensure_model(
+                        model,
+                        self.model_directory,
+                        progress=self.model_progress.emit,
+                        cancelled=lambda: self._abort,
+                    )
                 )
-                from ..xrf_refcopy.xrf_other_channel import NucleiChannel, TissueChannel
-                from ..xrf_refcopy.xrf_sample_class import XRFSample
+            except ModelDownloadError as exc:
+                self.model_error = str(exc)
+                raise
+        self.model_ready.emit()
+        return run_segmentation(
+            self.method_id,
+            self.image,
+            self.parameters,
+            model_path=self.model_path,
+            callback=self.report,
+        )
 
-                sample = XRFSample(self.sample_name)
-                sample.nuclei = NucleiChannel(self.nuclei_es.data)
-                sample.tissue = TissueChannel(self.tissue_es.data)
-                for es in self.element_settings:
-                    sample.add_element(es.name, es.data)
 
-                progress_or_abort("Preparing to process")
-                sample.process(callback=progress_or_abort, **self.process_args)
-                progress_or_abort("Processed; combining")
-                sample.combine(callback=progress_or_abort)
-                progress_or_abort("Analysis complete")
-                return sample
-        finally:
-            tf_log.removeHandler(tfLogHandler)
-            tf_log.setLevel(previous_tf_level)
+class ClusteringWorker(AnalysisTask):
+    """Run the existing element clustering independently of segmentation backends."""
+
+    def __init__(
+        self,
+        nuclei_es,
+        tissue_es,
+        element_settings,
+        sample_name,
+        previous_sample=None,
+        retained_elements=(),
+        **process_args,
+    ):
+        super().__init__()
+        self.nuclei_es = nuclei_es
+        self.tissue_es = tissue_es
+        self.element_settings = element_settings
+        self.sample_name = sample_name
+        self.previous_sample = previous_sample
+        self.retained_elements = retained_elements
+        self.process_args = process_args
+
+    def xrf_analysis(self):
+        """Execute the clustering job for non-Qt callers."""
+        return self.execute()
+
+    def compute(self):
+        from ..xrf_refcopy.xrf_element_channel import ElementChannel
+        from ..xrf_refcopy.xrf_other_channel import NucleiChannel, TissueChannel
+        from ..xrf_refcopy.xrf_sample_class import XRFSample
+
+        sample = (
+            copy(self.previous_sample)
+            if self.previous_sample is not None
+            else XRFSample(self.sample_name)
+        )
+        sample.name = self.sample_name
+        if self.previous_sample is None:
+            sample.nuclei = None if self.nuclei_es is None else NucleiChannel(self.nuclei_es.data)
+            sample.tissue = None if self.tissue_es is None else TissueChannel(self.tissue_es.data)
+        sample.elements = {}
+        for index, settings in enumerate(self.element_settings):
+            previous = self.retained_elements[index] if self.retained_elements else None
+            channel = (
+                copy(previous)
+                if previous is not None
+                else ElementChannel(settings.name, settings.data)
+            )
+            channel.name = settings.name
+            sample.elements[settings.name] = channel
+        sample.cluster_elements(callback=self.report, **self.process_args)
+        if sample.is_segmented and sample.is_clustered and sample.elements:
+            self.report("Combining region measurements")
+            sample.combine(callback=self.report)
+        return sample

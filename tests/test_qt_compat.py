@@ -24,6 +24,7 @@ class UiCompilerTests(unittest.TestCase):
                 "main_window",
                 "image_settings_dialog",
                 "analysis_settings_dialog",
+                "matrix_export_dialog",
                 "settings_dialog",
             ):
                 with self.subTest(name=name):
@@ -34,6 +35,7 @@ class UiCompilerTests(unittest.TestCase):
                     self.assertNotRegex(code, r"from (PyQt|PySide)\d")
                     self.assertNotIn("Created by:", code)
                     self.assertNotIn("generated from", code)
+                    self.assertNotRegex(code, r"QSpacerItem\(QtWidgets\.QSizePolicy\.")
                     compile(code, str(output), "exec")
 
     def test_rewrites_each_binding_import(self):
@@ -85,3 +87,9 @@ class ColorButtonTests(unittest.TestCase):
             np.testing.assert_allclose(emitted[-1], button.color())
         button.dialog.deleteLater()
         button.deleteLater()
+
+    def test_designer_parent_keyword(self):
+        parent = QtWidgets.QWidget()
+        button = ColorButton(parent=parent)
+        self.assertIs(button.parent(), parent)
+        parent.deleteLater()

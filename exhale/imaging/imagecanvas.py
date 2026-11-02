@@ -461,3 +461,7 @@ class ImageCanvas(pg.GraphicsLayoutWidget):
     def leaveEvent(self, event):
         self.pixelHovered.emit(None)
         super().leaveEvent(event)
+
+    def hideEvent(self, event):
+        self.pixelHovered.emit(None)
+        super().hideEvent(event)

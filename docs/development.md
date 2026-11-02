@@ -191,7 +191,8 @@ python -m pytest
 ```
 
 The startup check constructs `MainWindow` without creating the OpenGL canvas,
-imports the Napari integration, TensorFlow, and the StarDist integration, reports
+imports the Napari integration and segmentation backends, verifies the DINOv3
+constructor, reports
 the runtime versions used by the About dialog, and exits without showing the
 main window. The manually dispatched **Windows startup check** workflow runs it
 from the installed package. Release builds run the same check against the frozen
@@ -239,3 +240,58 @@ Stable releases are made with:
 The script creates and pushes a release commit and tag. The tag starts the
 GitHub workflow that publishes to PyPI and builds the Windows and macOS
 artifacts. It is the final step when intentionally creating a release.
+
+
+## Trained-model distribution
+
+Large segmentation weights are GitHub release assets, independently versioned
+from Exhale releases. Software version lookup matches only `v[0-9]*` tags, so
+model-release tags cannot become application versions. `exhale/analysis/model_store.py` records the exact URL,
+expected byte size and SHA-256. Models are fetched only when needed for a run;
+StarDist continues using its bundled model. User-selected model storage belongs
+to application settings, never project state.
+
+The first Cellpose asset is prepared for release tag `models-v1` in the existing
+`ctroein/exhale` repository. Prepare it without installing Exhale or publishing:
+
+```bash
+python tools/prepare_model_release.py /path/to/nuclei_cellpose /path/to/release-assets
+```
+
+The command checks the source contents and creates the model asset, a `.sha256`
+file, JSON metadata and the DINOv3 license under `cellpose-dino-xrf/1/` in the destination. The release
+asset must retain its basename `cellpose-dino-xrf-v1.pt`. Publication is a separate,
+explicitly authorized operation; the configured public URL returns HTTP 404 until
+that release asset is published. Changing trained weights requires a new model
+version, checksum and versioned asset URL rather than silently replacing a file.
+
+Source and frozen applications share the same cache layout and validation.
+Transfer tests use a local HTTP server to cover truncated responses, checksum
+failures, cancellation and offline reuse without requiring public release assets.
+
+
+## Segmentation dependencies and frozen builds
+
+`pyproject.toml` declares PyTorch, TorchVision and the tested Cellpose 4.2.1.1
+release. DINOv3 is supplied through `requirements-cellpose.txt`, pinned to an
+upstream source commit and archive SHA-256 because it is not published on PyPI.
+For pip installation, pass that requirements file alongside `exhale-lung`; for
+a source checkout, install the file into the existing development environment.
+The URL in the README lets pip retrieve it directly from this repository.
+
+Frozen-build and Windows startup-check workflows install the same requirements
+file. The PyInstaller specification includes the inference modules, dependency
+metadata and third-party licenses. The DINOv3 hook includes packaged YAML data;
+standard PyInstaller hooks collect PyTorch/Triton components. The specification
+explicitly includes versioned NVIDIA libraries and metadata for Torch's newer
+cuda-toolkit/cu13 layout, which current hook name inference misses. Use current
+PyInstaller and hooks-contrib versions for their CUDA and Triton support. Large
+trained weights stay in the model store and are not bundled with the executable.
+The frozen startup check imports Cellpose and verifies that its DINOv3 constructor
+is available without loading or downloading any trained model.
+
+The DINOv3 license is included under `exhale/resources/licenses/` and copied beside
+the model release asset by `prepare_model_release.py`; publish it with that asset.
+Third-party dependencies retain their own licenses, independently of Exhale's MIT
+license. The old combined XRF processing and StarDist callers are removed; the
+legacy containers remain only for clustering data and saved region tables.

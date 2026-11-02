@@ -112,18 +112,89 @@ only the corresponding image-layer data.
 ## Analysis and derived results
 
 Analysis execution, persistence, and result visualization live in
-`exhale.analysis`. The numerical implementation in `xrf_refcopy/` is imported
-external code and remains a separate boundary.
+`exhale.analysis`. The remaining element-clustering and legacy region-table implementation in
+`xrf_refcopy/` stays behind a separate boundary. Its former neural inference and
+combined processing entry points have been removed.
 
 The lightweight segmentation-method registry supplies stable method IDs,
-dependency checks, capabilities, and worker factories without importing the
-numerical backends. `AnalysisWorker` runs the StarDist method away from the GUI
-thread, translates Python and native-library output into progress messages,
-and supports cooperative abortion. `AnalysisController` owns the worker and
-thread lifetime and all Segmentation-tab UI state; the main window only
-constructs the controller and passes application-level changes to it. The
-classes under `xrf_refcopy/` implement nuclei segmentation, tissue masking,
-intensity partitioning, per-element clustering, and combined sample tables.
+dependency checks and worker factories without importing numerical backends.
+`AnalysisWorker` accepts a private snapshot of one map and returns a
+`SegmentationOutput`: validated uint32 instance labels and model identity/version.
+It never constructs an `XRFSample`, computes tissue masks, filters instances by
+intensity or generates membranes. StarDist calls our direct adapter, preserving
+its `predict_instances()` labels; Cellpose uses its own instance reconstruction
+with training-matched 0–100 percentile normalization. Upper-percentile clipping
+is an internal method parameter. There is no spatial resampling.
+
+`segmentation_backends` initializes PyTorch and Triton before TensorFlow and
+requests TensorFlow GPU memory growth, only when segmentation is first run.
+This avoids the tested native LLVM/CUDA loading-order conflicts. Model caching
+avoids repeated loading; provenance hashes include the trained weights and, for
+StarDist, its architecture and inference thresholds.
+
+`SegmentationResult` associates the output with one input reference, sample,
+method, parameter snapshot and layer settings. Segmentation sidecars contain only
+labels and model provenance; project JSON contains the reference and run settings.
+The sidecar retains the original method output. Project-owned post-processing
+settings derive a cached label image without renumbering surviving instances;
+display, inspection, statistics and mask export all use that processed image.
+Changing the minimum pixel area invalidates the derived cache but does not rewrite
+the sidecar. Cached areas and labels are omitted from project state.
+Optional reference-map selections and presentation are saved per sample/method.
+Before a first successful run, `SegmentationPreview` retains inspection state;
+successful output takes over that state and removes the preview entry.
+Structurally usable existing nested label datasets load directly without
+constructing the legacy model. A failed write leaves the previous sidecar intact;
+failed or cancelled workers never replace the project's successful result.
+
+`ClusteringWorker` retains the independent element-clustering path using the
+imported numerical code and its own sample-level persistence. Both workers share
+only progress/output capture and cooperative cancellation through `AnalysisTask`.
+The controllers own thread lifetimes and publication of completed results.
+`SegmentationViewer` accepts the result and referenced source map directly,
+reusing the common Napari layer controls and fixed-layer pool. It displays the
+postprocessed instance-label pixels and keeps computed labels read-only. It can
+also show the selected input before any result exists. Optional reference layers
+use the sample's element-map transformations and never become inference inputs.
+Saved labels remain viewable when the source map is unavailable; mismatched map
+shapes are not overlaid. Its click/hover inspection reads the displayed labels,
+independently of tissue or cluster tables. Layer identities preserve per-sample,
+per-method colors, opacity, gain, blending and ordering across result switches.
+The controller preserves the camera when switching methods for one sample and
+fits when changing samples. Editing controls occupy the upper-left pane; the
+upper-right pane switches between an overview (counts, area statistics and cumulative
+segment counts by area) and clicked-pixel details. Area statistics use pixels,
+percent of the full image and squared project length units. An Overview
+button restores the summary after inspection.
+Expansion/shrinking precedes whole-instance area filtering, preserving surviving
+label IDs. Expansion assigns background to the nearest segment without overlap;
+shrinking erodes each instance independently, including at shared boundaries and
+image edges. The signed distance and area cutoff are saved per sample/method.
+The size-distribution plot uses the resized segments before area filtering, with
+a vertical minimum-area cutoff marker; the summary uses the filtered result. Physical areas use the next
+larger supported length unit squared to keep the displayed values compact.
+
+Trained model metadata in `analysis.model_store` pins a release URL, expected
+byte size and SHA-256 checksum independently of application versions. The
+segmentation worker resolves missing weights before importing neural backends.
+Transfers and first-use checksum checks run in that same cancellable worker,
+with throttled progress forwarded to the existing GUI progress bar. Unique
+partial files are replaced atomically only after validation; failed or cancelled
+acquisition preserves any existing file and the previous segmentation result.
+Unchanged verified files are reused offline. Expected acquisition errors are
+shown as ordinary user-facing messages rather than internal-error traces.
+
+`model_settings` reads the application-level model directory. Its default is
+Exhale/models under the platform's per-user data location, independent of a
+project or Git checkout. Changing the preference selects the location for later
+runs; no models are downloaded on startup. The same location and acquisition
+path are used by source and installed applications.
+
+The Segmentation tab has one input-map selector. Its method options expose only
+Cellpose's minimum area, flow threshold and cell-probability threshold. StarDist
+currently has no exposed inference options; clipping remains internal to each
+method. Mask export writes the unchanged uint32 instance-label array as TIFF;
+Save current view exports the rendered viewer separately.
 
 Element correlations use the effective selected channels of one sample and
 their untransformed source arrays. Between-sample similarities use only channel
@@ -204,3 +275,14 @@ Errors caused by user data should identify the affected source or operation
 and remain recoverable where the rest of a project is usable. Programming
 errors should fail clearly rather than being converted into plausible but
 incorrect state.
+
+
+## Distribution of segmentation libraries
+
+The normal Python dependencies include PyTorch, TorchVision and Cellpose. A
+pinned DINOv3 source archive is installed through `requirements-cellpose.txt` for
+source/pip installations and frozen-build environments; public PyPI metadata
+contains no direct URL requirement. Frozen applications include these libraries
+and their metadata/licenses. Only the large trained-model files use on-demand
+acquisition. Normal application startup still avoids importing neural backends;
+the explicit startup-check mode validates their imports without fetching weights.

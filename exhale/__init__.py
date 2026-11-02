@@ -15,7 +15,17 @@ def _version_from_git(repository: Path) -> str | None:
         return None
     try:
         description = subprocess.run(
-            ["git", "-C", str(repository), "describe", "--tags", "--long", "--dirty"],
+            [
+                "git",
+                "-C",
+                str(repository),
+                "describe",
+                "--tags",
+                "--match",
+                "v[0-9]*",
+                "--long",
+                "--dirty",
+            ],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,

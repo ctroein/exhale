@@ -22,7 +22,7 @@ def get_version():
     if configured:
         return configured.lstrip("v")
     tag = subprocess.check_output(
-        ["git", "describe", "--tags", "--abbrev=0"],
+        ["git", "describe", "--tags", "--match", "v[0-9]*", "--abbrev=0"],
         text=True,
         cwd=ROOT,
     ).strip()

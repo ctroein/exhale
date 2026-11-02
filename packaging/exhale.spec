@@ -2,10 +2,11 @@
 
 import os
 import sys
+from importlib.metadata import distributions
 from os.path import abspath, dirname, join
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT, BUNDLE, Splash
 from PyInstaller.compat import is_linux
-from PyInstaller.utils.hooks import collect_submodules, copy_metadata
+from PyInstaller.utils.hooks import PY_DYLIB_PATTERNS, collect_dynamic_libs, collect_submodules, copy_metadata
 import subprocess
 
 PACKAGING_DIR = abspath(SPECPATH)
@@ -17,7 +18,7 @@ def get_version():
         return v.lstrip("v")
     try:
         tag = subprocess.check_output(
-            ["git", "describe", "--tags", "--abbrev=0"],
+            ["git", "describe", "--tags", "--match", "v[0-9]*", "--abbrev=0"],
             text=True, cwd=ROOT,
         ).strip()
         return tag.lstrip("v")
@@ -45,6 +46,21 @@ else:
         icon_file = join(res, "icons", "xrf.png")
 
 datas = datas + copy_metadata('imageio')
+# Include dependency metadata and licenses, including the DINOv3 redistribution license.
+datas += copy_metadata('cellpose', recursive=True)
+datas += copy_metadata('dinov3', recursive=True)
+
+# Torch 2.15's cuda-toolkit dependency stores versioned libraries under nvidia/cu13.
+# Current hooks infer only older nvidia-*-cuXX distribution names, so collect these
+# explicitly from the clean build environment, preserving their package layout.
+binaries = []
+if is_linux:
+    binaries = collect_dynamic_libs('nvidia', search_patterns=PY_DYLIB_PATTERNS + ['lib*.so.*'])
+    for distribution in distributions():
+        name = distribution.metadata.get('Name', '')
+        if name.lower().startswith(('nvidia-', 'cuda-')):
+            datas += copy_metadata(name)
+
 
 import napari
 BUNDLE_ROOT = abspath(join(dirname(napari.__file__), os.pardir, 'bundle'))
@@ -52,15 +68,16 @@ BUNDLE_ROOT = abspath(join(dirname(napari.__file__), os.pardir, 'bundle'))
 a = Analysis(
     [join(ROOT, "run_exhale.py")],
     pathex=[],
-    binaries=[],
-    hiddenimports=['pkg_resources.py2_warn', 'importlib', 'freetype', 'stardist'
+    binaries=binaries,
+    hiddenimports=['pkg_resources.py2_warn', 'importlib', 'freetype', 'stardist',
+        'cellpose.models', 'dinov3.hub.backbones'
         ] + collect_submodules("imageio"),
     runtime_hooks=[],
     datas=datas,
     hookspath=[join(BUNDLE_ROOT, 'hooks'), join(PACKAGING_DIR, 'hooks')],
     excludes=[
         'FixTk', 'Tkinter',
-        'torch', 'nvidia', 'hdf5plugin',
+        'hdf5plugin',
         'pyarrow', 'babel', 'yapf_third_party', 'zmq', 'astroid',
         'sphinx', 'jedi', 'black', 'pycodestype',
     ],

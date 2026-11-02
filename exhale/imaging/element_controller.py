@@ -601,7 +601,7 @@ class ElementController:
                         name = sample.channels[key].name
                 item.setText(self.channel_list_label(key, name))
         window.analysis_controller.update_channels()
-        window.analysis_controller.update_elements()
+        window.clustering_controller.sample_changed()
 
         for box in window.imageElementBoxes:
             combo = box.combo

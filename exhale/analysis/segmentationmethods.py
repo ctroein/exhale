@@ -13,7 +13,7 @@ class SegmentationMethod:
     method_id: str
     name: str
     required_modules: tuple[str, ...]
-    supports_cluster_distances: bool = False
+    has_options: bool = False
 
     def unavailable_reason(self) -> str | None:
         missing = [module for module in self.required_modules if find_spec(module) is None]
@@ -22,11 +22,9 @@ class SegmentationMethod:
         return "Missing dependency: " + ", ".join(missing)
 
     def create_worker(self, *args, **kwargs):
-        if self.method_id != "stardist":
-            raise ValueError(f"Unknown segmentation method {self.method_id!r}")
         from .analysisworker import AnalysisWorker
 
-        return AnalysisWorker(*args, **kwargs)
+        return AnalysisWorker(*args, method_id=self.method_id, **kwargs)
 
 
 SEGMENTATION_METHODS = (
@@ -34,7 +32,14 @@ SEGMENTATION_METHODS = (
         method_id="stardist",
         name="StarDist",
         required_modules=("stardist", "tensorflow"),
-        supports_cluster_distances=True,
+    ),
+)
+SEGMENTATION_METHODS += (
+    SegmentationMethod(
+        method_id="cellpose",
+        name="Cellpose",
+        required_modules=("torch", "torchvision", "cellpose", "dinov3"),
+        has_options=True,
     ),
 )
 SEGMENTATION_METHODS_BY_ID = {method.method_id: method for method in SEGMENTATION_METHODS}

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools >= 77.0.3", "setuptools-scm"]
+requires = ["setuptools >= 77.0.3", "setuptools-scm>=9"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -26,7 +26,7 @@ dependencies = [
     'h5py',
     'tifffile',
     'imagecodecs',
-    'napari',
+    'napari<0.10',
     'imageio',
     'csbdeep',
     'pyqt5',
@@ -36,9 +36,15 @@ dependencies = [
     "tensorflow; sys_platform == 'linux'",
     "tensorflow; sys_platform == 'darwin'",
     'stardist',
+    'torch>=2.8,<3',
+    'torchvision>=0.23,<1',
+    'cellpose==4.2.1.1',
 ]
 
 [tool.setuptools_scm]
+
+[tool.setuptools_scm.scm.git]
+describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--match", "v[0-9]*"]
 
 [tool.setuptools.packages.find]
 
@@ -49,6 +55,7 @@ dependencies = [
   "resources/icons/*.txt",
   "resources/linux/*.desktop",
   "resources/*.jpg",
+  "resources/licenses/*",
   "resources/models/2D_versatile_fluo_copy/*",
 ]
 

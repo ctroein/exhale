@@ -258,8 +258,8 @@ class ColorButton(QtWidgets.QPushButton):
 
     colorChanged = QtCore.Signal(list)  # RGB in [0-1]*3
 
-    def __init__(self, text=" "):
-        super().__init__(text)
+    def __init__(self, text=" ", parent=None):
+        super().__init__(text, parent)
         self.setMinimumWidth(15)
         self.setMaximumWidth(30)
         self.setSizePolicy(

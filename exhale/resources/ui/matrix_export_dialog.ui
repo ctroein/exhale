@@ -67,7 +67,7 @@
       <item row="2" column="0" colspan="2">
        <layout class="QHBoxLayout" name="valuesLayout">
         <item><widget class="QCheckBox" name="showValues"><property name="text"><string>Show values</string></property></widget></item>
-        <item><spacer name="valuesSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property></spacer></item>
+        <item><spacer name="valuesSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
         <item><widget class="QLabel" name="decimalsLabel"><property name="text"><string>Decimals</string></property></widget></item>
         <item><widget class="QSpinBox" name="decimals"><property name="minimum"><number>1</number></property><property name="maximum"><number>6</number></property><property name="value"><number>2</number></property></widget></item>
        </layout>

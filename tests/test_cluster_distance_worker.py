@@ -37,8 +37,6 @@ def _controller():
     )
     window.clusterDistanceSample = QtWidgets.QComboBox()
     window.clusterDistanceSample.addItem("sample", "sample")
-    window.clusterDistanceMethod = QtWidgets.QComboBox()
-    window.clusterDistanceMethod.addItem("method", "method")
     window.clusterDistanceValue = QtWidgets.QComboBox()
     window.clusterDistanceValue.addItems(
         ("Distance", "Pixels", "Null-model normalized", "Null-model percentile")
@@ -52,7 +50,7 @@ def _controller():
     window.clusterDistanceStatus = QtWidgets.QLabel()
     settings = MatrixPlotSettings(normalize_to_random=True, distance_secondary="observed")
     window.project_data = SimpleNamespace(
-        segmentation_result=lambda *_: result,
+        clustering_results={"sample": result},
         image_defaults=SimpleNamespace(resolution=(2.0, "µm")),
         matrix_plot_settings={CLUSTER_DISTANCES: settings},
     )
@@ -183,6 +181,40 @@ def test_worker_error_clears_busy_placeholder():
         assert window.clusterDistancePlotHost.cursor().shape() != QtCore.Qt.BusyCursor
         assert "no cluster regions" in window.clusterDistanceStatus.text()
         assert controller.distance_matrix.set_result.call_args.args == (None,)
+    finally:
+        controller.shutdown()
+        window.close()
+
+
+def test_null_worker_limits_progress_signals_and_keeps_latest_count(monkeypatch):
+    parent = QtWidgets.QWidget()
+    worker = module._NullWorker((0, "sample"), (2,), (np.ones((5, 5)),), np.ones((1, 1)), parent)
+    times = iter((0.0, 0.1, 0.25, 0.3, 0.5))
+    monkeypatch.setattr(module, "monotonic", lambda: next(times))
+    updates = []
+    worker.progress.connect(lambda signature, done, total: updates.append((signature, done, total)))
+    for done in range(5):
+        worker._report_progress(done, 1000)
+    assert updates == [((0, "sample"), done, 1000) for done in (0, 2, 4)]
+    assert worker.progress_counts == (4, 1000)
+    parent.close()
+
+
+def test_null_progress_ignores_other_requests_and_previous_projects():
+    controller, window, _settings = _controller()
+    try:
+        current = (0, "sample")
+        controller._distance_request = current
+        controller._null_progress(current, 250, 1000)
+        assert controller._distance_placeholder.text() == (
+            "Computing random-placement statistics…\n250 / 1,000"
+        )
+        text = controller._distance_placeholder.text()
+        controller._null_progress((0, "another sample"), 500, 1000)
+        assert controller._distance_placeholder.text() == text
+        controller._distance_generation += 1
+        controller._null_progress(current, 750, 1000)
+        assert controller._distance_placeholder.text() == text
     finally:
         controller.shutdown()
         window.close()

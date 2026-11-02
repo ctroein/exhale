@@ -8,6 +8,7 @@ from pathlib import Path
 from qtpy import QtCore, QtGui, QtWidgets
 
 from . import appearance, application_description, application_name, application_title, icons
+from .analysis.clustering_controller import ClusteringController
 from .analysis.controller import AnalysisController
 from .analysis.correlation_controller import CorrelationController
 from .data.projectdata import ProjectData
@@ -41,6 +42,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     channelsChanged = QtCore.Signal()
     segmentationResultsChanged = QtCore.Signal()
+    clusteringResultsChanged = QtCore.Signal()
 
     def __init__(self, parent=None, *, initialize_analysis_view=True):
         super().__init__(parent)
@@ -76,6 +78,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.element_controller = ElementController(self)
         self.image_controller = ImageController(self)
         self.analysis_controller = AnalysisController(self)
+        self.clustering_controller = ClusteringController(self)
         self.correlation_controller = CorrelationController(self)
 
         self.element_controller.setup()
@@ -114,6 +117,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             return
         self.image_controller.shutdown()
         self.analysis_controller.shutdown()
+        self.clustering_controller.shutdown()
         self.correlation_controller.shutdown()
         self._save_splitter_states()
         current_tab = self.tabWidget.currentWidget()
@@ -131,6 +135,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             "analysis": (self.analysisSplitter, self.analysisTab, (180, 400, 200)),
             "analysis_left": (self.analysisLeftSplitter, self.analysisTab, (2, 1)),
             "analysis_right": (self.analysisRightSplitter, self.analysisTab, (2, 1)),
+            "clustering": (self.clusteringSplitter, self.clusteringTab, (180, 400, 200)),
+            "clustering_left": (self.clusteringLeftSplitter, self.clusteringTab, (2, 1)),
+            "clustering_right": (self.clusteringRightSplitter, self.clusteringTab, (2, 1)),
             "element_correlations": (
                 self.elementCorrelationSplitter,
                 self.elementCorrelationTab,
@@ -200,6 +207,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.analysisOptions.setIcon(icons.icon(icons.IconName.ADJUSTMENTS))
         self.analysisRun.setIcon(icons.icon(icons.IconName.START))
         self.analysisAbort.setIcon(icons.icon(icons.IconName.STOP))
+        self.analysisAddReference.setIcon(icons.icon(icons.IconName.LAYERS_ADD))
         self.addImageButton.set_icon_name(icons.IconName.ADD_IMAGE)
         self.deleteImageButton.set_icon_name(icons.IconName.DELETE)
         self.showSingleElementButton.set_icon_name(icons.IconName.ELEMENT)
@@ -213,6 +221,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.saveSampleSimilarityPlot.setIcon(icons.icon(icons.IconName.SCREENSHOT))
         self.analysisSaveView.set_icon_name(icons.IconName.SCREENSHOT)
         self.analysisFit.set_icon_name(icons.IconName.MAXIMIZE)
+        self.clusteringOptions.setIcon(icons.icon(icons.IconName.ADJUSTMENTS))
+        self.clusteringRun.setIcon(icons.icon(icons.IconName.START))
+        self.clusteringAbort.setIcon(icons.icon(icons.IconName.STOP))
+        self.clusteringSaveView.set_icon_name(icons.IconName.SCREENSHOT)
+        self.clusteringFit.set_icon_name(icons.IconName.MAXIMIZE)
         for button in self.findChildren(IconToolButton):
             button.reload_icon()
 
@@ -223,10 +236,15 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.elementPlot.reload_appearance()
         self.elementHistogramPlot.reload_appearance()
         self.elementList.reload_icons()
-        self.analysisElements.reload_icons()
+        self.clusteringElements.reload_icons()
+        self.clusteringLayerList.reload_appearance()
         self.imageList.reload_icons()
         self.project_tab.reload_icons()
         self.analysisLayerList.reload_appearance()
+        if self.clustering_controller.naparihelper is not None:
+            self.clustering_controller.naparihelper.set_theme(
+                "dark" if appearance.is_dark() else "light"
+            )
         self.correlation_controller.reload_appearance()
         if self.analysis_controller.naparihelper is not None:
             self.analysis_controller.naparihelper.set_theme(
@@ -359,6 +377,7 @@ Licensed under the MIT License.</p>
         self.image_controller.clear_project()
         self.element_controller.clear_project()
         self.analysis_controller.clear_project()
+        self.clustering_controller.clear_project()
         self.correlation_controller.clear_project()
 
         # Let any dependent widgets rebuild

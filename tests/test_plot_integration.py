@@ -110,26 +110,29 @@ class PlotIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(shown.ndim, 2)
         mapping = self.window.image_controller.composer.coord_mapping
-        with patch.object(QtWidgets.QToolTip, "showText") as show_text:
-            self.window.elementPlot.pixelHovered.emit((mapping.x, mapping.y))
-        show_text.assert_called_once()
-        tooltip = show_text.call_args.args[1]
+        self.window.elementPlot.pixelHovered.emit((mapping.x, mapping.y))
+        popup = self.window.image_controller._pixel_tooltip
+        tooltip = popup.text()
         self.assertIn("Pos (0, 0)", tooltip)
         self.assertIn(f"{self.data[0, 0]:.4g}", tooltip)
-        self.assertEqual(show_text.call_args.args[3], self.window.elementPlot.rect())
-        self.assertEqual(show_text.call_args.args[4], 24 * 60 * 60 * 1000)
+        self.assertTrue(popup.isVisible())
+        self.window.elementPlot.pixelHovered.emit(None)
+        self.assertFalse(popup.isVisible())
 
     def test_single_element_hover_shows_position_and_abundance(self):
         self.select_element()
         self.window.project_data.abundance_units = "µg/cm²"
 
-        with patch.object(QtWidgets.QToolTip, "showText") as show_text:
-            self.window.elementPlot.pixelHovered.emit((2, 1))
-
-        show_text.assert_called_once()
-        tooltip = show_text.call_args.args[1]
+        self.window.elementPlot.pixelHovered.emit((2, 1))
+        popup = self.window.image_controller._pixel_tooltip
+        tooltip = popup.text()
         self.assertIn("Pos (2, 1)", tooltip)
         self.assertIn(f"{self.data[1, 2]:.4g} µg/cm²", tooltip)
+        self.assertTrue(popup.isVisible())
+        loop = QtCore.QEventLoop()
+        QtCore.QTimer.singleShot(1200, loop.quit)
+        loop.exec()
+        self.assertTrue(popup.isVisible())
 
     def test_layout_and_element_changes_reset_composed_image_zoom(self):
         ref = self.select_element()

@@ -20,6 +20,10 @@ _PACKAGE_DISTRIBUTIONS = (
     ("napari", "napari"),
     ("TensorFlow", "tensorflow"),
     ("StarDist", "stardist"),
+    ("PyTorch", "torch"),
+    ("TorchVision", "torchvision"),
+    ("Cellpose", "cellpose"),
+    ("DINOv3", "dinov3"),
 )
 
 
