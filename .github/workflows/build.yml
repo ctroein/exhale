@@ -174,7 +174,7 @@ jobs:
 
     environment:
       name: pypi
-      url: https://pypi.org/p/exhale-lung
+      url: https://pypi.org/p/exhale-xrf
 
     permissions:
       contents: read

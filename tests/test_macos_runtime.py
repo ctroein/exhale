@@ -20,7 +20,7 @@ def runtime(tmp_path):
     resources = tmp_path / "EXHALE.app/Contents/Resources"
     resources.mkdir(parents=True)
     (resources / "setup.json").write_text(
-        json.dumps({"wheel": "exhale_lung-1.0-py3-none-any.whl", "architecture": "arm64"})
+        json.dumps({"wheel": "exhale_xrf-1.0-py3-none-any.whl", "architecture": "arm64"})
     )
     return runtime_module.Runtime(resources, tmp_path / "Application Support/EXHALE")
 
@@ -132,10 +132,10 @@ def test_builder_bundles_local_release_and_private_setup(tmp_path, monkeypatch):
     )
     builder = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(builder)
-    wheel = tmp_path / "exhale_lung-1.2.3-py3-none-any.whl"
+    wheel = tmp_path / "exhale_xrf-1.2.3-py3-none-any.whl"
     with ZipFile(wheel, "w") as archive:
         archive.writestr(
-            "exhale_lung-1.2.3.dist-info/METADATA", "Name: exhale-lung\nVersion: 1.2.3\n"
+            "exhale_xrf-1.2.3.dist-info/METADATA", "Name: exhale-xrf\nVersion: 1.2.3\n"
         )
     output = tmp_path / "dist"
     monkeypatch.setattr(builder.sys, "platform", "darwin")

@@ -48,10 +48,10 @@ def test_builder_uses_local_wheel_and_compiles_native_launcher(tmp_path, monkeyp
     root.mkdir()
     (root / "requirements-cellpose.txt").write_text("pinned DINOv3")
     (root / "LICENSE").write_text("MIT")
-    wheel = tmp_path / "exhale_lung-1.2.3-py3-none-any.whl"
+    wheel = tmp_path / "exhale_xrf-1.2.3-py3-none-any.whl"
     with ZipFile(wheel, "w") as archive:
         archive.writestr(
-            "exhale_lung-1.2.3.dist-info/METADATA", "Name: exhale-lung\nVersion: 1.2.3\n"
+            "exhale_xrf-1.2.3.dist-info/METADATA", "Name: exhale-xrf\nVersion: 1.2.3\n"
         )
     monkeypatch.setattr(builder, "ROOT", root)
     monkeypatch.setattr(builder.sys, "platform", "win32")

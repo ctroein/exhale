@@ -292,3 +292,31 @@ def test_unresolved_disconnection_survives_draft_save_and_recovery(project, tmp_
     assert not working.pending_disconnections
     assert len(working.areas[0]) == 2
     assert len(recovered.segmentation_histories[parent.sample_id].candidates) == 1
+
+
+def test_removed_parent_files_remain_usable_by_previous_json_and_child_stays_independent(
+    project, tmp_path
+):
+    parent = publish_segmentation(project, result(project), tmp_path)
+    child = SegmentationCandidate.from_result(result(project, 2))
+    child.parent_id = parent.candidate_id
+    child.edited = True
+    history = project.segmentation_histories[parent.sample_id]
+    history.add_candidate(child)
+    saved = tmp_path / "project.xhp"
+    projectio.save_project(project, saved)
+    previous = tmp_path / "previous.xhp"
+    previous.write_bytes(saved.read_bytes())
+    parent_stamp = sidecar(parent, tmp_path).stat().st_mtime_ns
+    child_stamp = sidecar(child, tmp_path).stat().st_mtime_ns
+    history.remove(parent.candidate_id)
+    projectio.save_project(project, saved)
+    assert sidecar(parent, tmp_path).stat().st_mtime_ns == parent_stamp
+    assert sidecar(child, tmp_path).stat().st_mtime_ns == child_stamp
+    loaded, issues = read(saved)
+    assert not issues
+    retained = loaded.segmentation_histories[parent.sample_id]
+    assert len(retained.candidates) == 1 and retained.active.parent_id is None
+    assert retained.active.edited and retained.active.provenance == child.provenance
+    old, issues = read(previous)
+    assert not issues and len(old.segmentation_histories[parent.sample_id].candidates) == 2

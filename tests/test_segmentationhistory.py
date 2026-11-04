@@ -228,3 +228,34 @@ def test_project_owns_imports_and_clears_candidate_histories():
     project.add_segmentation_candidate(result())
     project.clear()
     assert not project.segmentation_histories
+
+
+def test_deliberate_removal_keeps_descendants_provenance_and_order():
+    history = SegmentationHistory("sample")
+    parent = history.add_result(result(1))
+    child = SegmentationCandidate.from_result(result(2))
+    child.edited = True
+    child.parent_id = parent.candidate_id
+    history.add_candidate(child)
+    other = history.add_result(result(3))
+    history.activate(parent.candidate_id)
+    provenance = child.provenance
+    removed = history.remove(parent.candidate_id)
+    assert removed is parent
+    assert child.parent_id is None and child.provenance == provenance
+    assert child.edited and child.protected
+    assert tuple(history.candidates) == (child.candidate_id, other.candidate_id)
+    assert history.active is other
+    assert history.equivalent(parent) is None
+    history.remove(other.candidate_id)
+    assert history.active is child
+    history.remove(child.candidate_id)
+    assert not history.candidates and history.active is None and not history.recency
+
+
+def test_removing_a_missing_candidate_does_not_mutate_history():
+    history = SegmentationHistory("sample")
+    candidate = history.add_result(result())
+    with pytest.raises(KeyError):
+        history.remove("missing")
+    assert history.active is candidate and tuple(history.candidates) == (candidate.candidate_id,)

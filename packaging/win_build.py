@@ -43,8 +43,8 @@ def main():
     with ZipFile(wheel) as archive:
         name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
         metadata = email.message_from_bytes(archive.read(name))
-    if metadata["Name"] != "exhale-lung":
-        parser.error("--wheel must contain exhale-lung")
+    if metadata["Name"] != "exhale-xrf":
+        parser.error("--wheel must contain exhale-xrf")
     version = metadata["Version"]
     payload = ROOT / "dist/windows-payload"
     if payload.exists():

@@ -25,10 +25,19 @@ foreach ($selection in @('none', 'stardist', 'cellpose', 'both')) {
     if ($process.ExitCode -ne 0) { throw "Installer failed for $selection (exit $($process.ExitCode))" }
     $state = Get-Content "$destination/runtime/installed.json" | ConvertFrom-Json
     if ($state.backends -ne $selection) { throw "Incorrect backend selection: $($state.backends)" }
-    if ((Get-ChildItem "$destination/runtime/env-*" -Directory).Count -ne 1) {
-        throw 'Upgrade left multiple active environments'
+    $environments = @(Get-ChildItem -LiteralPath "$destination/runtime" -Filter 'env-*' -Directory)
+    $environmentNames = @($environments | ForEach-Object { $_.Name })
+    $diagnostic = "Selection: $selection; recorded environment: $($state.environment); found $($environments.Count): $($environmentNames -join ', ')"
+    Write-Output $diagnostic
+    Set-Content "$logs/$selection-environments.txt" $diagnostic
+    Copy-Item "$destination/runtime/installed.json" "$logs/$selection-installed.json" -Force
+    if ($environments.Count -ne 1 -or $environmentNames[0] -ne $state.environment) {
+        throw "Runtime directory check failed. $diagnostic"
     }
     $python = "$destination/runtime/$($state.environment)/Scripts/python.exe"
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+        throw "Recorded Python interpreter is missing for ${selection}: $python"
+    }
     $code = @'
 import importlib.util, sys
 selection = sys.argv[1]

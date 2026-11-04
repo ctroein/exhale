@@ -199,7 +199,8 @@ run's method/input selection, editable mask names, Keep and comparison controls,
 Napari view, reversible area filtering, input preview, reference-map selection,
 overview/cumulative area distribution, clicked-segment details and result export.
 Also owns Editing/Post-processing mode, editing-tool controls, selection, undo/redo,
-early disconnection questions, explicit Accept/Reject and cancellable navigation.
+early disconnection questions, merge/split controls, explicit Accept/Reject,
+cancellable navigation and confirmed mask removal.
 Element selection and clustering options belong
 to the independent Element clusters controller. `MainWindow` supplies the
 generated widgets and application-level services but owns no analysis state.
@@ -228,7 +229,8 @@ identical region partitions independently of numeric label IDs, retains run
 provenance across methods, and keeps five recent unprotected predictions plus
 protected/active masks and ancestors needed by retained revisions. Selection does
 not reorder candidates. Existing result objects can be imported independently
-with malformed entries reported and skipped.
+with malformed entries reported and skipped. Deliberate removal retains descendant
+masks/provenance and cleans active, parent and comparison references.
 
 `ProjectData.segmentation_histories` is authoritative. JSON persists candidates,
 active selection, provenance and retention order. Compared masks are protected
@@ -247,7 +249,8 @@ does not create candidates or serialized drafts.
 Rasterizes additive/subtractive outlines and pixel-snapped integer-diameter brush
 strokes, protects other instances, allocates
 IDs and handles incidental disconnection atomically. Drafts also retain pending
-disconnection questions.
+disconnection questions. Merge and dividing-stroke split are atomic commands;
+split preserves foreground pixels and refuses ineffective cuts.
 
 ### `exhale/analysis/segmentation_backends.py`
 

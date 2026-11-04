@@ -27,6 +27,17 @@ internal sealed class RuntimeSetup
         this.log = log;
         Execute = Run;
     }
+    internal static string ExtendedPath(string path)
+    {
+        if (path.StartsWith(@"\\?\")) return path;
+        string full = Path.GetFullPath(path);
+        return full.StartsWith(@"\\") ? @"\\?\UNC\" + full.Substring(2) : @"\\?\" + full;
+    }
+    static void DeleteTree(string path)
+    {
+        // TensorFlow headers exceed MAX_PATH even in a normal installation folder.
+        Directory.Delete(ExtendedPath(path), true);
+    }
     internal static string Quote(string value)
     {
         var result = new StringBuilder("\"");
@@ -122,11 +133,11 @@ internal sealed class RuntimeSetup
         {
             string path = EnvironmentPath(pending);
             if ((active == null || active["environment"] != pending["environment"]) && Directory.Exists(path))
-                Directory.Delete(path, true);
+                DeleteTree(path);
             File.Delete(pendingPath);
         }
         if (removeUnusedRuntime && active == null && Directory.Exists(runtime))
-            Directory.Delete(runtime, true);
+            DeleteTree(runtime);
     }
     internal void Prepare(string selection)
     {
@@ -152,7 +163,7 @@ internal sealed class RuntimeSetup
         }
         catch
         {
-            if (Directory.Exists(environment)) Directory.Delete(environment, true);
+            if (Directory.Exists(environment)) DeleteTree(environment);
             throw;
         }
     }
@@ -169,9 +180,9 @@ internal sealed class RuntimeSetup
         File.Delete(pendingPath);
         if (previous != null && previous["environment"] != pending["environment"])
         {
-            try { Directory.Delete(EnvironmentPath(previous), true); }
-            catch (IOException e) { log("Installed successfully; old runtime cleanup: " + e.Message); }
-            catch (UnauthorizedAccessException e) { log("Installed successfully; old runtime cleanup: " + e.Message); }
+            try { DeleteTree(EnvironmentPath(previous)); }
+            catch (IOException e) { log("Installed successfully; old runtime cleanup failed for " + EnvironmentPath(previous) + ": " + e); }
+            catch (UnauthorizedAccessException e) { log("Installed successfully; old runtime cleanup failed for " + EnvironmentPath(previous) + ": " + e); }
         }
         log("Installation complete.");
     }
@@ -192,6 +203,14 @@ internal sealed class RuntimeSetup
         Directory.CreateDirectory(directory);
         try
         {
+            string longRoot = Path.Combine(directory, "long-path-test");
+            string longDirectory = Path.Combine(longRoot, new string('a', 120), new string('b', 120));
+            string longFile = Path.Combine(longDirectory, "bufferizable_op_interface_impl.h");
+            if (longFile.Length <= 300) throw new Exception("Long-path test is not long enough.");
+            Directory.CreateDirectory(ExtendedPath(longDirectory));
+            File.WriteAllText(ExtendedPath(longFile), "header");
+            DeleteTree(longRoot);
+            if (Directory.Exists(longRoot)) throw new Exception("Long-path deletion failed.");
             foreach (string selection in new[] { "none", "stardist", "cellpose", "both" })
             {
                 string home = Path.Combine(directory, selection);
@@ -228,7 +247,7 @@ internal sealed class RuntimeSetup
                 }
             }
         }
-        finally { Directory.Delete(directory, true); }
+        finally { DeleteTree(directory); }
     }
 }
 
@@ -237,6 +256,9 @@ internal static class Launcher
     [STAThread]
     static int Main(string[] args)
     {
+        // Set before any System.IO operation; no machine-wide policy change is needed.
+        AppContext.SetSwitch("Switch.System.IO.UseLegacyPathHandling", false);
+        AppContext.SetSwitch("Switch.System.IO.BlockLongPaths", false);
         string payload = AppDomain.CurrentDomain.BaseDirectory;
         string root = payload;
         int rootIndex = Array.IndexOf(args, "--install-root");

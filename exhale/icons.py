@@ -36,6 +36,8 @@ class IconName(str, Enum):
     OUTLINE = "lasso.svg"
     BRUSH = "brush.svg"
     ERASER = "eraser.svg"
+    MERGE = "arrows-join.svg"
+    SPLIT = "cut.svg"
     IMAGE = "squares-composed.svg"
     ADD_IMAGE = "squares-composed-plus.svg"
     ELEMENT = "atom.svg"

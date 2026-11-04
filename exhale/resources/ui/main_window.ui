@@ -459,11 +459,13 @@
   <widget class="QWidget" name="analysisEditingPage">
    <attribute name="title"><string>Editing</string></attribute>
    <layout class="QVBoxLayout" name="analysisEditingLayout">
-    <item><layout class="QHBoxLayout" name="analysisToolLayout" stretch="0,0,0,0,1,0,0,1,0">
+    <item><layout class="QHBoxLayout" name="analysisToolLayout" stretch="0,0,0,0,0,0,1,0,0,1,0">
      <item><widget class="IconToolButton" name="analysisToolSelect"><property name="checkable"><bool>true</bool></property><property name="checked"><bool>true</bool></property></widget></item>
      <item><widget class="IconToolButton" name="analysisToolOutline"><property name="checkable"><bool>true</bool></property></widget></item>
      <item><widget class="IconToolButton" name="analysisToolBrushDraw"><property name="checkable"><bool>true</bool></property></widget></item>
      <item><widget class="IconToolButton" name="analysisToolBrushErase"><property name="checkable"><bool>true</bool></property></widget></item>
+     <item><widget class="IconToolButton" name="analysisToolSplit"><property name="checkable"><bool>true</bool></property></widget></item>
+     <item><widget class="IconToolButton" name="analysisMergeSegments"/></item>
      <item><spacer name="analysisDeleteSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property></spacer></item>
      <item><widget class="IconToolButton" name="analysisUndo"/></item>
      <item><widget class="IconToolButton" name="analysisRedo"/></item>

@@ -220,6 +220,23 @@ or Cancel. Accept also resolves any remaining disconnections; Cancel retains the
 working session and current view. Unchanged editing creates no redundant history.
 
 
+Merge combines selected instances into the largest selected instance's ID,
+including intentionally disconnected selections. Split uses a dividing stroke
+through one instance. It blocks crossings of the cut while retaining unrelated
+diagonal connections, then assigns cut pixels to the nearest resulting part.
+The mask area is preserved; the largest part keeps its ID. Explicit splitting
+creates separate IDs regardless of the incidental-disconnection setting. A failed
+cut makes no changes. Both operations are single undoable commands.
+
+The Mask chooser's context menu extends normal name editing with Remove mask….
+Removal requires confirmation and finishes or cancels any current edits first.
+It removes only the selected candidate, retains corrected descendants and their
+run provenance, and clears direct parent links to the removed candidate. The
+newest retained mask becomes active when necessary. Comparison references to the
+removed candidate are dropped; immutable sidecars stay available to older saved
+project/autosave JSON. Reruns use the same Accept/Reject/Cancel boundary, and
+accepted corrections remain protected if inference later fails.
+
 Editing commands are atomic rectangular before/after patches, with undo/redo
 scoped to the current session. Changed sessions are serialized as separate draft
 snapshots with immutable revision paths; project save and autosave preserve them

@@ -311,6 +311,7 @@ class SegmentationEditSession:
 
         Failed cuts leave labels, pending questions, revisions and undo untouched.
         The largest resulting part retains the original ID; other parts get unused IDs.
+        A two-part split keeps only the larger part selected for another cut.
         """
         if len(self.selected_ids) != 1:
             raise ValueError("Select one segment to split")
@@ -354,7 +355,7 @@ class SegmentationEditSession:
             output_ids.add(value)
         changed = self.apply_labels(labels, pending=self.pending_disconnections - {identity})
         if changed:
-            self.selected_ids = output_ids
+            self.selected_ids = {identity} if count == 2 else output_ids
         return changed
 
     def delete_selected(self):

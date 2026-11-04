@@ -3,7 +3,7 @@ requires = ["setuptools >= 77.0.3", "setuptools-scm>=9"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name="exhale-lung"
+name="exhale-xrf"
 dynamic = ["version"]
 authors=[
     {name="Carl Troein", email="carl.troein@mgeo.lu.se"},

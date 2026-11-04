@@ -188,7 +188,7 @@ class SegmentationCursor(QtWidgets.QWidget):
                 symbol = "+"
         self._set_cursor(symbol)
         self._path = QtGui.QPainterPath()
-        if tool in ("add", "remove") and self.helper.nuc_layer is not None:
+        if tool in ("add", "remove", "split") and self.helper.nuc_layer is not None:
             viewer = self.helper.viewer
             layer = self.helper.nuc_layer
             # Derive the 2-D affine map from Napari's public canvas conversion.
@@ -201,9 +201,17 @@ class SegmentationCursor(QtWidgets.QWidget):
             matrix = np.column_stack((basis[2] - origin, basis[1] - origin))
             inverse = np.linalg.inv(matrix)
             position = origin + matrix @ (self._position.x(), self._position.y())
-            path = brush_path(
-                self.helper.edit_session.labels.shape, position, self.helper.brush_size
-            )
+            if tool == "split":
+                path = QtGui.QPainterPath()
+                for index, (y, x) in enumerate(self.helper._stroke_points):
+                    if index == 0:
+                        path.moveTo(x, y)
+                    else:
+                        path.lineTo(x, y)
+            else:
+                path = brush_path(
+                    self.helper.edit_session.labels.shape, position, self.helper.brush_size
+                )
             offset = -inverse @ origin
             transform = QtGui.QTransform(
                 inverse[0, 1], inverse[1, 1], inverse[0, 0], inverse[1, 0], offset[0], offset[1]
@@ -218,6 +226,13 @@ class SegmentationCursor(QtWidgets.QWidget):
 
     def paintEvent(self, event):
         painter = QtGui.QPainter(self)
+        if self.helper.edit_tool == "split":
+            for color, width in ((QtCore.Qt.black, 3), (QtCore.Qt.white, 1)):
+                painter.setPen(QtGui.QPen(color, width))
+                painter.setBrush(QtCore.Qt.NoBrush)
+                painter.drawPath(self._path)
+            painter.end()
+            return
         draw = self.helper.edit_tool == "add"
         painter.setBrush(QtGui.QColor(255, 255, 255, 75) if draw else QtGui.QColor(0, 0, 0, 75))
         painter.setPen(QtGui.QPen(QtCore.Qt.black if draw else QtCore.Qt.white, 1))

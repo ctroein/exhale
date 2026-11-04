@@ -23,6 +23,7 @@ class SegmentationViewer(NapariHelper):
         self.brush_size = 5
         self._cancel_stroke = False
         self._stroke_active = False
+        self._stroke_points = []
         self._selection_layers = []
         super().__init__(theme, abundance_units)
         self.viewer.mouse_drag_callbacks.append(self._edit_drag)
@@ -210,6 +211,9 @@ class SegmentationViewer(NapariHelper):
     def cancel_stroke(self):
         """Discard the uncommitted preview, leaving labels and undo history untouched."""
         self._cancel_stroke = True
+        self._stroke_points = []
+        if hasattr(self, "_editing_cursor"):
+            self._editing_cursor.refresh()
         if self.edit_session is not None and self.nuc_layer is not None:
             self.nuc_layer.data = self.edit_session.labels
 
@@ -234,6 +238,7 @@ class SegmentationViewer(NapariHelper):
         self._cancel_stroke = False
         self._stroke_active = True
         points = []
+        self._stroke_points = points
 
         def preview_point():
             coordinates = self.nuc_layer.world_to_data(event.position)[-2:]
@@ -241,6 +246,8 @@ class SegmentationViewer(NapariHelper):
                 point = tuple(map(float, coordinates))
                 if not points or point != points[-1]:
                     points.append(point)
+                    if hasattr(self, "_editing_cursor"):
+                        self._editing_cursor.refresh()
                     labels = self.edit_callback(tool, points, preview=True)
                     if labels is not None:
                         self.nuc_layer.data = labels
@@ -259,6 +266,9 @@ class SegmentationViewer(NapariHelper):
                     self.edit_callback(tool, points)
         finally:
             self._stroke_active = False
+            self._stroke_points = []
+            if hasattr(self, "_editing_cursor"):
+                self._editing_cursor.refresh()
             if self.edit_session is session:
                 self.nuc_layer.data = session.labels
                 self.update_selection()

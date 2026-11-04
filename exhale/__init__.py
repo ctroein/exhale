@@ -45,7 +45,7 @@ def _version_from_git(repository: Path) -> str | None:
 exhale_version = _version_from_git(Path(__file__).resolve().parent.parent)
 if exhale_version is None:
     try:
-        exhale_version = package_version("exhale-lung")
+        exhale_version = package_version("exhale-xrf")
     except PackageNotFoundError:
         exhale_version = "dev"
 

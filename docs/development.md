@@ -309,7 +309,7 @@ failures, cancellation and offline reuse without requiring public release assets
 `pyproject.toml` provides `stardist` (TensorFlow) and `cellpose` (PyTorch,
 TorchVision and Cellpose 4.2.1.1) extras. The base application needs neither. DINOv3 is supplied through `requirements-cellpose.txt`, pinned to an
 upstream source commit and archive SHA-256 because it is not published on PyPI.
-For pip installation, pass that requirements file alongside `exhale-lung`; for
+For pip installation, pass that requirements file alongside `exhale-xrf`; for
 a source checkout, install the file into the existing development environment.
 The URL in the README lets pip retrieve it directly from this repository.
 
@@ -344,7 +344,7 @@ On a Mac with Xcode command line tools, build with:
 
 ```bash
 python -m build --wheel
-python packaging/macos/build.py --wheel dist/exhale_lung-VERSION-py3-none-any.whl
+python packaging/macos/build.py --wheel dist/exhale_xrf-VERSION-py3-none-any.whl
 ```
 
 The output is `dist/EXHALE.app` and `dist/exhale-macos-ARCH.dmg`. Use a clean output
@@ -390,11 +390,14 @@ compiler included with Windows, and Inno Setup 6. Use a clean payload directory:
 
 ```powershell
 python -m build --wheel
-python packaging/win_build.py --wheel dist/exhale_lung-VERSION-py3-none-any.whl
+python packaging/win_build.py --wheel dist/exhale_xrf-VERSION-py3-none-any.whl
 ```
 
 Pass `--iscc PATH` if ISCC.exe is not discoverable. The builder runs the launcher's
-self-tests before compiling `packaging/exhale.iss`. Runtime packages are downloaded
+self-tests before compiling `packaging/exhale.iss`. Those tests include deletion
+of a tree with paths longer than 300 characters: TensorFlow headers exceed the
+legacy Windows path limit. The launcher enables modern .NET path handling and
+uses extended paths for deletion without changing system policy. Runtime packages are downloaded
 on the target machine, rather than bundled into the installer. Python 3.11 is
 used because Windows StarDist retains TensorFlow 2.15. The installer requires
 64-bit-compatible Windows 10 or later and installs per-user without elevation.

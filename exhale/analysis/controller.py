@@ -92,7 +92,14 @@ class AnalysisController(QtCore.QObject):
                 .width()
             )
         window.analysisMaskCombo.currentIndexChanged.connect(self._mask_changed)
-        window.analysisMaskCombo.lineEdit().editingFinished.connect(self._rename_mask)
+        # Keep the wrapper for Qt's internally created editor alive with its slots.
+        self._mask_name_edit = window.analysisMaskCombo.lineEdit()
+        self._mask_name_edit.editingFinished.connect(self._rename_mask)
+        for widget in (window.analysisMaskCombo, self._mask_name_edit):
+            widget.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+            widget.customContextMenuRequested.connect(
+                lambda position, widget=widget: self._mask_menu(widget, position)
+            )
         window.analysisKeepMask.toggled.connect(self._keep_mask)
         window.analysisAddComparison.clicked.connect(self._add_comparison)
         window.analysisComparisonCombo.currentIndexChanged.connect(self._update_comparison_controls)
@@ -102,6 +109,7 @@ class AnalysisController(QtCore.QObject):
             "draw": window.analysisToolOutline,
             "add": window.analysisToolBrushDraw,
             "remove": window.analysisToolBrushErase,
+            "split": window.analysisToolSplit,
         }
         self._tool_group = QtWidgets.QButtonGroup(self)
         self._tool_group.setExclusive(True)
@@ -118,6 +126,7 @@ class AnalysisController(QtCore.QObject):
             window.analysisDisconnectedParts.addItem(text, key)
         window.analysisDisconnectedParts.setCurrentIndex(2)
         window.analysisDeleteSegment.clicked.connect(self._delete_segments)
+        window.analysisMergeSegments.clicked.connect(self._merge_segments)
         window.analysisBrushSize.valueChanged.connect(self._brush_size_changed)
         window.analysisUndo.clicked.connect(self._undo_edit)
         window.analysisRedo.clicked.connect(self._redo_edit)
@@ -379,8 +388,20 @@ class AnalysisController(QtCore.QObject):
                 self._editing_changed()
         except ValueError as exc:
             if not preview:
-                QtWidgets.QMessageBox.warning(self.window, "Cannot edit segment", str(exc))
+                title = "Cannot split" if tool == "split" else "Cannot edit segment"
+                QtWidgets.QMessageBox.warning(self.window, title, str(exc))
         return session.labels
+
+    def _merge_segments(self):
+        session = self._edit_session
+        if session is not None:
+            if self.naparihelper is not None:
+                self.naparihelper.cancel_stroke()
+            try:
+                if session.merge_selected():
+                    self._editing_changed()
+            except ValueError as exc:
+                QtWidgets.QMessageBox.warning(self.window, "Cannot merge segments", str(exc))
 
     def _delete_segments(self):
         if self._edit_session is not None and self._edit_session.delete_selected():
@@ -394,6 +415,10 @@ class AnalysisController(QtCore.QObject):
         self.window.analysisDeleteSegment.setEnabled(
             enabled and session is not None and bool(session.selected_ids)
         )
+        self.window.analysisMergeSegments.setEnabled(
+            enabled and session is not None and len(session.selected_ids) >= 2
+        )
+        self.window.analysisToolSplit.setEnabled(enabled and session is not None)
         self.window.analysisProcessingTabs.setEnabled(
             enabled and self.current_candidate() is not None
         )
@@ -422,6 +447,43 @@ class AnalysisController(QtCore.QObject):
         if self._edit_session is not None and self._edit_session.can_redo:
             self._edit_session.redo()
             self._editing_changed()
+
+    def _mask_menu(self, widget, position):
+        """Extend text editing's normal menu with deliberate saved-mask removal."""
+        if isinstance(widget, QtWidgets.QLineEdit):
+            menu = widget.createStandardContextMenu()
+            menu.addSeparator()
+        else:
+            menu = QtWidgets.QMenu(widget)
+        action = menu.addAction(icons.icon(icons.IconName.DELETE), "Remove mask…")
+        action.setEnabled(self.current_candidate() is not None and self.worker is None)
+        action.triggered.connect(self._remove_mask)
+        menu.exec(widget.mapToGlobal(position))
+
+    def _remove_mask(self):
+        candidate = self.current_candidate()
+        history = self._history()
+        if candidate is None or history is None or self.worker is not None:
+            return
+        dialog = QtWidgets.QMessageBox(self.window)
+        dialog.setWindowTitle("Remove mask")
+        dialog.setText(f"Remove {self._mask_name(candidate)}?")
+        dialog.setInformativeText("Corrected masks derived from it will be kept.")
+        remove = dialog.addButton("Remove", QtWidgets.QMessageBox.DestructiveRole)
+        dialog.addButton(QtWidgets.QMessageBox.Cancel)
+        dialog.exec()
+        if dialog.clickedButton() is not remove or not self._finish_editing():
+            return
+        if candidate.candidate_id in history.candidates:
+            history.remove(candidate.candidate_id)
+        self._refresh_masks()
+        active = history.active
+        if active is None:
+            self.clear_result_view()
+        elif self.naparihelper is not None:
+            self.show_result(active.result, fit=False)
+        self.window.project_state_manager.project_changed()
+        self.window.segmentationResultsChanged.emit()
 
     def _rename_mask(self):
         candidate = self.current_candidate()
@@ -640,6 +702,8 @@ class AnalysisController(QtCore.QObject):
             ("O", window.analysisToolOutline),
             ("B", window.analysisToolBrushDraw),
             ("E", window.analysisToolBrushErase),
+            ("X", window.analysisToolSplit),
+            ("M", window.analysisMergeSegments),
             ("Delete", window.analysisDeleteSegment),
         ):
             shortcut = QtWidgets.QShortcut(QtGui.QKeySequence(key), self._viewer_canvas)
@@ -1378,11 +1442,7 @@ class AnalysisController(QtCore.QObject):
         if filename is None:
             return
         try:
-            self.naparihelper.viewer.screenshot(
-                path=filename,
-                canvas_only=True,
-                flash=True,
-            )
+            self.naparihelper.qtwidget.screenshot(path=filename, flash=True)
         except Exception as exc:
             window.show_error("Saving the current view failed", str(exc))
 

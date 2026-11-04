@@ -76,8 +76,8 @@ def main():
             name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
         )
         metadata = email.message_from_bytes(archive.read(metadata_file))
-    if metadata["Name"] != "exhale-lung":
-        parser.error("wheel must contain exhale-lung")
+    if metadata["Name"] != "exhale-xrf":
+        parser.error("wheel must contain exhale-xrf")
     version = (args.version or metadata["Version"]).removeprefix("v")
     bundle_version = re.match(r"\d+(?:\.\d+){0,2}", version)
     if bundle_version is None:

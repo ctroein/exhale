@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, create_autospec, patch
 
 import h5py
 import numpy as np
@@ -916,6 +916,26 @@ class SourceLifecycleTests(unittest.TestCase):
         control.naparihelper = None
         control._edit_session = None
 
+    def test_mask_editor_connections_survive_wrapper_collection(self):
+        import gc
+
+        control = self.win.analysis_controller
+        gc.collect()
+        editor = self.win.analysisMaskCombo.lineEdit()
+        point = QtCore.QPoint(2, 2)
+        with patch.object(control, "_mask_menu") as menu:
+            editor.customContextMenuRequested.emit(point)
+        menu.assert_called_once_with(editor, point)
+        candidate = SimpleNamespace(name="Old name", name_is_custom=False)
+        with (
+            patch.object(control, "current_candidate", return_value=candidate),
+            patch.object(control, "_mask_name", return_value="Old name"),
+        ):
+            editor.setText("Renamed mask")
+            editor.editingFinished.emit()
+        self.assertEqual(candidate.name, "Renamed mask")
+        self.assertTrue(candidate.name_is_custom)
+
     def test_mask_layer_choices_include_restored_comparisons(self):
         self.win.source_manager.open_files([self.h5])
         sample_id = self.win.project_data.assets[self.h5].sample_id
@@ -954,21 +974,27 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertTrue(self.win.analysisAddComparison.isEnabled())
         self.assertIs(history.active, active)
 
-    def test_segmentation_current_view_saves_the_canvas(self):
-        viewer = Mock()
-        self.win.analysis_controller.naparihelper = SimpleNamespace(
-            result=object(), viewer=viewer, user_layers=lambda: (object(),)
-        )
-        filename = str(Path(self.temp.name) / "segmentation.png")
+    def test_current_view_actions_use_the_embedded_qt_viewer_api(self):
+        from napari._qt.qt_viewer import QtViewer
+        from napari.components import ViewerModel
 
-        with patch.object(self.win, "askFileName", return_value=filename):
-            self.win.analysis_controller.save_current_view()
+        from exhale.analysis.clustering_controller import ClusteringController
 
-        viewer.screenshot.assert_called_once_with(
-            path=filename,
-            canvas_only=True,
-            flash=True,
-        )
+        for controller in (self.win.analysis_controller, self.win.clustering_controller):
+            with self.subTest(controller=type(controller).__name__):
+                qt_viewer = create_autospec(QtViewer, instance=True, spec_set=True)
+                controller.naparihelper = SimpleNamespace(
+                    result=object(),
+                    viewer=Mock(spec_set=ViewerModel),
+                    qtwidget=qt_viewer,
+                    user_layers=lambda: (object(),),
+                )
+                if isinstance(controller, ClusteringController):
+                    controller._shown_result = object()
+                filename = str(Path(self.temp.name) / "view.png")
+                with patch.object(self.win, "askFileName", return_value=filename):
+                    controller.save_current_view()
+                qt_viewer.screenshot.assert_called_once_with(path=filename, flash=True)
 
     def test_segmentation_export_uses_edits_before_postprocessing(self):
         labels = np.array([[0, 42], [0, 0]], dtype=np.uint32)

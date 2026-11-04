@@ -79,6 +79,8 @@ MAIN_WINDOW = {
     "analysisToolBrushErase": "Brush erase (E). Erase from selected segments.",
     "analysisUndo": "Undo the last edit",
     "analysisRedo": "Redo the undone edit",
+    "analysisToolSplit": "Split segment (X). Draw a dividing stroke through the selected segment.",
+    "analysisMergeSegments": "Merge selected segments (M).",
     "analysisDeleteSegment": "Delete selected segments (Delete).",
     "analysisBrushSize": "Brush diameter in pixels.",
     "analysisAcceptEdits": "Accept the working changes as a corrected mask.",

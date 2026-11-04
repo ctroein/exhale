@@ -319,7 +319,8 @@ def test_dividing_strokes_preserve_area_and_ids_and_are_atomic(points):
     assert session.edit("split", points, disconnected="keep")
     np.testing.assert_array_equal(session.labels != 0, labels != 0)
     assert session.labels[6, 7] == 999
-    assert session.selected_ids == {1, 42}
+    assert session.selected_ids == {42}
+    assert set(session.areas[0]) == {1, 42, 999}
     assert not session.pending_disconnections and len(session._undo) == 1
     assert 42 in session.areas[0]
     after = session.labels.copy()
@@ -336,7 +337,7 @@ def test_split_handles_small_regions_and_preserves_unrelated_diagonal_connection
     session = session_for(labels)
     session.select(42)
     session.split_selected([(-1, 1), (4, 1)])
-    assert len(session.selected_ids) == 2
+    assert len(session.areas[0]) == 2 and session.selected_ids == {42}
     assert session.labels[3, 3] == session.labels[2, 2]
     np.testing.assert_array_equal(session.labels > 0, labels > 0)
 
@@ -371,3 +372,25 @@ def test_merge_and_split_require_the_right_selection():
     with pytest.raises(ValueError):
         session.split_selected([(0, 0), (0, 1)])
     assert not session.can_undo
+
+
+def test_two_part_splits_keep_larger_part_ready_for_serial_splitting():
+    session = session_for(np.full((7, 12), 42, dtype=np.uint32))
+    session.select(42)
+    session.split_selected([(-1, 7), (7, 7)])
+    assert session.selected_ids == {42}
+    ids, areas = session.areas
+    assert areas[np.searchsorted(ids, 42)] == areas.max()
+    smaller = session.labels == 1
+    session.split_selected([(3, -1), (3, 7)])
+    assert session.selected_ids == {42}
+    assert len(session.areas[0]) == 3
+    np.testing.assert_array_equal(session.labels == 1, smaller)
+
+
+def test_splits_into_three_parts_keep_all_parts_selected():
+    session = session_for(np.full((7, 9), 42, dtype=np.uint32))
+    session.select(42)
+    session.split_selected([(-1, 2), (7, 2), (7, 5), (-1, 5)])
+    assert len(session.areas[0]) == 3
+    assert session.selected_ids == set(session.areas[0])

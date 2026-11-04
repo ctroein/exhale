@@ -356,7 +356,7 @@ class ClusteringController(QtCore.QObject):
         )
         if filename is not None:
             try:
-                self.naparihelper.viewer.screenshot(path=filename, canvas_only=True, flash=True)
+                self.naparihelper.qtwidget.screenshot(path=filename, flash=True)
             except Exception as error:
                 self.window.show_error("Saving the current view failed", str(error))
 

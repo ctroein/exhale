@@ -211,6 +211,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.analysisToolOutline.set_icon_name(icons.IconName.OUTLINE)
         self.analysisToolBrushDraw.set_icon_name(icons.IconName.BRUSH)
         self.analysisToolBrushErase.set_icon_name(icons.IconName.ERASER)
+        self.analysisToolSplit.set_icon_name(icons.IconName.SPLIT)
+        self.analysisMergeSegments.set_icon_name(icons.IconName.MERGE)
         self.analysisOptions.setIcon(icons.icon(icons.IconName.ADJUSTMENTS))
         self.analysisKeepMask.set_icon_name(icons.IconName.LOCK)
         self.analysisRun.setIcon(icons.icon(icons.IconName.START))

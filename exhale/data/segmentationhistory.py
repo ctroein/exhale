@@ -289,6 +289,28 @@ class SegmentationHistory:
         self.prune()
         return candidate
 
+    def remove(self, candidate_id: str) -> SegmentationCandidate:
+        """Deliberately remove one mask, retaining descendants and immutable files.
+
+        Direct children lose their parent link, not their labels or run provenance.
+        Other candidates retain their order; the newest retained mask is the fallback.
+        """
+        removed = self.candidates.pop(candidate_id)
+        self._recency.remove(candidate_id)
+        self._digests = {
+            digest: key for digest, key in self._digests.items() if key != candidate_id
+        }
+        comparison = f"comparison:{candidate_id}"
+        for candidate in self.candidates.values():
+            if candidate.parent_id == candidate_id:
+                candidate.parent_id = None
+            settings = candidate.result.layer_settings
+            settings.order = tuple(key for key in settings.order if key != comparison)
+            settings.layers.pop(comparison, None)
+        if self.active_id == candidate_id:
+            self.active_id = self._recency[-1] if self._recency else None
+        return removed
+
     def prune(self) -> tuple[SegmentationCandidate, ...]:
         """Remove old predictions from memory, preserving masks needed by retained edits."""
         protected = {key for key, candidate in self.candidates.items() if candidate.protected}

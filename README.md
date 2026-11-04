@@ -36,17 +36,17 @@ then choose the segmentation backends you want.
 For StarDist (TensorFlow):
 
 ```bash
-uv tool install --python 3.12 'exhale-lung[stardist]'
+uv tool install --python 3.12 'exhale-xrf[stardist]'
 ```
 
 For Cellpose (PyTorch and DINOv3):
 
 ```bash
-uv tool install --python 3.12 --with-requirements https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt 'exhale-lung[cellpose]'
+uv tool install --python 3.12 --with-requirements https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt 'exhale-xrf[cellpose]'
 ```
 
-To install both, use `'exhale-lung[stardist,cellpose]'` with the same additional
-requirements argument. Plain `exhale-lung` installs viewing, composition and
+To install both, use `'exhale-xrf[stardist,cellpose]'` with the same additional
+requirements argument. Plain `exhale-xrf` installs viewing, composition and
 analysis of existing results without either segmentation backend. Unavailable
 backends are disabled in the application.
 
@@ -60,7 +60,7 @@ exhale --install-desktop
 To update the application and its selected backends:
 
 ```bash
-uv tool upgrade exhale-lung
+uv tool upgrade exhale-xrf
 ```
 
 uv retains the installation settings, including extras and additional
@@ -71,7 +71,7 @@ To uninstall, remove the desktop/menu entry before removing the application:
 
 ```bash
 exhale --remove-desktop
-uv tool uninstall exhale-lung
+uv tool uninstall exhale-xrf
 ```
 
 ### Windows
@@ -115,7 +115,7 @@ commands as on Linux. Start the application with `exhale`. The desktop/menu
 registration commands are Linux-only; to uninstall a Mac uv installation, run:
 
 ```bash
-uv tool uninstall exhale-lung
+uv tool uninstall exhale-xrf
 ```
 
 App-managed environments are separate from installations made with
@@ -129,16 +129,16 @@ Use a virtual environment with a supported Python version (3.11–3.13).
 For StarDist:
 
 ```bash
-python -m pip install 'exhale-lung[stardist]'
+python -m pip install 'exhale-xrf[stardist]'
 ```
 
 For Cellpose (Apple Silicon required on macOS):
 
 ```bash
-python -m pip install 'exhale-lung[cellpose]' -r https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt
+python -m pip install 'exhale-xrf[cellpose]' -r https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt
 ```
 
-Use `'exhale-lung[stardist,cellpose]'` with the same requirements argument for
+Use `'exhale-xrf[stardist,cellpose]'` with the same requirements argument for
 both backends. For a Git checkout:
 
 ```bash
