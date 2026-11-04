@@ -4,14 +4,16 @@
 import json
 import os
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from ..analysis.segmentationio import (
+    candidate_relative_path,
     clustering_relative_path,
     load_segmentation,
     load_xrf_sample,
-    result_relative_path,
+    save_candidate,
 )
 from ..data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from ..data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
@@ -27,6 +29,8 @@ from ..data.projectdata import (
     SegmentationResult,
 )
 from ..data.segmentation import SegmentationPostprocessing
+from ..data.segmentationediting import SegmentationEditSession
+from ..data.segmentationhistory import SegmentationCandidate, SegmentationHistory, SegmentationRun
 from ..data.source_refs import ElementRef, LoadedSource, open_source
 
 PROJECT_FORMAT = "exhale-project"
@@ -288,6 +292,73 @@ def _imagesettings_from_json(obj: dict[str, Any], project_data: ProjectData) -> 
     return im
 
 
+def _candidate_to_json(candidate):
+    result = candidate.result
+    obj = {
+        "sample_id": result.sample_id,
+        "method_id": result.method_id,
+        "input_ref": _ref_to_json(result.input_ref),
+        "model_id": result.output.model_id,
+        "model_version": result.output.model_version,
+        "parameters": {
+            "clip_percentile": result.parameters.clip_percentile,
+            "method_options": dict(result.parameters.method_options),
+        },
+        "layer_settings": _layer_settings_to_json(result.layer_settings),
+        "postprocessing": {
+            "minimum_area": result.postprocessing.minimum_area,
+            "expansion": result.postprocessing.expansion,
+        },
+        "reference_refs": [_ref_to_json(ref) for ref in result.reference_refs],
+        "sidecar": str(
+            candidate_relative_path(result.sample_id, candidate.candidate_id, candidate.revision_id)
+        ),
+    }
+    obj.update(
+        candidate_id=candidate.candidate_id,
+        revision_id=candidate.revision_id,
+        name=candidate.name,
+        name_is_custom=candidate.name_is_custom,
+        created_at=candidate.created_at,
+        parent_id=candidate.parent_id,
+        keep=candidate.keep,
+        edited=candidate.edited,
+        reviewed_revision=candidate.reviewed_revision,
+        compare=candidate.compare,
+        comparison_presentation=(
+            None
+            if candidate.comparison_presentation is None
+            else asdict(candidate.comparison_presentation)
+        ),
+        provenance=[
+            {
+                "run_id": run.run_id,
+                "created_at": run.created_at,
+                "method_id": run.method_id,
+                "input_ref": _ref_to_json(run.input_ref),
+                "parameters": {
+                    "clip_percentile": run.parameters.clip_percentile,
+                    "method_options": run.parameters.method_options,
+                },
+                "model_id": run.model_id,
+                "model_version": run.model_version,
+            }
+            for run in candidate.provenance
+        ],
+    )
+    return obj
+
+
+def save_segmentation_snapshots(project_data, project_dir):
+    """Ensure referenced immutable snapshots exist before publishing JSON."""
+    for history in project_data.segmentation_histories.values():
+        for candidate in history.candidates.values():
+            save_candidate(candidate, project_dir)
+    for session in project_data.segmentation_edit_sessions.values():
+        if session.changed:
+            save_candidate(session.snapshot(), project_dir)
+
+
 def export_project_state(
     project_data: ProjectData, project_dir: str | Path | None = None
 ) -> dict[str, Any]:
@@ -355,35 +426,6 @@ def export_project_state(
     for img_id, im in sorted(project_data.images.items()):
         images.append(_imagesettings_to_json(img_id, im))
 
-    segmentation_results = [
-        {
-            "sample_id": result.sample_id,
-            "method_id": result.method_id,
-            "input_ref": _ref_to_json(result.input_ref),
-            "model_id": result.output.model_id,
-            "model_version": result.output.model_version,
-            "parameters": {
-                "clip_percentile": result.parameters.clip_percentile,
-                "method_options": dict(result.parameters.method_options),
-            },
-            "layer_settings": _layer_settings_to_json(result.layer_settings),
-            "postprocessing": {
-                "minimum_area": result.postprocessing.minimum_area,
-                "expansion": result.postprocessing.expansion,
-            },
-            "reference_refs": [_ref_to_json(ref) for ref in result.reference_refs],
-            "sidecar": str(result_relative_path(result.sample_id, result.method_id)),
-        }
-        for result in sorted(
-            (
-                result
-                for sample_results in project_data.segmentation_results.values()
-                for result in sample_results.values()
-            ),
-            key=lambda value: (value.sample_id, value.method_id),
-        )
-    ]
-
     return {
         "format": PROJECT_FORMAT,
         "version": PROJECT_VERSION,
@@ -398,7 +440,28 @@ def export_project_state(
         "project_channels": project_channels,
         "element_settings": element_settings,
         "images": images,
-        "segmentation_results": segmentation_results,
+        "segmentation_histories": [
+            {
+                "sample_id": sample_id,
+                "active_id": history.active_id,
+                "recent_limit": history.recent_limit,
+                "recency": list(history.recency),
+                "candidates": [
+                    _candidate_to_json(candidate) for candidate in history.candidates.values()
+                ],
+            }
+            for sample_id, history in sorted(project_data.segmentation_histories.items())
+        ],
+        "segmentation_drafts": [
+            {
+                "sample_id": sample_id,
+                "source_id": session.source.candidate_id,
+                "pending_disconnections": sorted(session.pending_disconnections),
+                "candidate": _candidate_to_json(session.snapshot()),
+            }
+            for sample_id, session in sorted(project_data.segmentation_edit_sessions.items())
+            if session.changed
+        ],
         "segmentation_previews": [
             {
                 "sample_id": sample_id,
@@ -449,8 +512,9 @@ def validate_project_state(state: dict[str, Any]) -> None:
 
 
 def save_project(project_data: ProjectData, filename: str | Path) -> None:
-    """Save the project model; derived-result sidecars are written when produced."""
+    """Write missing immutable snapshots, then atomically publish project metadata."""
     filename = Path(filename)
+    save_segmentation_snapshots(project_data, filename.parent)
     save_project_state(export_project_state(project_data, filename.parent), filename)
 
 
@@ -669,7 +733,38 @@ def load_project_state(
             except Exception as exc:
                 issues.append(f"One segmentation preview was skipped: {exc}")
 
-        for result_obj in state.get("segmentation_results", []):
+        history_objects = state.get("segmentation_histories")
+        pending = {}
+        if history_objects is None:
+            result_objects = state.get("segmentation_results", [])
+        else:
+            result_objects = []
+            for history_obj in history_objects:
+                try:
+                    sample_id = history_obj["sample_id"]
+                    if sample_id not in project_data.samples:
+                        raise ValueError("sample no longer exists")
+                    pending[sample_id] = (history_obj, [])
+                    result_objects.extend(
+                        {**obj, "sample_id": sample_id} for obj in history_obj.get("candidates", [])
+                    )
+                except Exception as exc:
+                    issues.append(f"One segmentation history was skipped: {exc}")
+        drafts = []
+        if history_objects is not None:
+            for draft in state.get("segmentation_drafts", []):
+                try:
+                    result_objects.append(
+                        {
+                            **draft["candidate"],
+                            "sample_id": draft["sample_id"],
+                            "_draft_source": draft["source_id"],
+                            "_pending_disconnections": draft.get("pending_disconnections", []),
+                        }
+                    )
+                except Exception as exc:
+                    issues.append(f"One working mask was skipped: {exc}")
+        for result_obj in result_objects:
             try:
                 sample_id = result_obj["sample_id"]
                 method_id = result_obj.get("method_id", "stardist")
@@ -692,28 +787,103 @@ def load_project_state(
                 except Exception as exc:
                     layer_settings = SegmentationLayerSettings()
                     issues.append(f"Segmentation layer presentation was ignored: {exc}")
-                project_data.set_segmentation_result(
-                    SegmentationResult(
-                        sample_id=sample_id,
-                        method_id=method_id,
-                        input_ref=input_ref,
-                        parameters=parameters,
-                        output=load_segmentation(sidecar, expected_method_id=method_id),
-                        layer_settings=layer_settings,
-                        postprocessing=SegmentationPostprocessing(
-                            result_obj.get("postprocessing", {}).get("minimum_area", 0),
-                            expansion=result_obj.get("postprocessing", {}).get("expansion", 0),
-                        ),
-                        reference_refs=tuple(
-                            ref
-                            for value in result_obj.get("reference_refs", [])
-                            if (ref := ElementRef.from_json(value))
-                            in {channel.ref for channel in sample.channels.values()}
-                        ),
-                    )
+                result = SegmentationResult(
+                    sample_id=sample_id,
+                    method_id=method_id,
+                    input_ref=input_ref,
+                    parameters=parameters,
+                    output=load_segmentation(
+                        sidecar,
+                        expected_method_id=method_id,
+                        candidate_id=result_obj.get("candidate_id"),
+                        revision_id=result_obj.get("revision_id"),
+                    ),
+                    layer_settings=layer_settings,
+                    postprocessing=SegmentationPostprocessing(
+                        result_obj.get("postprocessing", {}).get("minimum_area", 0),
+                        expansion=result_obj.get("postprocessing", {}).get("expansion", 0),
+                    ),
+                    reference_refs=tuple(
+                        ref
+                        for value in result_obj.get("reference_refs", [])
+                        if (ref := ElementRef.from_json(value))
+                        in {channel.ref for channel in sample.channels.values()}
+                    ),
                 )
+                if history_objects is None:
+                    project_data.set_segmentation_result(result)
+                else:
+                    provenance = tuple(
+                        SegmentationRun(
+                            method_id=run["method_id"],
+                            input_ref=ElementRef.from_json(run["input_ref"]),
+                            parameters=SegmentationParameters(**run["parameters"]),
+                            model_id=run["model_id"],
+                            model_version=run["model_version"],
+                            run_id=run["run_id"],
+                            created_at=run["created_at"],
+                        )
+                        for run in result_obj.get("provenance", [])
+                    )
+                    fields = {
+                        name: result_obj[name]
+                        for name in (
+                            "candidate_id",
+                            "revision_id",
+                            "name",
+                            "name_is_custom",
+                            "created_at",
+                            "parent_id",
+                            "keep",
+                            "edited",
+                            "reviewed_revision",
+                            "compare",
+                        )
+                        if name in result_obj
+                    }
+                    candidate = SegmentationCandidate(
+                        result, provenance or (SegmentationRun.from_result(result),), **fields
+                    )
+                    if result_obj.get("comparison_presentation") is not None:
+                        candidate.comparison_presentation = _layer_settings_from_json(
+                            {"layers": {"mask": result_obj["comparison_presentation"]}}
+                        ).layers.get("mask")
+                    if "_draft_source" in result_obj:
+                        drafts.append(
+                            (
+                                sample_id,
+                                result_obj["_draft_source"],
+                                candidate,
+                                result_obj.get("_pending_disconnections", []),
+                            )
+                        )
+                    else:
+                        pending[sample_id][1].append(candidate)
             except Exception as exc:
                 issues.append(f"One segmentation result was skipped: {exc}")
+        for sample_id, (obj, candidates) in pending.items():
+            try:
+                history, errors = SegmentationHistory.restore(
+                    sample_id,
+                    candidates,
+                    active_id=obj.get("active_id"),
+                    recency=obj.get("recency", ()),
+                    recent_limit=obj.get("recent_limit", 5),
+                )
+                project_data.segmentation_histories[sample_id] = history
+                issues.extend(errors)
+            except Exception as exc:
+                issues.append(f"One segmentation history was skipped: {exc}")
+        for sample_id, source_id, draft, pending_disconnections in drafts:
+            try:
+                history = project_data.segmentation_histories[sample_id]
+                source = history.candidates[source_id]
+                project_data.segmentation_edit_sessions[sample_id] = (
+                    SegmentationEditSession.restore(source, draft, pending=pending_disconnections)
+                )
+                history.activate(source_id)
+            except Exception as exc:
+                issues.append(f"One working mask was skipped: {exc}")
 
     if project_dir is not None:
         for obj in state.get("clustering_results", []):

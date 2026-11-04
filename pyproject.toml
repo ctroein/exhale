@@ -18,26 +18,34 @@ license-files = [ "LICENSE" ]
 classifiers = [ "Topic :: Scientific/Engineering :: Medical Science Apps." ]
 readme="README.md"
 requires-python = ">=3.11,<3.14"
+# Upper bounds follow the dependency trial accepted on 2026-11-04.
+# Calendar-versioned packages are bounded at the next month.
 dependencies = [
-    'numpy',
-    'scipy',
-    'scikit-learn',
-    'pandas',
-    'h5py',
-    'tifffile',
-    'imagecodecs',
-    'napari<0.10',
-    'imageio',
-    'csbdeep',
-    'pyqt5',
-    'qtpy',
-    'pyqtgraph>=0.13.7',
+    'numpy<2.6',
+    'scipy<1.19',
+    'scikit-learn<1.10',
+    'pandas<3.2',
+    'h5py<3.17',
+    'tifffile<2026.11',
+    'imagecodecs<2026.11',
+    'napari>=0.10,<0.11',
+    'imageio<2.39',
+    'pyqt6>=6.7,<6.13',
+    'qtpy<2.5',
+    'pyqtgraph>=0.13.7,<0.15',
+]
+
+[project.optional-dependencies]
+stardist = [
+    'csbdeep<0.9',
     "tensorflow==2.15.*; sys_platform == 'win32'",
-    "tensorflow; sys_platform == 'linux'",
-    "tensorflow; sys_platform == 'darwin'",
-    'stardist',
-    'torch>=2.8,<3',
-    'torchvision>=0.23,<1',
+    "tensorflow<2.21; sys_platform == 'linux'",
+    "tensorflow<2.21; sys_platform == 'darwin'",
+    'stardist<0.10',
+]
+cellpose = [
+    'torch>=2.8,<2.16',
+    'torchvision>=0.23,<0.30',
     'cellpose==4.2.1.1',
 ]
 
@@ -64,3 +72,8 @@ Homepage="https://github.com/ctroein/exhale"
 
 [project.scripts]
 exhale = "exhale.__main__:main"
+
+[tool.dependency-trial.keep]
+# Exceptions retained when testing otherwise unbounded runtime dependencies.
+napari = "Keep the supported 0.10 API series; changes require review of the embedded viewer integration."
+cellpose = "The CellposeDINO integration and trained weights target Cellpose 4.2.1.1."

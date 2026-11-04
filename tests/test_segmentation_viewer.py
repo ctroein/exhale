@@ -9,12 +9,14 @@ import pytest
 from napari.components import ViewerModel
 
 from exhale.analysis.segmentation_viewer import SegmentationViewer
-from exhale.data.projectdata import SegmentationResult
+from exhale.data.projectdata import LayerPresentation, SegmentationResult
 from exhale.data.segmentation import (
     SegmentationOutput,
     SegmentationParameters,
     SegmentationPostprocessing,
 )
+from exhale.data.segmentationediting import SegmentationEditSession
+from exhale.data.segmentationhistory import SegmentationCandidate
 from exhale.data.source_refs import ElementRef
 
 
@@ -25,6 +27,9 @@ def viewer():
     helper.result = None
     helper.input_map = None
     helper.inspection_callback = None
+    helper.selection_callback = None
+    helper.edit_session = None
+    helper._selection_layers = []
     helper.nuc_layer = None
     helper._image_colors = WeakKeyDictionary()
     helper._label_presentations = WeakKeyDictionary()
@@ -89,6 +94,61 @@ def test_saved_labels_remain_viewable_without_the_source_map(viewer):
     assert viewer.input_map is None
     assert viewer.user_layers() == (viewer.nuc_layer,)
     np.testing.assert_array_equal(viewer.nuc_layer.data, saved.output.labels)
+
+
+def test_comparison_masks_are_read_only_and_do_not_replace_active_inspection(viewer):
+    active = result([[0, 1], [0, 0]])
+    other = SegmentationCandidate.from_result(result([[0, 42], [42, 42]]))
+    other.compare = True
+    other.comparison_presentation = LayerPresentation(
+        False, 0.3, "translucent_no_depth", (1, 1, 0, 1), viewer.LABEL_MASK, 0
+    )
+    viewer.set_result(active, comparisons=[(other, "Other mask")])
+    comparison = next(
+        layer for layer in viewer.user_layers() if "exhale_comparison_id" in layer.metadata
+    )
+    assert not comparison.editable and not comparison.visible and comparison.opacity == 0.3
+    np.testing.assert_array_equal(comparison.data, other.result.processed_labels)
+    assert viewer.result is active
+    assert viewer._label_at(SimpleNamespace(position=(1, 1))) == (1, 1, 0)
+    viewer.set_result(active, comparisons=[(other, "Other mask")], fit=False)
+    assert comparison in viewer.user_layers()
+    viewer.set_result(other.result, fit=False)
+    assert comparison not in viewer.viewer.layers
+    assert viewer.result is other.result
+
+
+def test_edit_selection_outlines_preserve_labels_and_screen_width(viewer):
+    candidate = SegmentationCandidate.from_result(result([[0, 42, 42], [7, 0, 7]]))
+    session = SegmentationEditSession(candidate)
+    session.select(42)
+    session.select(7, toggle=True)
+    viewer.set_result(candidate.result, edit_session=session)
+    assert len(viewer._selection_layers) == 2
+    assert all(layer.visible and not layer.editable for layer in viewer._selection_layers)
+    assert all(layer not in viewer.user_layers() for layer in viewer._selection_layers)
+    np.testing.assert_array_equal(viewer.nuc_layer.data, candidate.result.output.labels)
+    camera = getattr(viewer.viewer, "scene", viewer.viewer).camera
+    camera.zoom = 4
+    viewer._selection_zoom()
+    for layer, width in zip(viewer._selection_layers, (3, 1), strict=True):
+        np.testing.assert_allclose(np.asarray(layer.edge_width) * camera.zoom, width)
+    viewer.set_result(candidate.result, fit=False)
+    assert not any(layer.visible for layer in viewer._selection_layers)
+    assert not session.changed
+
+
+def test_native_control_modifier_toggles_selection(viewer):
+    from vispy.util.keys import CONTROL
+
+    candidate = SegmentationCandidate.from_result(result([[0, 42], [7, 0]]))
+    session = SegmentationEditSession(candidate)
+    viewer.selection_callback = Mock()
+    viewer.set_result(candidate.result, edit_session=session)
+    viewer._click(
+        None, SimpleNamespace(position=(0, 1), type="mouse_press", button=1, modifiers=(CONTROL,))
+    )
+    viewer.selection_callback.assert_called_once_with(42, True, position=(0, 1))
 
 
 def test_filter_refresh_preserves_all_five_categorical_palettes(viewer):
@@ -181,3 +241,77 @@ def test_pointer_lookup_matches_napari_pixel_centers(viewer):
     assert viewer._label_at(event) == (1, 2, 70000)
     event.position = (-0.8, 1.8)
     assert viewer._label_at(event) is None
+
+
+def test_brush_drag_previews_then_commits_once_and_cancel_restores_labels(viewer):
+    labels = np.zeros((12, 15), dtype=np.uint32)
+    labels[3:6, 3:6] = 42
+    candidate = SegmentationCandidate.from_result(result(labels))
+    session = SegmentationEditSession(candidate)
+    session.select(42)
+    viewer.set_result(candidate.result, edit_session=session)
+    viewer.set_edit_tool("add")
+    commits = []
+
+    def edit(tool, points, *, preview=False):
+        if preview:
+            return session.preview(tool, points, size=3)
+        commits.append(tool)
+        session.edit(tool, points, size=3)
+        return session.labels
+
+    viewer.edit_callback = edit
+    event = SimpleNamespace(position=(4, 5), button=1, type="mouse_press")
+    drag = viewer._edit_drag(None, event)
+    next(drag)
+    event.type = "mouse_move"
+    event.position = (4, 10)
+    next(drag)
+    assert not session.can_undo and not session.changed
+    assert viewer.nuc_layer.data[4, 9] == 42
+    event.type = "mouse_release"
+    with pytest.raises(StopIteration):
+        next(drag)
+    assert commits == ["add"] and session.can_undo
+    session.undo()
+    assert not session.can_undo
+    np.testing.assert_array_equal(session.labels, labels)
+
+    event.type = "mouse_press"
+    drag = viewer._edit_drag(None, event)
+    next(drag)
+    viewer.cancel_stroke()
+    event.type = "mouse_release"
+    with pytest.raises(StopIteration):
+        next(drag)
+    assert commits == ["add"] and not session.changed
+    np.testing.assert_array_equal(viewer.nuc_layer.data, labels)
+    viewer.set_result(candidate.result)
+    camera = getattr(viewer.viewer, "scene", viewer.viewer).camera
+    assert camera.mouse_pan
+
+
+@pytest.mark.parametrize(
+    "modifier, expected", [("shift", "outline_add"), ("control", "outline_remove")]
+)
+def test_outline_modifier_selects_operation_for_the_whole_gesture(viewer, modifier, expected):
+    from vispy.util.keys import CONTROL, SHIFT
+
+    candidate = SegmentationCandidate.from_result(result([[42, 42], [42, 42]]))
+    session = SegmentationEditSession(candidate)
+    viewer.set_result(candidate.result, edit_session=session)
+    viewer.set_edit_tool("draw")
+    viewer.edit_callback = Mock(return_value=session.labels)
+    event = SimpleNamespace(
+        position=(0, 0),
+        button=1,
+        type="mouse_press",
+        modifiers=(SHIFT if modifier == "shift" else CONTROL,),
+    )
+    drag = viewer._edit_drag(None, event)
+    next(drag)
+    event.modifiers = ()
+    event.type = "mouse_release"
+    with pytest.raises(StopIteration):
+        next(drag)
+    assert all(call.args[0] == expected for call in viewer.edit_callback.call_args_list)

@@ -131,6 +131,11 @@ needed to reproduce calculations, expressed in the reader's terms.
 Access Qt through `qtpy` so the application remains independent of a specific
 Qt binding.
 
+The packaged binding is PyQt6 (Qt 6.7 or newer), required by Napari 0.10.
+The launcher and dependency-trial tool default `QT_API` to `pyqt6` so older
+bindings left in a development environment are not selected accidentally.
+When running pytest directly in such an environment, use `QT_API=pyqt6`.
+
 Establish sorting and grouping when a list or selector is populated, then keep
 item positions stable while the user selects, checks, activates, or edits items.
 
@@ -195,8 +200,9 @@ imports the Napari integration and segmentation backends, verifies the DINOv3
 constructor, reports
 the runtime versions used by the About dialog, and exits without showing the
 main window. The manually dispatched **Windows startup check** workflow runs it
-from the installed package. Release builds run the same check against the frozen
-Windows application after PyInstaller finishes.
+from the installed package for each backend selection. Windows installer builds
+run the same check through the installed native launcher after Inno Setup has
+created the private uv environment.
 
 Every change should at least pass `./run_exhale.py --help` and focused tests for
 the affected code. Add tests under `tests/`, named `test_<feature>.py`, when a
@@ -204,6 +210,34 @@ behavior can be tested non-interactively.
 
 GUI changes also require interactive testing with representative data. A
 successful application startup does not validate the changed workflow.
+
+## Trying dependency updates on Linux
+
+Run `python tools/try_dependency_updates.py` from the normal development
+Python environment, with uv available on PATH. It creates a fresh environment
+under `.dependency-trials/`, using the current Python interpreter, and installs
+the latest compatible stable runtime dependencies without Exhale's version
+bounds. Upstream dependency requirements still apply. Documented exceptions in
+`[tool.dependency-trial.keep]` retain their declared requirements; the pinned
+DINOv3 source in `requirements-cellpose.txt` is also retained.
+
+The tool records the requested requirements and exact installed versions in the
+trial directory, runs Ruff, the startup check and pytest, then launches the GUI
+for manual testing if all checks pass. Automated checks use Qt's offscreen
+platform; the GUI uses the normal display. Choose `--backends none|stardist|cellpose|both` for a new trial (default: both).
+Only Cellpose trials install the DINOv3 requirements file.
+Use `--no-gui` for automated checks
+alone. The checkout is run directly, so source changes are available immediately.
+Use `--environment PATH` to rerun checks and launch an existing trial without
+reinstalling its dependencies. The environment can also be used directly through
+`PATH/bin/python run_exhale.py`.
+
+For work with Codex, ask it to run a dependency trial, inspect failures, and make
+any needed source changes. After manual testing, ask it to update the Linux
+requirements in `pyproject.toml` using the recorded versions. These metadata
+changes are reviewed separately; the tool does not accept updates automatically.
+For conventional major.minor.patch releases, testing 1.2.3 normally establishes
+`>=1.2.3,<1.3`; packages with different version conventions need individual bounds.
 
 ## Compatibility during development
 
@@ -265,29 +299,26 @@ explicitly authorized operation; the configured public URL returns HTTP 404 unti
 that release asset is published. Changing trained weights requires a new model
 version, checksum and versioned asset URL rather than silently replacing a file.
 
-Source and frozen applications share the same cache layout and validation.
+Source and installed applications share the same cache layout and validation.
 Transfer tests use a local HTTP server to cover truncated responses, checksum
 failures, cancellation and offline reuse without requiring public release assets.
 
 
-## Segmentation dependencies and frozen builds
+## Segmentation dependencies and installers
 
-`pyproject.toml` declares PyTorch, TorchVision and the tested Cellpose 4.2.1.1
-release. DINOv3 is supplied through `requirements-cellpose.txt`, pinned to an
+`pyproject.toml` provides `stardist` (TensorFlow) and `cellpose` (PyTorch,
+TorchVision and Cellpose 4.2.1.1) extras. The base application needs neither. DINOv3 is supplied through `requirements-cellpose.txt`, pinned to an
 upstream source commit and archive SHA-256 because it is not published on PyPI.
 For pip installation, pass that requirements file alongside `exhale-lung`; for
 a source checkout, install the file into the existing development environment.
 The URL in the README lets pip retrieve it directly from this repository.
 
-Frozen-build and Windows startup-check workflows install the same requirements
-file. The PyInstaller specification includes the inference modules, dependency
-metadata and third-party licenses. The DINOv3 hook includes packaged YAML data;
-standard PyInstaller hooks collect PyTorch/Triton components. The specification
-explicitly includes versioned NVIDIA libraries and metadata for Torch's newer
-cuda-toolkit/cu13 layout, which current hook name inference misses. Use current
-PyInstaller and hooks-contrib versions for their CUDA and Triton support. Large
-trained weights stay in the model store and are not bundled with the executable.
-The frozen startup check imports Cellpose and verifies that its DINOv3 constructor
+Native installers and Windows startup-check workflows use the same requirements
+file when Cellpose is selected. Dependency wheels supply their own resource data
+and metadata. Large trained weights stay in the model store and are not bundled
+with the executable.
+The startup check validates installed backends, rejects partial installations,
+and skips absent backends. For Cellpose it verifies that its DINOv3 constructor
 is available without loading or downloading any trained model.
 
 The DINOv3 license is included under `exhale/resources/licenses/` and copied beside
@@ -295,3 +326,111 @@ the model release asset by `prepare_model_release.py`; publish it with that asse
 Third-party dependencies retain their own licenses, independently of Exhale's MIT
 license. The old combined XRF processing and StarDist callers are removed; the
 legacy containers remain only for clustering data and saved region tables.
+
+
+## macOS setup application
+
+`packaging/macos/build.py` builds an AppKit launcher from `Launcher.swift` and
+packages it as an architecture-specific DMG. It includes the locally built EXHALE
+wheel, the pinned DINOv3 requirements file, and uv 0.13.7. The builder checks the
+uv archive against its upstream SHA-256 file. It uses ad-hoc code signing only;
+there is no Developer ID or notarization and no signing secrets are needed.
+
+The launcher targets macOS 13+. Dependency wheels may require a newer system;
+current PyTorch wheels require macOS 14+ and Apple Silicon. Intel setup disables
+Cellpose rather than attempting to install an unsupported PyTorch release.
+
+On a Mac with Xcode command line tools, build with:
+
+```bash
+python -m build --wheel
+python packaging/macos/build.py --wheel dist/exhale_lung-VERSION-py3-none-any.whl
+```
+
+The output is `dist/EXHALE.app` and `dist/exhale-macos-ARCH.dmg`. Use a clean output
+folder for each build. The user copies the app from the DMG into Applications.
+The native launcher starts the bundled `runtime.py` using a private uv-managed
+Python 3.12. Setup installs the bundled wheel with the selected extras in a new
+private environment, runs `--startup-check`, then atomically switches its launch
+record. Failed installations retain the old environment. Setup and launch hold
+an exclusive lock; setup cannot replace or remove an environment in use.
+Python, environments and cached downloads belong under
+`~/Library/Application Support/EXHALE/runtime`; no shell configuration or shared
+uv tools are changed. Downloaded model storage and project files are independent.
+
+Hold Option at launch, or pass `--setup`, to show configuration and runtime
+removal. Replacing the app triggers setup when the bundled wheel changes.
+The setup app offers backend choices again using the previous selection.
+Normal launches use the saved environment without resolving or upgrading packages.
+
+GitHub Actions builds on both Apple Silicon and Intel runners. Its headless
+entry point runs the same setup driver and startup checks as the GUI:
+
+```bash
+EXHALE_SETUP_HOME=/tmp/exhale-mac-test dist/EXHALE.app/Contents/MacOS/EXHALE --setup-check none
+```
+
+Use `stardist`, `cellpose`, or `both` instead of `none` for backend checks, subject
+to architecture support. `EXHALE_SETUP_HOME` isolates test installations from user
+state. The normal workflow tests base setup and the supported backends from the
+packaged DMG before uploading it; manual `macos` builds need no release tag.
+Linux tests cover backend selection, rollback, runtime ownership and locking.
+The native Swift build and actual dependency installation require a Mac runner.
+Interactive testing still needs to cover first launch from a downloaded DMG,
+backend selection, launching with representative data, repair/update and removal.
+Gatekeeper behavior must be checked on a real download, not inferred from CI.
+
+
+## Windows uv installer
+
+`packaging/win_build.py` builds an Inno Setup installer from a local EXHALE wheel,
+a checksum-verified uv 0.13.7 executable and the native C# launcher in
+`packaging/windows/Launcher.cs`. Building needs Windows, the .NET Framework C#
+compiler included with Windows, and Inno Setup 6. Use a clean payload directory:
+
+```powershell
+python -m build --wheel
+python packaging/win_build.py --wheel dist/exhale_lung-VERSION-py3-none-any.whl
+```
+
+Pass `--iscc PATH` if ISCC.exe is not discoverable. The builder runs the launcher's
+self-tests before compiling `packaging/exhale.iss`. Runtime packages are downloaded
+on the target machine, rather than bundled into the installer. Python 3.11 is
+used because Windows StarDist retains TensorFlow 2.15. The installer requires
+64-bit-compatible Windows 10 or later and installs per-user without elevation.
+No system Python, uv installation, shell edits or PowerShell policy changes are
+needed. Default installation is under `%LOCALAPPDATA%/Programs/Exhale`.
+
+Inno's component page selects StarDist, Cellpose, both or neither. Before copying
+launcher files, `PrepareToInstall` extracts the bundled payload to a temporary
+directory and calls `--prepare-install`. The launcher uses uv to build and check
+a new environment in `{app}/runtime/env-UUID`; it records it as pending only after
+`--startup-check` passes. `--activate-install` atomically publishes that record
+after files are copied. Failed/cancelled preparation discards pending environments,
+leaving the previous installed record intact. A fresh failed installation also
+cleans its unused private runtime; `runtime.log` is retained for diagnostics.
+Rerunning setup updates the application and can change the selected extras.
+
+The launcher forwards ordinary arguments to its private `python -m exhale`,
+streams output to `{app}/runtime.log`, and reports launch failures. An exclusive
+runtime file lock protects setup and launch; an application mutex also prevents
+Inno setup/uninstall while EXHALE is running. Inno removes shortcuts and the private
+runtime on uninstall. User projects, settings and trained-model storage remain
+independent. An old `_internal` directory is removed when upgrading a legacy
+bundled installation.
+
+The GitHub `windows` build runs `packaging/windows/test-installer.ps1` against the
+actual installer. It installs each backend combination in a path containing
+spaces, changes selections through upgrades, checks the resulting dependency
+presence, runs the installed launcher with `--startup-check`, then silently
+uninstalls and checks runtime removal. Logs are retained as workflow artifacts,
+including on failure. The separate Windows startup-check workflow still tests
+ordinary pip installations, without building an installer or creating a release.
+A manual `windows` build needs no tag. Native compilation, Inno execution and
+these integration checks require a Windows runner; Python tests on Linux cover
+payload metadata and download integrity. Interactive Windows testing should
+exercise the component page, download/error feedback, shortcuts, representative
+data, changing backends and the Settings uninstall entry.
+
+The old PyInstaller builds and hooks have been removed on all platforms. Linux
+uses uv directly; macOS uses its native setup app and private uv runtime.

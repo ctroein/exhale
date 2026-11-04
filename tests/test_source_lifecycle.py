@@ -33,6 +33,7 @@ from exhale.data.projectdata import (
     SegmentationResult,
 )
 from exhale.data.segmentation import SegmentationOutput
+from exhale.data.segmentationediting import SegmentationEditSession
 from exhale.data.source_refs import SourceUnavailableError, open_source
 from exhale.imaging.listwidgets import ElementListWidget, SampleElementCheckDelegate
 from exhale.main_window import ACTIVE_TAB_SETTINGS_KEY, SPLITTER_SETTINGS_PREFIX, MainWindow
@@ -855,6 +856,104 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(item.checkState(), QtCore.Qt.Unchecked)
         self.assertTrue(item.icon().isNull())
 
+    def test_cancel_editing_finish_preserves_mask_and_prevents_run(self):
+        self.win.source_manager.open_files([self.h5])
+        sample_id = self.win.project_data.assets[self.h5].sample_id
+        ref = self.win.project_data.samples[sample_id].channels["Fe"].ref
+        project = self.win.project_data
+        for count in (7, 5):
+            labels = np.zeros((7, 9), dtype=np.uint32)
+            labels[:count] = 42
+            project.set_segmentation_result(
+                SegmentationResult(
+                    sample_id,
+                    "stardist",
+                    ref,
+                    SegmentationParameters(),
+                    SegmentationOutput(labels, "model", "1"),
+                )
+            )
+        history = project.segmentation_histories[sample_id]
+        original, other = history.candidates.values()
+        history.activate(original.candidate_id)
+        control = self.win.analysis_controller
+        control.refresh_samples([("Sample", sample_id)])
+        control._refresh_masks()
+        session = SegmentationEditSession(original)
+        session.select(42)
+        session.edit("remove", [(0, 4), (6, 4)], size=3)
+        project.segmentation_edit_sessions[sample_id] = session
+        control._edit_session = session
+        control.naparihelper = Mock()
+        with QtCore.QSignalBlocker(self.win.analysisProcessingTabs):
+            self.win.analysisProcessingTabs.setCurrentWidget(self.win.analysisEditingPage)
+        with patch("exhale.analysis.controller.QtWidgets.QMessageBox") as dialog:
+            dialog.return_value.clickedButton.return_value = None
+            self.win.analysisMaskCombo.setCurrentIndex(
+                self.win.analysisMaskCombo.findData(other.candidate_id)
+            )
+            self.assertIs(history.active, original)
+            self.assertEqual(self.win.analysisMaskCombo.currentData(), original.candidate_id)
+            self.assertIs(control._edit_session, session)
+            self.assertEqual(session.pending_disconnections, {42})
+            method = Mock(unavailable_reason=Mock(return_value=None))
+            with (
+                patch("exhale.analysis.controller.segmentation_method", return_value=method),
+                patch.object(
+                    self.win.project_manager, "require_project_directory", return_value=True
+                ),
+                patch.object(
+                    control, "element_settings", return_value=[SimpleNamespace(data=self.data)]
+                ),
+            ):
+                self.win.analysisChNuclei.addItem("Fe", ref)
+                self.win.analysisChNuclei.setCurrentIndex(self.win.analysisChNuclei.count() - 1)
+                control.run()
+            method.create_worker.assert_not_called()
+            self.assertIs(history.active, original)
+            self.assertIs(control._edit_session, session)
+        # Avoid project teardown trying to render this test's mock viewer.
+        control.naparihelper = None
+        control._edit_session = None
+
+    def test_mask_layer_choices_include_restored_comparisons(self):
+        self.win.source_manager.open_files([self.h5])
+        sample_id = self.win.project_data.assets[self.h5].sample_id
+        ref = self.win.project_data.samples[sample_id].channels["Fe"].ref
+        for labels in ([[0, 1], [0, 0]], [[0, 1], [1, 0]], [[1, 1], [1, 0]]):
+            self.win.project_data.set_segmentation_result(
+                SegmentationResult(
+                    sample_id,
+                    "stardist",
+                    ref,
+                    SegmentationParameters(),
+                    SegmentationOutput(np.array(labels, dtype=np.uint32), "model", "1"),
+                )
+            )
+        history = self.win.project_data.segmentation_histories[sample_id]
+        active, compared, other = history.candidates.values()
+        history.activate(active.candidate_id)
+        compared.compare = True
+        control = self.win.analysis_controller
+        control.refresh_samples([("Sample", sample_id)])
+        control._refresh_masks()
+
+        selector = self.win.analysisComparisonCombo
+        self.assertEqual(selector.count(), 2)
+        self.assertEqual(selector.currentData(), compared.candidate_id)
+        self.assertFalse(self.win.analysisAddComparison.isEnabled())
+        selector.setCurrentIndex(selector.findData(other.candidate_id))
+        self.assertTrue(self.win.analysisAddComparison.isEnabled())
+        self.win.analysisAddComparison.click()
+        self.assertTrue(other.compare)
+        self.assertIs(history.active, active)
+        self.assertEqual(selector.count(), 2)
+        self.assertFalse(self.win.analysisAddComparison.isEnabled())
+        control._remove_comparison(other.candidate_id)
+        self.assertFalse(other.compare)
+        self.assertTrue(self.win.analysisAddComparison.isEnabled())
+        self.assertIs(history.active, active)
+
     def test_segmentation_current_view_saves_the_canvas(self):
         viewer = Mock()
         self.win.analysis_controller.naparihelper = SimpleNamespace(
@@ -870,6 +969,40 @@ class SourceLifecycleTests(unittest.TestCase):
             canvas_only=True,
             flash=True,
         )
+
+    def test_segmentation_export_uses_edits_before_postprocessing(self):
+        labels = np.array([[0, 42], [0, 0]], dtype=np.uint32)
+        result = SegmentationResult(
+            "sample",
+            "stardist",
+            None,
+            SegmentationParameters(),
+            SegmentationOutput(labels, "model", "1"),
+        )
+        control = self.win.analysis_controller
+        control.naparihelper = SimpleNamespace(
+            result=result, nuc_layer=SimpleNamespace(data=np.zeros_like(labels))
+        )
+        for working in (None, np.array([[7, 7], [0, 0]], dtype=np.uint32)):
+            with self.subTest(editing=working is not None):
+                control._edit_session = None if working is None else SimpleNamespace(labels=working)
+                with (
+                    patch.object(
+                        self.win.project_manager,
+                        "default_export_directory",
+                        return_value=self.temp.name,
+                    ),
+                    patch.object(
+                        QtWidgets.QFileDialog, "getExistingDirectory", return_value=self.temp.name
+                    ),
+                    patch("exhale.analysis.controller.imwrite") as write,
+                    patch("exhale.analysis.controller.QtWidgets.QMessageBox"),
+                ):
+                    control.export_results()
+                np.testing.assert_array_equal(
+                    write.call_args.args[1], labels if working is None else working
+                )
+        control._edit_session = None
 
     def test_project_output_choosers_default_to_export_directory(self):
         project_dir = Path(self.temp.name) / "project"
@@ -961,10 +1094,25 @@ class SourceLifecycleTests(unittest.TestCase):
                 self.viewer = SimpleNamespace(layers=[])
                 self.set_result_calls = 0
 
-            def set_result(self, result, input_map=None, reference_maps=(), *, fit=True):
+            def set_result(
+                self,
+                result,
+                input_map=None,
+                reference_maps=(),
+                *,
+                fit=True,
+                comparisons=(),
+                edit_session=None,
+            ):
                 self.result = result
                 self.input_map = input_map
                 self.set_result_calls += 1
+
+            def cancel_stroke(self):
+                pass
+
+            def set_edit_tool(self, tool):
+                self.edit_tool = tool
 
             def apply_layer_settings(self, settings):
                 self.layer_settings_applied = settings

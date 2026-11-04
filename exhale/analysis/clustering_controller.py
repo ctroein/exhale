@@ -87,9 +87,6 @@ class ClusteringController(QtCore.QObject):
             layout.addWidget(self.naparihelper.qtwidget)
             self._place_view_buttons()
         self.show_result()
-        if initializing_view:
-            # Fit after the new canvas and restored splitters have their final sizes.
-            QtCore.QTimer.singleShot(0, self.fit_view)
 
     def refresh_samples(self):
         """Preserve the selected sample while rebuilding available inputs."""
@@ -334,6 +331,7 @@ class ClusteringController(QtCore.QObject):
         self._shown_result = None
         self._display_settings = ()
         if self.naparihelper is not None:
+            self.naparihelper.reset_initial_fit()
             self.naparihelper.set_sample(None)
             self.window.clusteringLayerList.rebuild()
         self.refresh_samples()

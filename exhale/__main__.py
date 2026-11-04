@@ -105,8 +105,10 @@ def _recompile_ui(uipath, pypath):
         f.write(clean_code)
 
 
-def _run_application(pyi_splash=None):
+def _run_application():
     "Run the Exhale Qt application"
+
+    os.environ.setdefault("QT_API", "pyqt6")
 
     import sys
 
@@ -214,7 +216,7 @@ def _run_application(pyi_splash=None):
         app.setDesktopFileName(DESKTOP_ID)
 
     qt_splash = None
-    if pyi_splash is None and not args.startup_check:
+    if not args.startup_check:
         splash_color = QtGui.QColor("#e0c000")
         pixmap = QtGui.QPixmap(str(resdir.joinpath("xrf_splash.jpg")))
         qt_splash = QtWidgets.QSplashScreen(pixmap)
@@ -237,9 +239,7 @@ def _run_application(pyi_splash=None):
 
     def update_splash(status):
         message = _splash_text(status)
-        if pyi_splash is not None:
-            pyi_splash.update_text(message)
-        elif qt_splash is not None:
+        if qt_splash is not None:
             qt_splash.showMessage(
                 message,
                 QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom,
@@ -267,17 +267,13 @@ def _run_application(pyi_splash=None):
         from .analysis.segmentation_backends import prepare_segmentation_runtime
 
         prepare_segmentation_runtime()
-        importlib.import_module("tensorflow")
-        importlib.import_module("stardist.models")
-        cellpose_vit = importlib.import_module("cellpose.vit")
-        if not callable(getattr(cellpose_vit, "dinov3_vitl16", None)):
-            raise RuntimeError("CellposeDINO is unavailable: DINOv3 failed to import")
+        from .analysis.segmentationmethods import check_installed_backends
+
+        check_installed_backends()
         for name, version in runtime_environment():
             print(f"{name}: {version}")
         window.close()
         app.processEvents()
-        if pyi_splash is not None:
-            pyi_splash.close()
         print("Startup check passed")
         return 0
 
@@ -287,13 +283,7 @@ def _run_application(pyi_splash=None):
         update_splash("Loading data")
     window.post_setup(**windowparams)
 
-    if pyi_splash is not None:
-        try:
-            pyi_splash.close()
-        except Exception as e:
-            print("closing splash failed:", repr(e))
-            traceback.print_exc()
-    elif qt_splash is not None:
+    if qt_splash is not None:
         qt_splash.finish(window)
 
     app.lastWindowClosed.connect(app.quit)
@@ -303,30 +293,11 @@ def _run_application(pyi_splash=None):
 def main():
     "Run the Exhale GUI"
 
-    pyi_splash = None
-    if "_PYI_SPLASH_IPC" in os.environ:
-        try:
-            import pyi_splash
-
-            if pyi_splash.is_alive():
-                pyi_splash.update_text(_splash_text("Initializing"))
-            else:
-                pyi_splash = None
-        except Exception as e:
-            pyi_splash = None
-            print("pyi_splash failed:", repr(e))
-            traceback.print_exc()
-
     res = 1
     try:
-        res = _run_application(pyi_splash)
+        res = _run_application()
     except Exception:
         traceback.print_exc()
-        if pyi_splash is not None:
-            try:
-                pyi_splash.close()
-            except Exception as e:
-                print("closing splash failed:", repr(e))
         if "--startup-check" not in sys.argv:
             print("Press enter to quit")
             input()

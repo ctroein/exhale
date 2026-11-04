@@ -95,7 +95,7 @@ class ProjectDataTests(unittest.TestCase):
 
     def test_clear_removes_segmentation_results(self):
         project = ProjectData()
-        project.segmentation_results["scan"] = {"stardist": object()}
+        project.segmentation_histories["scan"] = object()
 
         project.clear()
 
@@ -103,6 +103,7 @@ class ProjectDataTests(unittest.TestCase):
 
     def test_segmentation_results_are_kept_per_method(self):
         project = ProjectData()
+        project.samples["scan"] = self.sample
         parameters = SegmentationParameters(clip_percentile=99.9)
         first = SegmentationResult(
             "scan",
@@ -122,8 +123,10 @@ class ProjectDataTests(unittest.TestCase):
         project.set_segmentation_result(first)
         project.set_segmentation_result(second)
 
-        self.assertIs(project.segmentation_result("scan", "first"), first)
-        self.assertIs(project.segmentation_result("scan", "second"), second)
+        stored = project.segmentation_result("scan", "first")
+        self.assertIs(project.segmentation_result("scan", "second"), stored)
+        self.assertIsNot(stored, first)
+        self.assertEqual(len(project.segmentation_histories["scan"].candidates), 1)
 
     def test_materialized_settings_are_attached_to_sample_channel(self):
         project = ProjectData()

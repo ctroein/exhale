@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 import tifffile
 
-from exhale.data.source_refs import ElementRef, open_source
+from exhale.data.source_refs import ElementRef, SourceUnavailableError, open_source
 
 
 class SourceReaderTests(unittest.TestCase):
@@ -149,8 +149,9 @@ class SourceReaderTests(unittest.TestCase):
         np.testing.assert_array_equal(channel_data.array(), self.data)
         channel_data.release_cache()
         self.assertFalse(channel_data.is_available)
-        with self.assertRaisesRegex(RuntimeError, "Source is closed"):
+        with self.assertRaises(SourceUnavailableError) as raised:
             channel_data.array()
+        self.assertEqual(raised.exception.source_id, source.source_id)
 
     def test_invalid_hdf5_layout_closes_reader(self):
         path = self.root / "invalid.h5"

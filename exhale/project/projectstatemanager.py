@@ -214,6 +214,8 @@ class ProjectStateManager(QtCore.QObject):
 
     def write_autosave(self) -> Path:
         path = self.autosave_path()
+        if self.window.project_dir is not None:
+            projectio.save_segmentation_snapshots(self.window.project_data, self.window.project_dir)
         projectio.save_project_state(
             projectio.export_project_state(self.window.project_data, self.window.project_dir), path
         )

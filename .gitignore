@@ -18,10 +18,9 @@ packaging/__pycache__/
 packaging/build/
 packaging/dist/
 
-# PyInstaller
-*.spec.backup
-*.spec.old
-
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Local dependency-update trials
+.dependency-trials/

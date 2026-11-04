@@ -26,6 +26,8 @@ from .segmentation import (
     resize_segments,
     segment_areas,
 )
+from .segmentationediting import SegmentationEditSession
+from .segmentationhistory import SegmentationCandidate, SegmentationHistory
 from .source_refs import ElementRef, LoadedSource
 from .tiffimport import infer_tiff_import
 
@@ -358,7 +360,8 @@ class ProjectData:
         self.samples: dict[str, Sample] = {}
         self.project_channels: dict[str, Channel] = {}
         self.images: dict[int, ImageSettings] = {}
-        self.segmentation_results: dict[str, dict[str, SegmentationResult]] = {}
+        self.segmentation_histories: dict[str, SegmentationHistory] = {}
+        self.segmentation_edit_sessions: dict[str, SegmentationEditSession] = {}
         self.segmentation_previews: dict[str, dict[str, SegmentationPreview]] = {}
         self.clustering_results: dict[str, ClusteringResult] = {}
         self.matrix_plot_settings = {key: MatrixPlotSettings() for key in MATRIX_PLOT_KEYS}
@@ -385,24 +388,50 @@ class ProjectData:
         self.samples[sample_id] = sample
         return sample
 
+    @property
+    def segmentation_results(self) -> dict[str, dict[str, SegmentationResult]]:
+        """Read-only method projection for callers awaiting the candidate chooser."""
+        return {
+            sample_id: self.segmentation_results_for_sample(sample_id)
+            for sample_id in self.segmentation_histories
+        }
+
     def segmentation_result(
         self, sample_id: str | None, method_id: str | None
     ) -> SegmentationResult | None:
-        """Return one saved method result without exposing the nested storage."""
-        if sample_id is None or method_id is None:
-            return None
-        return self.segmentation_results.get(sample_id, {}).get(method_id)
+        history = self.segmentation_histories.get(sample_id)
+        candidate = (
+            None if history is None or method_id is None else history.latest_for_method(method_id)
+        )
+        return None if candidate is None else candidate.result
 
-    def set_segmentation_result(self, result: SegmentationResult) -> None:
-        """Store the latest result for its sample and method."""
-        self.segmentation_results.setdefault(result.sample_id, {})[result.method_id] = result
+    def set_segmentation_result(self, result: SegmentationResult) -> SegmentationResult:
+        """Register an owned candidate; return its canonical result after deduplication."""
+        candidate = self.add_segmentation_candidate(result)
         self.segmentation_previews.get(result.sample_id, {}).pop(result.method_id, None)
+        return candidate.result
 
-    def segmentation_results_for_sample(self, sample_id: str | None):
-        """Return the method-indexed results for one sample."""
-        if sample_id is None:
+    def segmentation_results_for_sample(
+        self, sample_id: str | None
+    ) -> dict[str, SegmentationResult]:
+        history = self.segmentation_histories.get(sample_id)
+        if history is None:
             return {}
-        return self.segmentation_results.get(sample_id, {})
+        methods = {
+            run.method_id
+            for candidate in history.candidates.values()
+            for run in candidate.provenance
+        }
+        return {method: history.latest_for_method(method).result for method in methods}
+
+    def add_segmentation_candidate(self, result: SegmentationResult) -> SegmentationCandidate:
+        """Publish to sample history independently of method."""
+        if result.sample_id not in self.samples:
+            raise KeyError(result.sample_id)
+        history = self.segmentation_histories.setdefault(
+            result.sample_id, SegmentationHistory(result.sample_id)
+        )
+        return history.add_result(result)
 
     def rename_sample(self, sample_id: str, name: str) -> None:
         if not name:
@@ -768,7 +797,8 @@ class ProjectData:
         """Intentionally remove a file and its channels from the project."""
         asset = self.assets[asset_id]
         sample = self.samples[asset.sample_id]
-        self.segmentation_results.pop(sample.sample_id, None)
+        self.segmentation_histories.pop(sample.sample_id, None)
+        self.segmentation_edit_sessions.pop(sample.sample_id, None)
         self.segmentation_previews.pop(sample.sample_id, None)
         self.clustering_results.pop(sample.sample_id, None)
         removed = sample.remove_asset_channels(asset_id)
@@ -790,7 +820,8 @@ class ProjectData:
         removed = []
         for asset_id in list(sample.asset_ids):
             removed.extend(self.remove_asset(asset_id))
-        self.segmentation_results.pop(sample_id, None)
+        self.segmentation_histories.pop(sample_id, None)
+        self.segmentation_edit_sessions.pop(sample_id, None)
         self.segmentation_previews.pop(sample_id, None)
         self.clustering_results.pop(sample_id, None)
         self.samples.pop(sample_id, None)
@@ -829,7 +860,8 @@ class ProjectData:
         self.samples.clear()
         self.project_channels.clear()
         self.images.clear()
-        self.segmentation_results.clear()
+        self.segmentation_histories.clear()
+        self.segmentation_edit_sessions.clear()
         self.segmentation_previews.clear()
         self.clustering_results.clear()
         for settings in self.matrix_plot_settings.values():

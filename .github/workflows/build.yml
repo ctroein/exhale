@@ -11,7 +11,6 @@ on:
         options:
           - all
           - windows
-          - linux
           - macos
           - pypi
   push:
@@ -28,6 +27,7 @@ jobs:
   windows-installer:
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'windows'
     runs-on: windows-latest
+    timeout-minutes: 90
 
     defaults:
       run:
@@ -37,53 +37,45 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-            fetch-depth: 0
-            fetch-tags: true
+          fetch-depth: 0
+          fetch-tags: true
 
-      - name: Set up Python
+      - name: Set up build Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
+          python-version: "3.12"
 
-      - name: Install Python build dependencies
+      - name: Build EXHALE wheel
         run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install . -r requirements-cellpose.txt
+          python -m pip install --upgrade build
+          python -m build --wheel
 
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
 
-      - name: Build frozen app
-        working-directory: packaging
-        env:
-          EXHALE_VERSION: ${{ github.ref_name }}
+      - name: Build native launcher and installer
         run: |
-          pyinstaller exhale.spec --noconfirm --distpath ../dist --workpath ../build
+          $wheel = (Get-ChildItem dist\*.whl | Select-Object -First 1).FullName
+          python packaging/win_build.py --wheel $wheel
 
-      - name: Test frozen application startup
-        run: '& .\dist\exhale\exhale.exe --startup-check'
+      - name: Test installer selections, upgrades, startup and removal
+        run: ./packaging/windows/test-installer.ps1
 
-      - name: Show build outputs
-        run: |
-          Write-Host "dist:"
-          Get-ChildItem dist -Recurse
-          Write-Host "build:"
-          Get-ChildItem build -Recurse -ErrorAction SilentlyContinue
-
-      - name: Build installer
-        working-directory: packaging
-        run: |
-          iscc /DMyAppVersion=${{ github.ref_name }} exhale.iss
+      - name: Upload installer test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exhale-windows-test-logs
+          path: |
+            dist/windows-test-logs/**
+            dist/windows-payload/runtime.log
+          if-no-files-found: ignore
 
       - name: Upload Windows workflow artifacts
         uses: actions/upload-artifact@v4
         with:
           name: exhale-windows
-          path: |
-            dist/exhale/**
-            dist/*.exe
+          path: dist/*-setup.exe
 
       - name: Create GitHub release if tag build
         if: startsWith(github.ref, 'refs/tags/')
@@ -99,67 +91,22 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          Get-ChildItem dist\*.exe
-          gh release upload "${{ github.ref_name }}" dist/*.exe --clobber
-
-  linux-app:
-    if: github.event_name == 'workflow_dispatch' && inputs.target == 'linux'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Install Python build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install . -r requirements-cellpose.txt
-
-      - name: Build frozen app
-        working-directory: packaging
-        env:
-          EXHALE_VERSION: ${{ github.ref_name }}
-        run: |
-          pyinstaller exhale.spec --noconfirm --distpath ../dist --workpath ../build
-
-      - name: Package Linux app
-        run: tar -C dist -czf dist/exhale-linux.tar.gz exhale
-
-      - name: Upload Linux workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: exhale-linux
-          path: dist/exhale-linux.tar.gz
-
-      - name: Create GitHub release if tag build
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || \
-          gh release create "${{ github.ref_name }}" --generate-notes
-
-      - name: Upload Linux archive to GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "${{ github.ref_name }}" dist/exhale-linux.tar.gz --clobber
+        run: gh release upload "${{ github.ref_name }}" dist/*-setup.exe --clobber
 
   macos-app:
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'macos'
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+            backends: both
+          - runner: macos-15-intel
+            architecture: x86_64
+            backends: stardist
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
 
     defaults:
       run:
@@ -169,45 +116,40 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-            fetch-depth: 0
-            fetch-tags: true
+          fetch-depth: 0
+          fetch-tags: true
 
-      - name: Set up Python
+      - name: Set up build Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
+          python-version: "3.12"
 
-      - name: Install Python build dependencies
+      - name: Build wheel for the setup app
         run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install . -r requirements-cellpose.txt
+          python -m pip install --upgrade build
+          python -m build --wheel
 
-      - name: Build macOS app bundle
-        working-directory: packaging
+      - name: Build native macOS setup app and DMG
+        run: |
+          python packaging/macos/build.py --wheel dist/*.whl
+
+      - name: Test packaged setup and backend imports
         env:
-          EXHALE_VERSION: ${{ github.ref_name }}
+          EXHALE_SETUP_HOME: ${{ runner.temp }}/exhale-setup-check
         run: |
-          pyinstaller exhale.spec --noconfirm --distpath ../dist --workpath ../build
-
-      - name: Show build outputs
-        run: |
-          echo "dist:"
-          find dist -maxdepth 3 -print
-          echo "build:"
-          find build -maxdepth 3 -print || true
-
-      - name: Package macOS app as zip
-        run: |
-          cd dist
-          ditto -c -k --sequesterRsrc --keepParent exhale.app exhale-macos.zip
+          mountpoint="$RUNNER_TEMP/exhale-dmg"
+          mkdir -p "$mountpoint"
+          hdiutil verify dist/exhale-macos-${{ matrix.architecture }}.dmg
+          hdiutil attach dist/exhale-macos-${{ matrix.architecture }}.dmg -nobrowse -readonly -mountpoint "$mountpoint"
+          trap 'hdiutil detach "$mountpoint"' EXIT
+          "$mountpoint/EXHALE.app/Contents/MacOS/EXHALE" --setup-check none
+          "$mountpoint/EXHALE.app/Contents/MacOS/EXHALE" --setup-check ${{ matrix.backends }}
 
       - name: Upload macOS workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: exhale-macos
-          path: dist/exhale-macos.zip
+          name: exhale-macos-${{ matrix.architecture }}
+          path: dist/exhale-macos-${{ matrix.architecture }}.dmg
 
       - name: Create GitHub release if tag build
         if: startsWith(github.ref, 'refs/tags/')
@@ -217,63 +159,12 @@ jobs:
           gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || \
           gh release create "${{ github.ref_name }}" --generate-notes
 
-      - name: Upload macOS zip to GitHub release
+      - name: Upload macOS DMG to GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.ref_name }}" dist/exhale-macos.zip --clobber
-
-      # Enable this block once unsigned macOS builds work and you have Apple credentials.
-      # - name: Import signing certificate
-      #   if: startsWith(github.ref, 'refs/tags/')
-      #   env:
-      #     BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-      #     P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-      #     KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-      #   run: |
-      #     CERT_PATH="$RUNNER_TEMP/build_certificate.p12"
-      #     KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-      #     echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
-      #     security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-      #     security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-      #     security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-      #     security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-      #     security list-keychains -d user -s "$KEYCHAIN_PATH"
-
-      # - name: Sign app bundle
-      #   if: startsWith(github.ref, 'refs/tags/')
-      #   env:
-      #     APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      #   run: |
-      #     codesign --force --deep --timestamp --options runtime \
-      #       --sign "$APPLE_SIGNING_IDENTITY" dist/exhale.app
-
-      # - name: Repackage signed app
-      #   if: startsWith(github.ref, 'refs/tags/')
-      #   run: |
-      #     rm -f dist/exhale-macos.zip
-      #     cd dist
-      #     ditto -c -k --sequesterRsrc --keepParent exhale.app exhale-macos.zip
-
-      # - name: Notarize macOS zip
-      #   if: startsWith(github.ref, 'refs/tags/')
-      #   env:
-      #     APPLE_ID: ${{ secrets.APPLE_ID }}
-      #     APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-      #     APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      #   run: |
-      #     xcrun notarytool submit dist/exhale-macos.zip \
-      #       --apple-id "$APPLE_ID" \
-      #       --password "$APPLE_APP_PASSWORD" \
-      #       --team-id "$APPLE_TEAM_ID" \
-      #       --wait
-
-      # - name: Staple notarization ticket
-      #   if: startsWith(github.ref, 'refs/tags/')
-      #   run: |
-      #     xcrun stapler staple dist/exhale.app
-
+          gh release upload "${{ github.ref_name }}" dist/exhale-macos-${{ matrix.architecture }}.dmg --clobber
 
   pypi-publish:
     name: Publish package to PyPI

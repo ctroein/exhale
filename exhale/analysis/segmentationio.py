@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -14,8 +15,10 @@ import numpy as np
 import pandas as pd
 
 from ..data.segmentation import SegmentationOutput
+from ..data.segmentationhistory import SegmentationCandidate, SegmentationHistory
 
 if TYPE_CHECKING:
+    from ..data.projectdata import ProjectData, SegmentationResult
     from ..xrf_refcopy.xrf_sample_class import XRFSample
 
 SEGMENTATION_DIRECTORY = "segmentation"
@@ -26,6 +29,63 @@ SEGMENTATION_VERSION = 1
 def result_relative_path(sample_id: str, method_id: str = "stardist") -> Path:
     """Return the project-relative sidecar path for one sample and method."""
     return Path(SEGMENTATION_DIRECTORY) / method_id / f"{sample_id}.h5"
+
+
+def candidate_relative_path(sample_id: str, candidate_id: str, revision_id: str) -> Path:
+    """Use immutable snapshot identities, independent of method or display name."""
+    for value in (sample_id, candidate_id, revision_id):
+        if not value or Path(value).name != value or value in (".", ".."):
+            raise ValueError("Invalid segmentation snapshot path identity")
+    return (
+        Path(SEGMENTATION_DIRECTORY) / "candidates" / sample_id / candidate_id / f"{revision_id}.h5"
+    )
+
+
+def save_candidate(candidate: SegmentationCandidate, project_dir: str | Path) -> Path:
+    """Write a snapshot once; never replace a retained or saved mask."""
+    path = Path(project_dir) / candidate_relative_path(
+        candidate.sample_id, candidate.candidate_id, candidate.revision_id
+    )
+    if path.exists():
+        with h5py.File(path, "r") as handle:
+            if (
+                handle.attrs.get("candidate_id") != candidate.candidate_id
+                or handle.attrs.get("revision_id") != candidate.revision_id
+                or handle.attrs.get("labels_digest") != candidate.labels_digest
+            ):
+                raise ValueError("An unrelated file occupies the segmentation snapshot path")
+        return path
+    result = candidate.result
+    with _atomic_hdf5(path) as handle:
+        handle.attrs.update(
+            format=SEGMENTATION_FORMAT,
+            version=SEGMENTATION_VERSION,
+            candidate_id=candidate.candidate_id,
+            revision_id=candidate.revision_id,
+            labels_digest=candidate.labels_digest,
+            method_id=result.method_id,
+            model_id=result.output.model_id,
+            model_version=result.output.model_version,
+        )
+        handle.create_dataset("labels", data=result.output.labels, compression="gzip")
+    return path
+
+
+def publish_segmentation(
+    project_data: ProjectData, result: SegmentationResult, project_dir: str | Path
+) -> SegmentationCandidate:
+    """Save before publication, leaving history untouched when storage fails."""
+    if result.sample_id not in project_data.samples:
+        raise KeyError(result.sample_id)
+    history = project_data.segmentation_histories.get(result.sample_id)
+    if history is None:
+        history = SegmentationHistory(result.sample_id)
+    candidate = SegmentationCandidate.from_result(result)
+    save_candidate(history.equivalent(candidate) or candidate, project_dir)
+    candidate = history.add_candidate(candidate)
+    project_data.segmentation_histories[result.sample_id] = history
+    project_data.segmentation_previews.get(result.sample_id, {}).pop(result.method_id, None)
+    return candidate
 
 
 def clustering_relative_path(sample_id: str) -> Path:
@@ -106,9 +166,16 @@ def save_segmentation(output: SegmentationOutput, filename: str | Path, *, metho
         handle.create_dataset("labels", data=output.labels, compression="gzip")
 
 
-def load_segmentation(filename: str | Path, *, expected_method_id: str) -> SegmentationOutput:
+def load_segmentation(
+    filename: str | Path, *, expected_method_id: str, candidate_id=None, revision_id=None
+) -> SegmentationOutput:
     """Read labels directly, including structurally usable existing sidecars."""
     with h5py.File(filename, "r") as handle:
+        if candidate_id is not None and (
+            handle.attrs.get("candidate_id") != candidate_id
+            or handle.attrs.get("revision_id") != revision_id
+        ):
+            raise ValueError("Segmentation snapshot identity does not match the project")
         if handle.attrs.get("format") != SEGMENTATION_FORMAT:
             raise ValueError("Not an Exhale segmentation result")
         if int(handle.attrs.get("version", 0)) > SEGMENTATION_VERSION:
@@ -119,11 +186,17 @@ def load_segmentation(filename: str | Path, *, expected_method_id: str) -> Segme
         key = "labels" if "labels" in handle else "nuclei/nuclei_labels"
         if key not in handle:
             raise ValueError("Segmentation result has no instance labels")
-        return SegmentationOutput(
+        output = SegmentationOutput(
             handle[key][()],
             str(handle.attrs.get("model_id", "unknown")),
             str(handle.attrs.get("model_version", "unknown")),
         )
+        if candidate_id is not None:
+            digest = hashlib.sha256(np.asarray(output.labels.shape, dtype="<u8").tobytes())
+            digest.update(np.asarray(output.labels, dtype="<u4").tobytes())
+            if handle.attrs.get("labels_digest") != digest.hexdigest():
+                raise ValueError("Segmentation snapshot contents do not match their saved identity")
+        return output
 
 
 def save_xrf_sample(

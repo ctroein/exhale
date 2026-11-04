@@ -4,6 +4,15 @@ This is the file-by-file guide to Exhale's maintained Python source. Generated Q
 modules are listed as a group because their source is the corresponding
 Designer file, not the generated Python.
 
+## Dependency trials
+
+### `tools/try_dependency_updates.py`
+
+Creates a fresh Linux environment with selectable backend extras and current stable dependencies, preserves
+explicit compatibility exceptions, records installed versions, runs automated
+checks, and launches the checkout for manual testing. Existing trials can be
+reused while investigating and fixing failures.
+
 ## Launch and package files
 
 ### `run_exhale.py`
@@ -21,7 +30,7 @@ Application entry point. It optionally recompiles changed Designer files, can
 recompile every generated UI module without launching the application,
 creates `QApplication` and `MainWindow`, initializes appearance and icons,
 handles initial files or projects, and reports top-level failures. It also
-integrates with the PyInstaller splash screen.
+updates the Qt splash screen during startup.
 
 ## Project model, input, and persistence
 
@@ -89,8 +98,10 @@ and prompts before replacing or closing a modified project.
 
 ### `exhale/analysis/segmentationio.py`
 
-Stores segmentation-only labels and model provenance atomically in HDF5,
-indexed by method and sample. Reads existing nested label datasets directly.
+Stores immutable segmentation-only snapshots atomically in HDF5, addressed by
+sample/candidate/revision IDs. Saves before history publication, verifies snapshot
+identity and content, and reuses existing files without rewriting arrays.
+Reads structurally usable method-based and nested label datasets directly.
 Separate `save_xrf_sample` / `load_xrf_sample` functions retain the element-clustering
 sidecars, indexed by sample, with arrays and JSON-encoded pandas tables.
 
@@ -183,10 +194,12 @@ visualization.
 
 ### `exhale/analysis/controller.py`
 
-Owns the Segmentation tab: its independent sample, method and single input-map
-selection, segmentation-only options, worker lifetime, saved-mask display,
+Owns the Segmentation tab: independent sample and active-mask selection, the next
+run's method/input selection, editable mask names, Keep and comparison controls, segmentation-only options, worker lifetime, saved-mask display,
 Napari view, reversible area filtering, input preview, reference-map selection,
 overview/cumulative area distribution, clicked-segment details and result export.
+Also owns Editing/Post-processing mode, editing-tool controls, selection, undo/redo,
+early disconnection questions, explicit Accept/Reject and cancellable navigation.
 Element selection and clustering options belong
 to the independent Element clusters controller. `MainWindow` supplies the
 generated widgets and application-level services but owns no analysis state.
@@ -206,6 +219,36 @@ boundary expansion/shrinking, minimum-area post-processing and sparse-label area
 operations. The result model caches resizing separately from area filtering, so
 cutoff edits reuse the resized labels. Original output remains separate.
 
+### `exhale/data/segmentationhistory.py`
+
+Defines sample-level `SegmentationHistory`, mask candidates and inference-run
+provenance. Candidates own label and settings snapshots, stable candidate/revision
+identities, names, parent links, Keep and annotation/review state. History merges
+identical region partitions independently of numeric label IDs, retains run
+provenance across methods, and keeps five recent unprotected predictions plus
+protected/active masks and ancestors needed by retained revisions. Selection does
+not reorder candidates. Existing result objects can be imported independently
+with malformed entries reported and skipped.
+
+`ProjectData.segmentation_histories` is authoritative. JSON persists candidates,
+active selection, provenance and retention order. Compared masks are protected
+while in use, with their comparison presentation saved separately. History can
+be restored before pruning, preserving out-of-order parent links and reporting
+missing independent records.
+
+### `exhale/data/segmentationediting.py`
+
+Owns an undoable working copy of an immutable mask candidate. Commands retain
+changed rectangular before/after patches with revision identities; selected IDs
+and undo history remain session-only. Changed sessions produce cached immutable
+draft snapshots for normal saving/recovery. Finishing creates a corrected child
+candidate only when region geometry differs from its source. Unchanged editing
+does not create candidates or serialized drafts.
+Rasterizes additive/subtractive outlines and pixel-snapped integer-diameter brush
+strokes, protects other instances, allocates
+IDs and handles incidental disconnection atomically. Drafts also retain pending
+disconnection questions.
+
 ### `exhale/analysis/segmentation_backends.py`
 
 Owns non-mutating percentile preprocessing, safe lazy neural-library initialization,
@@ -222,11 +265,22 @@ has no exposed inference options.
 ### `exhale/analysis/segmentation_viewer.py`
 
 Presents a `SegmentationResult` directly using pooled source-map and read-only
-instance-label layers, plus explicitly added reference maps. Reuses common Napari
+instance-label layers, explicitly added reference maps and read-only comparison
+masks, plus screen-width selection outlines and native outline/brush gestures with
+cancellable previews. Selection decoration is excluded
+from layer controls and label export. Comparison layers have stable candidate identities and are removed when
+no longer requested, avoiding retention of discarded arrays. Reuses common Napari
 presentation controls while keeping hover/click inspection independent of the
 clustering model. Displays processed labels, supports input-only preview, and
 refreshes transformed reference maps without changing their presentation.
 Missing source data do not hide saved segmentation output.
+
+### `exhale/analysis/segmentationcursor.py`
+
+Draws the transient brush footprint above the Qt/OpenGL canvas using the editing
+rasterizer, plus custom plus/minus cursors for modifier outlines. It follows
+camera transforms, brush size and pointer/modifier events without adding viewer
+layers or changing mask data, presentation, exports or project state.
 
 ### `exhale/analysis/model_store.py`
 
@@ -250,6 +304,8 @@ GitHub release.
 Defines the lightweight segmentation-method registry. Stable method IDs,
 dependency checks, capabilities, display names, and worker construction live
 here so populating method selectors does not import numerical backends.
+The startup-check helper imports installed backends and rejects incomplete
+installations while allowing either backend to be absent.
 
 ### `exhale/analysis/correlation_controller.py`
 
@@ -311,7 +367,8 @@ inference helpers are removed; clustering imports no neural backend.
 
 Encapsulates the embedded Napari viewer, its Qt widget, map and analysis
 layers, layer-selection synchronization, and in-place element-map updates that
-preserve layer presentation state.
+preserve layer presentation state. Fits initial content to actual canvas sizes
+while startup layouts settle, stopping on user interaction or leaving the view.
 
 ### `exhale/analysis/layerwidgets.py`
 
@@ -424,16 +481,55 @@ at runtime.
 
 ## Packaging and tests
 
-`packaging/` contains the PyInstaller specification and hooks, Windows Inno
-Setup definition, Conda recipe, generated platform icon containers, and the
-utility which rebuilds those containers from a selected artwork source.
-`requirements-cellpose.txt` pins the extra DINOv3 source dependency for source/pip
-and frozen builds. The DINOv3 PyInstaller hook collects packaged configuration
-data; the specification collects dependency metadata and licenses without bundling
-large trained-model weights.
-`.github/workflows/build.yml` builds Windows, Linux, and macOS frozen
-applications and publishes tagged packages.
+`packaging/` contains the native macOS setup app, Windows Inno Setup definition,
+Conda recipe, generated platform icon containers, and the utility which rebuilds
+those containers from a selected artwork source. `requirements-cellpose.txt`
+pins DINOv3 for source/pip installations and the native installers.
+
+`.github/workflows/build.yml` builds Windows installers and macOS DMGs with private
+uv environments and publishes the Python package. Windows startup checks can also
+be dispatched separately for ordinary pip installations.
 
 `tests/` contains the pytest/unittest regression suite. Test modules generally
 follow their corresponding application module or workflow; GUI tests use the
 off-screen Qt platform where possible.
+
+
+## Native macOS distribution
+
+### `packaging/macos/build.py`
+
+Builds the Swift launcher, bundles a local EXHALE wheel and checksum-verified uv,
+and produces an ad-hoc-signed app and DMG for the build machine's architecture.
+
+### `packaging/macos/Launcher.swift`
+
+AppKit setup interface and launcher. Offers supported backend choices, streams
+setup output, starts the private Python driver, and exposes runtime removal.
+Its `--setup-check` entry point exercises the setup driver on GitHub runners.
+
+### `packaging/macos/runtime.py`
+
+Owns EXHALE's private Python environments and installation record. Installs selected
+extras from the bundled wheel, checks startup before activation, preserves a
+previous environment on failure, and locks setup against a running application.
+
+
+## Native Windows distribution
+
+### `packaging/win_build.py`
+
+Builds the native launcher with Windows' C# compiler, verifies and stages uv,
+bundles a local application wheel and DINOv3 requirements, runs native self-tests,
+and invokes Inno Setup.
+
+### `packaging/windows/Launcher.cs`
+
+Native launcher and private runtime manager. Prepares selected backends with uv,
+checks startup, activates pending environments, rolls back unfinished setup and
+forwards application arguments. Supplies runtime locking and installation logs.
+
+### `packaging/windows/test-installer.ps1`
+
+Windows runner integration checks for the actual Inno installer: backend choices,
+upgrades, installed dependency presence, startup, and uninstallation.

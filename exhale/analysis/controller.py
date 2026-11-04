@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
+from datetime import datetime
 from html import escape
 from pathlib import Path
 from time import strftime
@@ -21,11 +23,12 @@ from ..data.projectdata import (
     SegmentationResult,
 )
 from ..data.segmentation import SegmentationPostprocessing
+from ..data.segmentationediting import SegmentationEditSession
 from ..data.source_refs import SourceUnavailableError
 from ..model_settings import model_directory
 from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
 from .segmentation_options_dialog import SegmentationOptionsDialog
-from .segmentationio import result_relative_path, save_segmentation
+from .segmentationio import publish_segmentation
 from .segmentationmethods import SEGMENTATION_METHODS, segmentation_method
 
 LOAD_NAPARI_EARLY = True
@@ -47,14 +50,12 @@ class AnalysisController(QtCore.QObject):
         self.worker = None
         self.thread = None
         self._result_sample_id = None
-        self._result_method_id = None
+        self._result_candidate_id = None
         self._display_result = None
-        self._view_fitted_on_show = False
+        self._edit_session = None
+        self._edit_tool = "select"
+        self._edit_shortcuts = []
         self._viewer_canvas = None
-        self._initial_fit_timer = QtCore.QTimer(self)
-        self._initial_fit_timer.setSingleShot(True)
-        self._initial_fit_timer.setInterval(50)
-        self._initial_fit_timer.timeout.connect(self._fit_view_on_first_show)
         window.napariWidget.installEventFilter(self)
         for method in SEGMENTATION_METHODS:
             window.analysisPipelineComboBox.addItem(method.name, method.method_id)
@@ -66,13 +67,67 @@ class AnalysisController(QtCore.QObject):
                 item.setEnabled(False)
                 item.setToolTip(reason)
 
+        available_index = next(
+            (
+                index
+                for index, method in enumerate(SEGMENTATION_METHODS)
+                if method.unavailable_reason() is None
+            ),
+            -1,
+        )
+        window.analysisPipelineComboBox.setCurrentIndex(available_index)
+
         self.settings_dialog = SegmentationOptionsDialog(window)
+        for spinbox in (window.analysisExpansion, window.analysisMinimumArea):
+            option = QtWidgets.QStyleOptionSpinBox()
+            option.initFrom(spinbox)
+            option.frame = spinbox.hasFrame()
+            metrics = spinbox.fontMetrics()
+            content = QtCore.QSize(
+                metrics.horizontalAdvance("-000000" + spinbox.suffix()), metrics.height()
+            )
+            spinbox.setMinimumWidth(
+                spinbox.style()
+                .sizeFromContents(QtWidgets.QStyle.CT_SpinBox, option, content, spinbox)
+                .width()
+            )
+        window.analysisMaskCombo.currentIndexChanged.connect(self._mask_changed)
+        window.analysisMaskCombo.lineEdit().editingFinished.connect(self._rename_mask)
+        window.analysisKeepMask.toggled.connect(self._keep_mask)
+        window.analysisAddComparison.clicked.connect(self._add_comparison)
+        window.analysisComparisonCombo.currentIndexChanged.connect(self._update_comparison_controls)
+        window.analysisProcessingTabs.currentChanged.connect(self._processing_tab_changed)
+        self._tool_buttons = {
+            "select": window.analysisToolSelect,
+            "draw": window.analysisToolOutline,
+            "add": window.analysisToolBrushDraw,
+            "remove": window.analysisToolBrushErase,
+        }
+        self._tool_group = QtWidgets.QButtonGroup(self)
+        self._tool_group.setExclusive(True)
+        for key, button in self._tool_buttons.items():
+            self._tool_group.addButton(button)
+            button.clicked.connect(lambda _checked=False, key=key: self._choose_edit_tool(key))
+        window.analysisAcceptEdits.clicked.connect(lambda: self._complete_editing("accept"))
+        window.analysisRejectEdits.clicked.connect(lambda: self._complete_editing("reject"))
+        for text, key in (
+            ("Keep together", "keep"),
+            ("Split into segments", "split"),
+            ("Ask", "ask"),
+        ):
+            window.analysisDisconnectedParts.addItem(text, key)
+        window.analysisDisconnectedParts.setCurrentIndex(2)
+        window.analysisDeleteSegment.clicked.connect(self._delete_segments)
+        window.analysisBrushSize.valueChanged.connect(self._brush_size_changed)
+        window.analysisUndo.clicked.connect(self._undo_edit)
+        window.analysisRedo.clicked.connect(self._redo_edit)
         window.analysisOptions.clicked.connect(self._show_method_options)
         window.analysisMinimumArea.valueChanged.connect(self._postprocessing_changed)
         window.analysisExpansion.valueChanged.connect(self._postprocessing_changed)
         window.analysisShowOverview.clicked.connect(self._show_overview)
         window.analysisAddReference.clicked.connect(self._add_reference)
         window.analysisLayerList.removeRequested.connect(self._remove_reference)
+        window.analysisLayerList.removeComparisonRequested.connect(self._remove_comparison)
         self._area_plot = pg.PlotWidget()
         self._area_plot.setBackground(None)
         self._area_plot.setLabel("bottom", "Segment area", units="px")
@@ -86,9 +141,382 @@ class AnalysisController(QtCore.QObject):
         window.appearance.changed.connect(self._reload_plot_appearance)
         self._reload_plot_appearance()
         window.analysisPostprocessing.setEnabled(False)
+        self._update_edit_controls()
 
     def current_method_id(self) -> str | None:
         return self.window.analysisPipelineComboBox.currentData()
+
+    def _history(self):
+        sample = self.current_sample()
+        return self.window.project_data.segmentation_histories.get(
+            None if sample is None else sample.sample_id
+        )
+
+    def current_candidate(self):
+        history = self._history()
+        return None if history is None else history.active
+
+    @staticmethod
+    def _mask_name(candidate):
+        if candidate.name and (
+            candidate.name_is_custom or candidate.name != candidate.result.method_id
+        ):
+            return candidate.name
+        method = next(
+            (m.name for m in SEGMENTATION_METHODS if m.method_id == candidate.result.method_id),
+            candidate.result.method_id,
+        )
+        try:
+            stamp = (
+                datetime.fromisoformat(candidate.created_at)
+                .astimezone()
+                .strftime("%Y-%m-%d %H:%M:%S")
+            )
+        except ValueError:
+            stamp = candidate.created_at
+        return f"{'Edited ' if candidate.edited else ''}{method} {stamp}"
+
+    def _refresh_masks(self, *, rebuild=True):
+        """Keep candidate order stable while restoring the sample's active identity."""
+        window = self.window
+        history = self._history()
+        selector = window.analysisMaskCombo
+        if rebuild:
+            with QtCore.QSignalBlocker(selector):
+                selector.clear()
+                if history is not None:
+                    for candidate in history.candidates.values():
+                        selector.addItem(self._mask_name(candidate), candidate.candidate_id)
+                    selector.setCurrentIndex(selector.findData(history.active_id))
+        candidate = self.current_candidate()
+        for button, checked in (
+            (window.analysisKeepMask, candidate is not None and candidate.keep),
+        ):
+            with QtCore.QSignalBlocker(button):
+                button.setChecked(checked)
+            button.setEnabled(candidate is not None and self.worker is None)
+        selector.setEnabled(candidate is not None and self.worker is None)
+        self._refresh_comparison_choices()
+
+    def _mask_changed(self):
+        history = self._history()
+        key = self.window.analysisMaskCombo.currentData()
+        if history is None or key not in history.candidates:
+            return
+        changed = history.active_id != key
+        if not self._finish_editing(next_mask=key):
+            self._refresh_masks()
+            return
+        history.activate(key)
+        self._refresh_masks(rebuild=False)
+        if self.naparihelper is not None:
+            self.show_result(history.active.result, fit=False)
+        if changed:
+            self.window.project_state_manager.project_changed()
+
+    def _editing_mode(self):
+        return self.window.analysisProcessingTabs.currentWidget() is self.window.analysisEditingPage
+
+    def _start_editing(self):
+        """Resume a recovered draft or create an unchanged, unsaved working session."""
+        candidate = self.current_candidate()
+        if candidate is None:
+            return
+        sessions = self.window.project_data.segmentation_edit_sessions
+        session = sessions.get(candidate.sample_id)
+        if session is None or session.source.candidate_id != candidate.candidate_id:
+            session = SegmentationEditSession(candidate)
+            sessions[candidate.sample_id] = session
+        self._edit_session = session
+
+    def _finish_editing(self, *, next_mask=None, decision=None):
+        """Publish changed working labels when leaving their editing context."""
+        session = self._edit_session
+        if session is None:
+            return True
+        if self.naparihelper is not None:
+            self.naparihelper.cancel_stroke()
+        project = self.window.project_data
+        sample_id = session.source.sample_id
+        if project.segmentation_edit_sessions.get(sample_id) is not session:
+            self._edit_session = None
+            return True
+        if decision is None and session.changed:
+            dialog = QtWidgets.QMessageBox(self.window)
+            dialog.setWindowTitle("Unfinished mask changes")
+            dialog.setText("Accept or reject the changes to this mask?")
+            accept = dialog.addButton("Accept", QtWidgets.QMessageBox.AcceptRole)
+            reject = dialog.addButton("Reject", QtWidgets.QMessageBox.DestructiveRole)
+            dialog.addButton(QtWidgets.QMessageBox.Cancel)
+            dialog.exec()
+            button = dialog.clickedButton()
+            if button not in (accept, reject):
+                return False
+            decision = "accept" if button is accept else "reject"
+        if decision != "reject" and not self._resolve_disconnections():
+            return False
+        self._edit_session = None
+        project.segmentation_edit_sessions.pop(sample_id)
+        history = project.segmentation_histories.get(sample_id)
+        candidate = None if decision == "reject" else session.completed_candidate()
+        if history is not None and candidate is not None:
+            history.add_candidate(candidate, active_id=next_mask)
+            self.window.project_state_manager.project_changed()
+            self._refresh_masks()
+        elif session.changed:
+            self.window.project_state_manager.project_changed()
+        return True
+
+    def _complete_editing(self, decision):
+        """Accept or discard changes while retaining the current editing page."""
+        if not self._finish_editing(decision=decision):
+            return
+        candidate = self.current_candidate()
+        if candidate is not None and self.naparihelper is not None:
+            self.show_result(candidate.result, fit=False)
+        self._update_edit_controls()
+
+    def _resolve_disconnections(self, identities=None):
+        """Ask about affected instances while their working outlines remain visible."""
+        session = self._edit_session
+        pending = (
+            session.pending_disconnections
+            if identities is None
+            else session.pending_disconnections & set(identities)
+        )
+        for identity in sorted(pending):
+            count = session.part_count(identity)
+            if count <= 1:
+                session.pending_disconnections.discard(identity)
+                continue
+            selection = session.selected_ids.copy()
+            session.selected_ids = {identity}
+            if self.naparihelper is not None:
+                self.naparihelper.nuc_layer.data = session.labels
+                self.naparihelper.update_selection()
+            dialog = QtWidgets.QMessageBox(self.window)
+            dialog.setWindowTitle("Disconnected segment")
+            dialog.setText(f"Segment {identity} now has {count} disconnected parts.")
+            keep = dialog.addButton("Keep together", QtWidgets.QMessageBox.AcceptRole)
+            split = dialog.addButton("Split into segments", QtWidgets.QMessageBox.AcceptRole)
+            dialog.addButton(QtWidgets.QMessageBox.Cancel)
+            dialog.exec()
+            button = dialog.clickedButton()
+            session.selected_ids = selection
+            if button not in (keep, split):
+                if self.naparihelper is not None:
+                    self.naparihelper.update_selection()
+                return False
+            session.resolve_disconnection(identity, split=button is split)
+            self.window.project_state_manager.project_changed()
+        return True
+
+    def _processing_tab_changed(self):
+        if self._editing_mode():
+            self._start_editing()
+        else:
+            if not self._finish_editing():
+                with QtCore.QSignalBlocker(self.window.analysisProcessingTabs):
+                    self.window.analysisProcessingTabs.setCurrentWidget(
+                        self.window.analysisEditingPage
+                    )
+                return
+        candidate = self.current_candidate()
+        if candidate is not None and self.naparihelper is not None:
+            self.show_result(candidate.result, fit=False)
+        self._update_edit_controls()
+
+    def _select_segment(self, identity, toggle, *, position=None):
+        session = self._edit_session
+        if session is None:
+            return False
+        selection = session.selected_ids.copy()
+        changes_selection = identity not in selection or toggle or identity == 0
+        if changes_selection and not self._resolve_disconnections(selection):
+            return False
+        if position is not None:
+            identity = int(session.labels[position])
+        session.select(identity, toggle=toggle)
+        self.naparihelper.nuc_layer.data = session.labels
+        self.naparihelper.update_selection()
+        self._update_edit_controls()
+        return True
+
+    def _choose_edit_tool(self, tool):
+        self._edit_tool = tool
+        self._tool_buttons[tool].setChecked(True)
+        self._edit_tool_changed()
+
+    def _brush_size_changed(self):
+        if self.naparihelper is not None:
+            self.naparihelper.set_brush_size(self.window.analysisBrushSize.value())
+
+    def _edit_tool_changed(self):
+        if self.naparihelper is not None:
+            self.naparihelper.cancel_stroke()
+            self.naparihelper.set_edit_tool(self._edit_tool if self._editing_mode() else "select")
+        self.window.analysisBrushSize.setEnabled(self._edit_tool in ("add", "remove"))
+
+    def _edit_gesture(self, tool, points, *, preview=False):
+        session = self._edit_session
+        if session is None:
+            return None
+        args = dict(
+            size=self.window.analysisBrushSize.value(),
+            protect=self.window.analysisProtectSegments.isChecked(),
+        )
+        try:
+            if preview:
+                return session.preview(tool, points, **args)
+            if tool == "draw" and not self._resolve_disconnections(session.selected_ids):
+                return session.labels
+            if session.edit(
+                tool,
+                points,
+                **args,
+                disconnected=self.window.analysisDisconnectedParts.currentData(),
+            ):
+                self._editing_changed()
+        except ValueError as exc:
+            if not preview:
+                QtWidgets.QMessageBox.warning(self.window, "Cannot edit segment", str(exc))
+        return session.labels
+
+    def _delete_segments(self):
+        if self._edit_session is not None and self._edit_session.delete_selected():
+            self._editing_changed()
+
+    def _update_edit_controls(self):
+        session = self._edit_session
+        enabled = self.worker is None
+        self.window.analysisUndo.setEnabled(enabled and session is not None and session.can_undo)
+        self.window.analysisRedo.setEnabled(enabled and session is not None and session.can_redo)
+        self.window.analysisDeleteSegment.setEnabled(
+            enabled and session is not None and bool(session.selected_ids)
+        )
+        self.window.analysisProcessingTabs.setEnabled(
+            enabled and self.current_candidate() is not None
+        )
+        editing = enabled and session is not None and self._editing_mode()
+        self.window.analysisAcceptEdits.setEnabled(editing)
+        self.window.analysisRejectEdits.setEnabled(editing)
+        for shortcut in self._edit_shortcuts:
+            shortcut.setEnabled(editing)
+
+    def _editing_changed(self):
+        """Refresh the working mask and schedule ordinary save/autosave tracking."""
+        if self._edit_session is not None:
+            self.show_result(self._edit_session.source.result, fit=False)
+            self.window.project_state_manager.project_changed()
+
+    def _undo_edit(self):
+        if self.naparihelper is not None:
+            self.naparihelper.cancel_stroke()
+        if self._edit_session is not None and self._edit_session.can_undo:
+            self._edit_session.undo()
+            self._editing_changed()
+
+    def _redo_edit(self):
+        if self.naparihelper is not None:
+            self.naparihelper.cancel_stroke()
+        if self._edit_session is not None and self._edit_session.can_redo:
+            self._edit_session.redo()
+            self._editing_changed()
+
+    def _rename_mask(self):
+        candidate = self.current_candidate()
+        name = self.window.analysisMaskCombo.currentText().strip()
+        if not name:
+            self._refresh_masks()
+            return
+        if candidate is not None and name and name != self._mask_name(candidate):
+            candidate.name = name
+            candidate.name_is_custom = True
+            selector = self.window.analysisMaskCombo
+            selector.setItemText(selector.currentIndex(), name)
+            self.window.project_state_manager.project_changed()
+
+    def _keep_mask(self, keep):
+        candidate = self.current_candidate()
+        if candidate is not None:
+            candidate.keep = keep
+            self.window.project_state_manager.project_changed()
+
+    def _refresh_comparison_choices(self):
+        """List other saved masks, including comparisons restored with the project."""
+        selector = self.window.analysisComparisonCombo
+        previous = selector.currentData()
+        history = self._history()
+        with QtCore.QSignalBlocker(selector):
+            selector.clear()
+            if history is not None:
+                for candidate in history.candidates.values():
+                    if candidate.candidate_id != history.active_id:
+                        selector.addItem(self._mask_name(candidate), candidate.candidate_id)
+            index = selector.findData(previous)
+            if index >= 0:
+                selector.setCurrentIndex(index)
+        selector.setEnabled(selector.count() > 0 and self.worker is None)
+        self._update_comparison_controls()
+
+    def _update_comparison_controls(self):
+        history = self._history()
+        key = self.window.analysisComparisonCombo.currentData()
+        candidate = None if history is None else history.candidates.get(key)
+        self.window.analysisAddComparison.setEnabled(
+            self.worker is None and candidate is not None and not candidate.compare
+        )
+
+    def _add_comparison(self):
+        history = self._history()
+        key = self.window.analysisComparisonCombo.currentData()
+        if history is None or key not in history.candidates or key == history.active_id:
+            return
+        if not history.candidates[key].compare:
+            self._set_comparison(history.candidates[key], True)
+
+    def _remove_comparison(self, candidate_id):
+        history = self._history()
+        if history is not None and candidate_id in history.candidates:
+            self._set_comparison(history.candidates[candidate_id], False)
+
+    def _set_comparison(self, candidate, compare):
+        """Change a comparison layer without changing the active mask."""
+        self._layer_settings_changed()
+        candidate.compare = compare
+        if compare and candidate.comparison_presentation is not None:
+            candidate.comparison_presentation = replace(
+                candidate.comparison_presentation, visible=True
+            )
+        active = self.current_candidate()
+        if self.naparihelper is not None and active is not None:
+            self.show_result(active.result, fit=False)
+        self._refresh_comparison_choices()
+        self.window.project_state_manager.project_changed()
+
+    def _comparisons(self):
+        history = self._history()
+        return (
+            ()
+            if history is None
+            else tuple(
+                (candidate, self._mask_name(candidate))
+                for candidate in history.candidates.values()
+                if candidate.compare and candidate.candidate_id != history.active_id
+            )
+        )
+
+    def _load_method_parameters(self):
+        """Restore this method's last run options without selecting its mask."""
+        history = self._history()
+        candidate = None if history is None else history.latest_for_method(self.current_method_id())
+        if candidate is not None:
+            parameters = next(
+                run.parameters
+                for run in reversed(candidate.provenance)
+                if run.method_id == self.current_method_id()
+            )
+            self._set_segmentation_parameters(parameters)
 
     def _show_method_options(self) -> None:
         method_id = self.current_method_id()
@@ -100,12 +528,12 @@ class AnalysisController(QtCore.QObject):
     def eventFilter(self, watched, event):
         if (
             watched is self._viewer_canvas
-            and event.type() in (QtCore.QEvent.Type.Paint, QtCore.QEvent.Type.Resize)
-            and not self._view_fitted_on_show
+            and event.type() == QtCore.QEvent.KeyPress
+            and event.key() == QtCore.Qt.Key_Escape
+            and self.naparihelper is not None
         ):
-            # Coalesce startup layout changes, including those after the first paint.
-            if event.type() == QtCore.QEvent.Type.Resize or not self._initial_fit_timer.isActive():
-                self._initial_fit_timer.start()
+            self.naparihelper.cancel_stroke()
+            return True
         if watched is self.window.napariWidget and event.type() in (
             QtCore.QEvent.Type.Resize,
             QtCore.QEvent.Type.Show,
@@ -130,11 +558,26 @@ class AnalysisController(QtCore.QObject):
 
         def tab_check():
             if self.window.tabWidget.currentWidget() != self.window.analysisTab:
+                if self._edit_session is not None:
+                    destination = self.window.tabWidget.currentWidget()
+                    with QtCore.QSignalBlocker(self.window.tabWidget):
+                        self.window.tabWidget.setCurrentWidget(self.window.analysisTab)
+                    if not self._finish_editing():
+                        return
+                    with QtCore.QSignalBlocker(self.window.analysisProcessingTabs):
+                        self.window.analysisProcessingTabs.setCurrentWidget(
+                            self.window.analysisPostprocessingPage
+                        )
+                    candidate = self.current_candidate()
+                    if candidate is not None:
+                        self.show_result(candidate.result, fit=False)
+                    self.window.tabWidget.setCurrentWidget(destination)
                 return
             if self.naparihelper is None:
                 self.initialize_view()
             self._select_default_nuclei_channel()
             self.refresh_result_view()
+            self._refresh_comparison_choices()
             self._update_overview(show=False)
             if self._display_result is not None:
                 self.naparihelper.update_reference_maps(
@@ -152,16 +595,6 @@ class AnalysisController(QtCore.QObject):
             self.worker.abort()
             self.thread.wait()
 
-    def _fit_view_on_first_show(self) -> None:
-        if (
-            not self._view_fitted_on_show
-            and self.window.tabWidget.currentWidget() == self.window.analysisTab
-            and self.naparihelper is not None
-            and (self.naparihelper.result is not None or self.naparihelper.input_map is not None)
-        ):
-            self.fit_view()
-            self._view_fitted_on_show = True
-
     def fit_view(self, *_unused) -> None:
         """Fit the segmentation layers to the full available canvas."""
         if self.naparihelper is not None:
@@ -176,12 +609,15 @@ class AnalysisController(QtCore.QObject):
             "dark" if appearance.is_dark() else "light",
             self.window.project_data.abundance_units,
         )
+        self._brush_size_changed()
         window.analysisLayerList.set_helper(self.naparihelper)
         window.analysisLayerList.presentationChanged.connect(self._layer_settings_changed)
         self.naparihelper.set_info_widget(window.analysisInfo)
         self.naparihelper.inspection_callback = lambda: window.analysisInfoStack.setCurrentWidget(
             window.analysisDetails
         )
+        self.naparihelper.selection_callback = self._select_segment
+        self.naparihelper.edit_callback = self._edit_gesture
 
         layout = QtWidgets.QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -189,6 +625,27 @@ class AnalysisController(QtCore.QObject):
         window.napariWidget.setLayout(layout)
         self._viewer_canvas = self.naparihelper.qtwidget.canvas.native
         self._viewer_canvas.installEventFilter(self)
+        for key, slot in (
+            (QtGui.QKeySequence.Undo, self._undo_edit),
+            (QtGui.QKeySequence.Redo, self._redo_edit),
+        ):
+            shortcut = QtWidgets.QShortcut(QtGui.QKeySequence(key), self._viewer_canvas)
+            shortcut.setContext(QtCore.Qt.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(slot)
+            button = window.analysisUndo if key == QtGui.QKeySequence.Undo else window.analysisRedo
+            binding = shortcut.key().toString(QtGui.QKeySequence.NativeText)
+            button.setToolTip(f"{button.toolTip()} ({binding})")
+        for key, button in (
+            ("S", window.analysisToolSelect),
+            ("O", window.analysisToolOutline),
+            ("B", window.analysisToolBrushDraw),
+            ("E", window.analysisToolBrushErase),
+            ("Delete", window.analysisDeleteSegment),
+        ):
+            shortcut = QtWidgets.QShortcut(QtGui.QKeySequence(key), self._viewer_canvas)
+            shortcut.setContext(QtCore.Qt.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(button.click)
+            self._edit_shortcuts.append(shortcut)
         self._place_view_buttons()
 
         _scale_font(window.analysisStatus, 0.8)
@@ -232,9 +689,23 @@ class AnalysisController(QtCore.QObject):
         """Update segmentation inputs for the independently selected sample."""
         sample = self.current_sample()
         sample_id = None if sample is None else sample.sample_id
+        if self._edit_session is not None and self._edit_session.source.sample_id != sample_id:
+            previous_sample = self._edit_session.source.sample_id
+            if not self._finish_editing():
+                selector = self.window.analysisSampleComboBox
+                with QtCore.QSignalBlocker(selector):
+                    selector.setCurrentIndex(selector.findData(previous_sample))
+                return
+        draft = self.window.project_data.segmentation_edit_sessions.get(sample_id)
+        if draft is not None and draft.changed:
+            with QtCore.QSignalBlocker(self.window.analysisProcessingTabs):
+                self.window.analysisProcessingTabs.setCurrentWidget(self.window.analysisEditingPage)
         self.update_channels()
         self._refresh_reference_choices()
-        result = self.window.project_data.segmentation_result(sample_id, self.current_method_id())
+        self._refresh_masks()
+        self._load_method_parameters()
+        candidate = self.current_candidate()
+        result = None if candidate is None else candidate.result
         if result is None:
             preview = self._preview()
             if preview is not None and preview.input_ref is not None:
@@ -248,24 +719,26 @@ class AnalysisController(QtCore.QObject):
             self.show_result(result, fit=self._result_sample_id != sample_id)
 
     def method_changed(self) -> None:
-        """Show the selected method's stored result for the current sample."""
+        """Choose inference options without changing the sample's active mask."""
         method_id = self.current_method_id()
         if method_id is not None:
             self.settings_dialog.set_method(method_id)
+        self._load_method_parameters()
         self.set_busy(self.worker is not None)
-        self.sample_changed()
+        if self.current_candidate() is None:
+            self.sample_changed()
 
     def refresh_result_view(self) -> None:
         """Keep the current segmentation view unless its result changes."""
         sample = self.current_sample()
         sample_id = None if sample is None else sample.sample_id
-        method_id = self.current_method_id()
-        result = self.window.project_data.segmentation_result(sample_id, method_id)
+        candidate = self.current_candidate()
+        result = None if candidate is None else candidate.result
         if (
             result is None
             or self.naparihelper is None
             or self._result_sample_id != sample_id
-            or self._result_method_id != method_id
+            or self._result_candidate_id != candidate.candidate_id
             or self._display_result is not result
         ):
             self.sample_changed()
@@ -282,6 +755,7 @@ class AnalysisController(QtCore.QObject):
     def clear_result_view(self) -> None:
         if self.naparihelper is None:
             return
+        self._edit_session = None
         sample = self.current_sample()
         sample_id = None if sample is None else sample.sample_id
         preview = self._preview()
@@ -293,7 +767,7 @@ class AnalysisController(QtCore.QObject):
             fit=self._result_sample_id != sample_id or self.naparihelper.input_map is None,
         )
         self._result_sample_id = sample_id
-        self._result_method_id = None
+        self._result_candidate_id = None
         self._display_result = None
         if preview is not None:
             self.naparihelper.apply_layer_settings(preview.layer_settings)
@@ -304,6 +778,7 @@ class AnalysisController(QtCore.QObject):
         self.window.analysisExport.setEnabled(False)
         self.window.analysisSaveView.setEnabled(self.naparihelper.input_map is not None)
         self._refresh_reference_choices()
+        self._update_edit_controls()
 
     def show_result(self, result: SegmentationResult, *, fit=True) -> None:
         window = self.window
@@ -313,22 +788,31 @@ class AnalysisController(QtCore.QObject):
             if index >= 0:
                 selector.setCurrentIndex(index)
 
-        self._set_segmentation_parameters(result.parameters)
         if self.naparihelper is None:
             return
+        if self._editing_mode():
+            self._start_editing()
         self._display_result = None
         self.naparihelper.set_result(
-            result, self._input_map(result), self._reference_maps(result.reference_refs), fit=fit
+            result,
+            self._input_map(result),
+            self._reference_maps(result.reference_refs),
+            fit=fit,
+            comparisons=self._comparisons(),
+            edit_session=self._edit_session if self._editing_mode() else None,
         )
         self.naparihelper.apply_layer_settings(result.layer_settings)
+        self._edit_tool_changed()
         self._display_result = result
         self._result_sample_id = result.sample_id
-        self._result_method_id = result.method_id
+        candidate = self.current_candidate()
+        self._result_candidate_id = None if candidate is None else candidate.candidate_id
         with QtCore.QSignalBlocker(window.analysisMinimumArea):
             window.analysisMinimumArea.setValue(result.postprocessing.minimum_area)
         with QtCore.QSignalBlocker(window.analysisExpansion):
             window.analysisExpansion.setValue(result.postprocessing.expansion)
-        window.analysisPostprocessing.setEnabled(self.worker is None)
+        window.analysisPostprocessing.setEnabled(self.worker is None and not self._editing_mode())
+        self._update_edit_controls()
         self._update_overview()
         self._refresh_reference_choices()
         self.update_layer_controls()
@@ -411,12 +895,12 @@ class AnalysisController(QtCore.QObject):
 
     def _set_reference_refs(self, refs):
         result = self._display_result
+        self._layer_settings_changed()
         presentation = self.naparihelper.layer_settings()
         if result is not None:
             result.reference_refs = tuple(refs)
-            result.layer_settings = presentation
             self.show_result(result, fit=False)
-            result.layer_settings = self.naparihelper.layer_settings()
+            self._layer_settings_changed()
             self.window.project_state_manager.project_changed()
         else:
             preview = self._preview(create=True)
@@ -435,7 +919,7 @@ class AnalysisController(QtCore.QObject):
         result = self._display_result
         if result is None:
             return
-        result.layer_settings = self.naparihelper.layer_settings()
+        self._layer_settings_changed()
         result.postprocessing = SegmentationPostprocessing(
             self.window.analysisMinimumArea.value(), self.window.analysisExpansion.value()
         )
@@ -461,7 +945,8 @@ class AnalysisController(QtCore.QObject):
         if result is None:
             self.window.analysisSummary.setText("No segmentation result")
         else:
-            _ids, areas = result.segment_areas
+            session = self._edit_session if self._editing_mode() else None
+            _ids, areas = result.segment_areas if session is None else session.areas
             resolution, unit = self.window.project_data.image_defaults.resolution
             units = list(DISPLAY_UNITS)
             area_unit = units[min(units.index(unit) + 1, len(units) - 1)]
@@ -491,23 +976,26 @@ class AnalysisController(QtCore.QObject):
                 f'<th align="right">{escape(area_unit)}²</th></tr>'
                 f"{rows}</table>"
             )
-            _unfiltered_ids, unfiltered_areas = result.unfiltered_segment_areas
+            _unfiltered_ids, unfiltered_areas = (
+                result.unfiltered_segment_areas if session is None else session.areas
+            )
             if len(unfiltered_areas):
                 values, counts = np.unique(unfiltered_areas, return_counts=True)
                 x = np.repeat(np.r_[0, values], 2)[1:]
                 y = np.repeat(np.r_[0, np.cumsum(counts)], 2)[:-1]
                 self._area_plot.plot(x, y, pen=pg.mkPen(self.window.palette().text().color()))
                 self._area_plot.setYRange(0, len(unfiltered_areas) * 1.05, padding=0)
-                self._area_plot.addItem(
-                    pg.InfiniteLine(
-                        result.postprocessing.minimum_area,
-                        angle=90,
-                        movable=False,
-                        pen=pg.mkPen(
-                            self.window.palette().text().color(), style=QtCore.Qt.DashLine
-                        ),
+                if session is None:
+                    self._area_plot.addItem(
+                        pg.InfiniteLine(
+                            result.postprocessing.minimum_area,
+                            angle=90,
+                            movable=False,
+                            pen=pg.mkPen(
+                                self.window.palette().text().color(), style=QtCore.Qt.DashLine
+                            ),
+                        )
                     )
-                )
                 self._area_plot.enableAutoRange(axis="x")
         if show:
             self._show_overview()
@@ -529,9 +1017,8 @@ class AnalysisController(QtCore.QObject):
         """Store the current viewer presentation in its sample/method result."""
         if self.naparihelper is None:
             return
-        result = self.window.project_data.segmentation_result(
-            self._result_sample_id, self._result_method_id
-        )
+        candidate = self.current_candidate()
+        result = None if candidate is None else candidate.result
         if (
             result is None
             and self._display_result is None
@@ -546,7 +1033,15 @@ class AnalysisController(QtCore.QObject):
         if result is None or self._display_result is not result:
             return
         settings = self.naparihelper.layer_settings()
+        history = self._history()
+        for identity, presentation in tuple(settings.layers.items()):
+            if identity.startswith("comparison:"):
+                other = history.candidates.get(identity.removeprefix("comparison:"))
+                if other is not None:
+                    other.comparison_presentation = presentation
+                settings.layers.pop(identity)
         if settings == result.layer_settings:
+            self.window.project_state_manager.project_changed()
             return
         result.layer_settings = settings
         self.window.project_state_manager.project_changed()
@@ -628,6 +1123,10 @@ class AnalysisController(QtCore.QObject):
         for widget in (
             window.analysisRun,
             window.analysisPipelineComboBox,
+            window.analysisMaskCombo,
+            window.analysisKeepMask,
+            window.analysisComparisonCombo,
+            window.analysisAddComparison,
             window.analysisSampleComboBox,
             window.analysisChNuclei,
             window.analysisOptions,
@@ -650,8 +1149,12 @@ class AnalysisController(QtCore.QObject):
             not busy and method_id is not None and segmentation_method(method_id).has_options
         )
         window.analysisAbort.setEnabled(busy)
-        window.analysisPostprocessing.setEnabled(not busy and self._display_result is not None)
+        window.analysisPostprocessing.setEnabled(
+            not busy and self._display_result is not None and not self._editing_mode()
+        )
+        self._update_edit_controls()
         if not busy:
+            self._refresh_masks()
             self._refresh_reference_choices()
 
     def _model_progress(self, phase, completed, total) -> None:
@@ -718,6 +1221,9 @@ class AnalysisController(QtCore.QObject):
             window.show_error("Cannot start analysis", str(exc))
             return
 
+        if self._finish_editing() is False:
+            return
+        window.analysisProcessingTabs.setCurrentWidget(window.analysisPostprocessingPage)
         thread = QtCore.QThread(window)
         worker = method.create_worker(
             image,
@@ -737,7 +1243,8 @@ class AnalysisController(QtCore.QObject):
         @QtCore.Slot()
         def on_finished(output):
             self._append_status("Saving results")
-            previous = window.project_data.segmentation_result(analysis_sample_id, method_id)
+            history = window.project_data.segmentation_histories.get(analysis_sample_id)
+            previous = None if history is None or history.active is None else history.active.result
             result = SegmentationResult(
                 sample_id=analysis_sample_id,
                 method_id=method_id,
@@ -765,21 +1272,16 @@ class AnalysisController(QtCore.QObject):
                 ),
             )
             try:
-                save_segmentation(
-                    output,
-                    window.project_dir / result_relative_path(analysis_sample_id, method_id),
-                    method_id=method_id,
-                )
+                candidate = publish_segmentation(window.project_data, result, window.project_dir)
             except Exception as exc:
                 self._append_status("Failed to save results")
                 window.show_error("Saving segmentation results failed", str(exc))
                 worker_cleanup()
                 return
-            window.project_data.set_segmentation_result(result)
             window.project_state_manager.project_changed()
             window.segmentationResultsChanged.emit()
             self._append_status("Rendering results")
-            self.show_result(result)
+            self.show_result(candidate.result)
             worker_cleanup()
             self._append_status("Done")
 
@@ -812,7 +1314,7 @@ class AnalysisController(QtCore.QObject):
         thread.start()
 
     def export_results(self) -> None:
-        """Export the displayed instance-label image as a TIFF in the chosen directory."""
+        """Export edited instance labels before reversible post-processing."""
         if self.naparihelper is None or self.naparihelper.result is None:
             return
         window = self.window
@@ -832,7 +1334,11 @@ class AnalysisController(QtCore.QObject):
             output.mkdir(parents=True, exist_ok=True)
             imwrite(
                 output / "nuclei_labels.tif",
-                self._display_result.processed_labels,
+                (
+                    self._edit_session.labels
+                    if self._edit_session is not None
+                    else self.naparihelper.result.output.labels
+                ),
                 photometric="minisblack",
             )
         except Exception as exc:
@@ -882,7 +1388,12 @@ class AnalysisController(QtCore.QObject):
 
     def clear_project(self) -> None:
         """Clear controller-owned derived display state for a new project."""
-        self._view_fitted_on_show = False
+        self._edit_session = None
+        with QtCore.QSignalBlocker(self.window.analysisProcessingTabs):
+            self.window.analysisProcessingTabs.setCurrentWidget(
+                self.window.analysisPostprocessingPage
+            )
         self.window.analysisSampleComboBox.clear()
         if self.naparihelper is not None:
+            self.naparihelper.reset_initial_fit()
             self.clear_result_view()

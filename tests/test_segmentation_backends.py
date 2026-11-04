@@ -51,6 +51,9 @@ def test_cellpose_uses_training_normalization_and_preserves_label_ids(monkeypatc
     model = SimpleNamespace(eval=Mock(return_value=(labels, None, None)))
     monkeypatch.setattr(backends, "prepare_segmentation_runtime", lambda: None)
     monkeypatch.setattr(backends, "_cellpose_model", lambda *_args: model)
+    monkeypatch.setitem(
+        sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False))
+    )
     image = np.ones((2, 2), dtype=np.float32)
     result = backends.segment_cellpose(image, model_path=str(checkpoint), min_size=3)
     np.testing.assert_array_equal(result, labels)
@@ -90,3 +93,36 @@ assert {method.method_id for method in SEGMENTATION_METHODS} == {"stardist", "ce
 assert not {"torch", "triton", "tensorflow", "cellpose", "dinov3"}.intersection(sys.modules)
 """
     subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
+
+
+@pytest.mark.parametrize("installed", [(), ("stardist",), ("cellpose",), ("stardist", "cellpose")])
+def test_startup_checks_only_selected_backends(monkeypatch, installed):
+    from exhale.analysis import segmentationmethods as methods
+
+    required = {
+        module
+        for method in methods.SEGMENTATION_METHODS
+        if method.method_id in installed
+        for module in method.required_modules
+    }
+    monkeypatch.setattr(methods, "find_spec", lambda name: object() if name in required else None)
+    imports = []
+
+    def load(name):
+        imports.append(name)
+        return SimpleNamespace(dinov3_vitl16=lambda: None)
+
+    monkeypatch.setattr(methods, "import_module", load)
+    methods.check_installed_backends()
+    assert ("stardist.models" in imports) == ("stardist" in installed)
+    assert ("cellpose.vit" in imports) == ("cellpose" in installed)
+
+
+def test_startup_rejects_cellpose_without_dinov3(monkeypatch):
+    from exhale.analysis import segmentationmethods as methods
+
+    monkeypatch.setattr(
+        methods, "find_spec", lambda name: None if name in ("stardist", "dinov3") else object()
+    )
+    with pytest.raises(RuntimeError, match="dinov3"):
+        methods.check_installed_backends()

@@ -1,0 +1,29 @@
+EXHALE for macOS
+
+Requires macOS 13 or later. Select the download for your Mac: arm64 (Apple
+Silicon) or x86_64 (Intel). Cellpose requires Apple Silicon and macOS 14 or
+later because its PyTorch dependency is not available for Intel Macs. Individual
+dependencies may impose newer macOS requirements.
+
+Drag EXHALE.app to Applications, then open it there. Select StarDist, Cellpose,
+both, or neither, and choose Install and Open. Internet access is required;
+Python and large backend libraries download during setup. No existing Python
+or uv installation is needed. Subsequent launches use the installed runtime.
+
+This application is not Developer ID signed or notarized by Apple. macOS may
+block opening it. Apple's explanation of these warnings and available options:
+https://support.apple.com/102445
+University-managed Macs may enforce additional restrictions. Direct uv
+installation is an alternative; see the project's README.
+
+To change backends, repair setup, or remove downloaded software, hold Option
+while opening EXHALE.app. Remove Runtime deletes only the private installation
+under ~/Library/Application Support/EXHALE/runtime. Projects, trained models,
+and settings remain. Afterwards move EXHALE.app to Trash to remove the launcher.
+
+To update, quit EXHALE and replace EXHALE.app with a new release. On its next
+launch, setup uses the previously selected backends and installs the new version.
+A failed installation leaves the previous runtime available to the old app.
+
+This app has its own runtime. It does not manage EXHALE installed separately
+with uv tool install, and does not modify your shell or system Python.

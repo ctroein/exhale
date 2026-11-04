@@ -107,7 +107,9 @@ Napari is isolated behind `NapariHelper`. `LayerListWidget` and
 `LayerRowWidget` expose the presentation state of embedded layers without
 becoming an alternative owner of the layer data. Re-entering the Segmentation
 tab retains an unchanged result view; changed element transformations replace
-only the corresponding image-layer data.
+only the corresponding image-layer data. Shared initial fitting follows actual
+canvas geometry while startup layouts settle, ending on canvas interaction or
+leaving the view. Opening a new project resets this first-display fitting.
 
 ## Analysis and derived results
 
@@ -137,7 +139,8 @@ method, parameter snapshot and layer settings. Segmentation sidecars contain onl
 labels and model provenance; project JSON contains the reference and run settings.
 The sidecar retains the original method output. Project-owned post-processing
 settings derive a cached label image without renumbering surviving instances;
-display, inspection, statistics and mask export all use that processed image.
+display, inspection and statistics use that processed image. Mask export uses
+the selected candidate or working edits before post-processing.
 Changing the minimum pixel area invalidates the derived cache but does not rewrite
 the sidecar. Cached areas and labels are omitted from project state.
 Optional reference-map selections and presentation are saved per sample/method.
@@ -146,6 +149,88 @@ successful output takes over that state and removes the preview entry.
 Structurally usable existing nested label datasets load directly without
 constructing the legacy model. A failed write leaves the previous sidecar intact;
 failed or cancelled workers never replace the project's successful result.
+
+The sample-level candidate model is defined in `data.segmentationhistory` and
+owned by `ProjectData.segmentation_histories`. Each candidate owns a snapshot of
+labels and mutable presentation/settings, with candidate/revision IDs, name,
+parent ID, creation time, Keep/edit flags and revision-specific review state.
+Inference events independently record method, model, input reference, parameters
+and run identity/time. Identical partitions reuse a candidate even when label IDs
+differ; provenance accumulates without replacing its name, corrections or review.
+Five recent unprotected candidates are retained, together with active, kept,
+edited and reviewed masks. Ancestors needed by retained candidates are preserved.
+Selecting a candidate changes neither candidate ordering nor inference recency.
+
+Candidate history is now the authoritative store and is serialized in project
+JSON, including active identity, retention order, run provenance, review and
+presentation state. Labels live in immutable sample/candidate/revision sidecars.
+Publication writes a complete snapshot before updating history; failure leaves
+previous results untouched. Duplicate predictions reuse the existing sidecar.
+Project save and autosave ensure missing snapshots are written before committing
+JSON. Existing snapshots are checked without rewriting their arrays. Labels and
+snapshot identities are verified when loading, with independent failures reported.
+
+Method-based saved results still load structurally into candidates, without
+rewriting their old files during loading. Their first subsequent save writes
+candidate-addressed snapshots and metadata. The Mask chooser selects the sample's
+active candidate independently of Method, which controls the next inference run.
+Inference options are restored per sample/method without changing the displayed
+mask. Mask names are editable, including literal names matching a method ID.
+Keep protects a mask from automatic pruning. The Mask layer chooser
+adds another saved mask as a read-only layer without changing the active mask.
+Its layer-row remove button ends the comparison; compared masks are retained
+while in use. Comparison
+presentation is saved separately on that candidate, so changing its visibility,
+color, opacity or blending does not alter its active-mask presentation. Switching
+masks within a sample preserves the camera. Layer ordering is saved with the
+active view. No duplicate comparison layer is drawn for the active candidate.
+
+Pruning removes only live history entries. Sidecar files remain available to
+older saved-project and recovery JSON, including after a run is discarded.
+Automatic cleanup of unreferenced files is not performed.
+
+`SegmentationEditSession` owns the mutable working copy for a sample's active
+candidate. Editing/Post-processing tabs choose between that unprocessed mask and
+the derived resized/filtered result. Selection uses thin white outlines with a
+dark outer edge, kept at fixed screen width as zoom changes. Outline layers are
+read-only, excluded from the layer controls and saved presentation, and never
+become label data. Click selects; Ctrl+click toggles additional IDs. Inspection
+and summaries read the working labels while Editing is active.
+
+Basic editing uses filled freehand outlines and pixel-snapped round brushes.
+Shift+outline adds to the selected instance; Ctrl+outline subtracts. Brush size
+is an integer diameter: one pixel paints 1×1 and two pixels paint 2×2. Odd
+sizes center on pixels and even sizes on pixel intersections. The transient Qt
+brush overlay uses that same rasterizer and tracks the camera in canvas
+coordinates. Light/dark shading and outline modifier cursors are viewer-only;
+no decoration is added to mask data, Napari layers, saved state or exports. Pointer previews
+are disposable; each released stroke commits one atomic command, including any
+automatic disconnection split. Other instances are protected by default.
+Eight-connected parts keep a surviving ID on the largest part when split;
+other parts receive unused uint32 IDs.
+
+The full-sized tool buttons expose viewer-scoped S/O/B/E/Delete shortcuts in
+their tooltips. Pending Ask decisions are undoable with their stroke and saved
+with drafts. Changing the selected segment resolves its pending questions before
+selection moves, with the affected instance outlined. Clicked coordinates are
+looked up again after splitting so selection follows the clicked part.
+Accept changes publishes the corrected candidate; Reject changes discards the
+whole working session. Navigating away from changed edits offers Accept, Reject
+or Cancel. Accept also resolves any remaining disconnections; Cancel retains the
+working session and current view. Unchanged editing creates no redundant history.
+
+
+Editing commands are atomic rectangular before/after patches, with undo/redo
+scoped to the current session. Changed sessions are serialized as separate draft
+snapshots with immutable revision paths; project save and autosave preserve them
+without altering the source candidate. Undo stacks and selection are not saved.
+Recovery resumes the draft in Editing. Entering, selecting, and leaving without
+label changes creates neither a candidate nor dirty project state. Switching
+mask/sample or returning to Post-processing finishes a changed session as a
+protected corrected child; net-unchanged or merely renumbered labels do not add
+history. Starting inference finishes editing first. Reviewed source snapshots
+stay intact; corrected revisions start unreviewed. Drawing/brush tools follow in
+the next editing stage.
 
 `ClusteringWorker` retains the independent element-clustering path using the
 imported numerical code and its own sample-level persistence. Both workers share
@@ -193,7 +278,8 @@ path are used by source and installed applications.
 The Segmentation tab has one input-map selector. Its method options expose only
 Cellpose's minimum area, flow threshold and cell-probability threshold. StarDist
 currently has no exposed inference options; clipping remains internal to each
-method. Mask export writes the unchanged uint32 instance-label array as TIFF;
+method. Mask export beside the mask chooser writes the original or edited uint32
+instance-label array as TIFF, before reversible post-processing;
 Save current view exports the rendered viewer separately.
 
 Element correlations use the effective selected channels of one sample and
@@ -227,7 +313,7 @@ DPI.
 Completed analysis is represented by one `SegmentationResult` per sample and
 method in the project model. The stable method ID is saved in both the project
 entry and sidecar. Large arrays and result tables are stored separately by
-`exhale.analysis.segmentationio` in method-specific HDF5 sidecars below the
+`exhale.analysis.segmentationio` in immutable candidate/revision HDF5 sidecars below the
 project; the main project file stores the association, parameters, and layer
 presentation. Layer presentation is keyed by fixed role or source element
 reference so it remains valid across display-name changes and pooled Napari
@@ -279,10 +365,34 @@ incorrect state.
 
 ## Distribution of segmentation libraries
 
-The normal Python dependencies include PyTorch, TorchVision and Cellpose. A
+Optional `stardist` and `cellpose` package extras supply the inference frameworks.
+The base application imports neither backend eagerly. A
 pinned DINOv3 source archive is installed through `requirements-cellpose.txt` for
-source/pip installations and frozen-build environments; public PyPI metadata
-contains no direct URL requirement. Frozen applications include these libraries
-and their metadata/licenses. Only the large trained-model files use on-demand
+source/pip installations and private installer-managed environments; public PyPI
+metadata contains no direct URL requirement. The native installers install
+selected libraries from their normal Python distributions. Only the large trained-model files use on-demand
 acquisition. Normal application startup still avoids importing neural backends;
 the explicit startup-check mode validates their imports without fetching weights.
+
+
+## macOS runtime ownership
+
+The Mac distribution uses a native AppKit setup/launcher and a private uv runtime,
+separate from ordinary uv tool installations. The read-only app bundle contains
+uv, the application wheel, a requirements file and the setup driver.
+`packaging/macos/runtime.py` owns environment creation, startup validation, atomic
+activation and removal under the current user's Application Support directory.
+`Launcher.swift` owns backend selection and setup feedback. Installed inference
+libraries and Python stay outside the bundle. Project/model storage is independent
+of runtime removal. Builds use ad-hoc signing and are not Apple-notarized.
+
+
+## Windows runtime ownership
+
+Inno Setup owns the per-user installation, native launcher, shortcuts and private
+runtime directory. `packaging/windows/Launcher.cs` creates a pending uv environment
+from the bundled wheel and selected extras, validates startup, and activates it
+only when Inno finishes copying files. It also launches the installed application
+and provides setup rollback. Python 3.11, downloaded dependencies and installation
+records belong to `{app}/runtime`; user projects and trained models do not.
+Inno coordinates uninstallation, and native runtime locks protect active processes.

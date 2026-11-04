@@ -9,11 +9,57 @@ from napari.components import ViewerModel
 from napari.layers import Image, Labels
 from napari.utils.colormaps import Colormap
 from napari.utils.colormaps.standardize_color import transform_color
-from qtpy import QtGui, QtWidgets
+from qtpy import QtCore, QtGui, QtWidgets
 from skimage import morphology
 
 from ..data.constants import CONCENTRATION_UNITS
 from ..data.projectdata import LayerPresentation, SegmentationLayerSettings
+
+
+class _InitialViewFit(QtCore.QObject):
+    """Fit initial content through layout changes, until navigation or leaving the view.
+
+    Canvas geometry can change after its first paint as splitters are restored.
+    Fit each actual size once rather than assuming a startup delay is sufficient.
+    """
+
+    def __init__(self, helper):
+        self.canvas = helper.qtwidget.canvas.native
+        super().__init__(self.canvas)
+        self.helper = helper
+        self.pending = True
+        self.fitted_size = None
+        self.timer = QtCore.QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self._fit)
+        self.canvas.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if self.pending:
+            kind = event.type()
+            if kind in (
+                QtCore.QEvent.MouseButtonPress,
+                QtCore.QEvent.Wheel,
+                QtCore.QEvent.KeyPress,
+            ) or (kind == QtCore.QEvent.Hide and self.fitted_size is not None):
+                self.pending = False
+                self.timer.stop()
+            elif kind in (QtCore.QEvent.Show, QtCore.QEvent.Resize, QtCore.QEvent.Paint):
+                size = (self.canvas.height(), self.canvas.width())
+                if size != self.fitted_size and not self.timer.isActive():
+                    self.timer.start(0)
+        return super().eventFilter(watched, event)
+
+    def _fit(self):
+        if not self.pending or not self.canvas.isVisible() or not self.helper.user_layers():
+            return
+        size = (self.canvas.height(), self.canvas.width())
+        if min(size) <= 1:
+            return
+        # Vispy handles its resize after Qt's event filters. The queued callback
+        # runs after that synchronization, so reset_view sees the real canvas.
+        self.helper.viewer.reset_view(margin=0)
+        self.fitted_size = size
 
 
 class NapariHelper:
@@ -42,6 +88,13 @@ class NapariHelper:
         self.viewer.mouse_move_callbacks.append(self._hover)
         self.viewer.mouse_drag_callbacks.append(self._click)
         self.info_widget = None
+        self._initial_view_fit = _InitialViewFit(self)
+
+    def reset_initial_fit(self):
+        """Prepare first-display fitting when the viewer is reused for a new project."""
+        self._initial_view_fit.pending = True
+        self._initial_view_fit.fitted_size = None
+        self._initial_view_fit.timer.stop()
 
     LABEL_CATEGORICAL = "categorical"
     LABEL_MASK = "mask"

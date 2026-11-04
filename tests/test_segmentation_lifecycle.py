@@ -24,6 +24,8 @@ window.analysisStatus = Mock()
 window.analysisChNuclei = SimpleNamespace(currentData=lambda: 'P')
 window.settings = QtCore.QSettings(QtCore.QSettings.IniFormat,
                                   QtCore.QSettings.UserScope, 'test', 'lifecycle')
+window.analysisProcessingTabs = Mock()
+window.analysisPostprocessingPage = object()
 workers, threads, deleted, errors, messages = [], [], [], [], []
 sys.excepthook = lambda *error: errors.append(error)
 
@@ -54,6 +56,7 @@ control = SimpleNamespace(
     current_method_id=lambda: 'cellpose',
     segmentation_parameters=lambda: None,
     _preview=lambda: None,
+    _finish_editing=lambda: None,
     element_settings=lambda _: [SimpleNamespace(data=np.ones((2, 2)))],
     _append_status=Mock(), _model_progress=Mock(), _model_ready=Mock(),
     set_busy=Mock(),

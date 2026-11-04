@@ -28,54 +28,140 @@ biomedical companies and clinical researchers.
 
 ## Installation
 
-EXHALE can be installed from PyPI in an isolated environment with
-[uv](https://docs.astral.sh/uv/):
+### Linux
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if needed,
+then choose the segmentation backends you want.
+
+For StarDist (TensorFlow):
 
 ```bash
-uv tool install --python 3.12 --with-requirements https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt exhale-lung
+uv tool install --python 3.12 'exhale-lung[stardist]'
 ```
 
-Windows and macOS users who prefer a packaged application over uv or pip can
-download it from the [GitHub releases page](https://github.com/ctroein/exhale/releases).
-For a pip environment, install with the additional CellposeDINO requirement:
+For Cellpose (PyTorch and DINOv3):
 
 ```bash
-python -m pip install exhale-lung -r https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt
+uv tool install --python 3.12 --with-requirements https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt 'exhale-lung[cellpose]'
 ```
 
-The requirements file pins DINOv3 to the upstream revision tested with Exhale.
-DINOv3 is not on PyPI, so a bare `pip install exhale-lung` does not provide
-CellposeDINO support. The pinned source archive is installed by pip; Git is not
-required. Frozen installers already contain these libraries.
+To install both, use `'exhale-lung[stardist,cellpose]'` with the same additional
+requirements argument. Plain `exhale-lung` installs viewing, composition and
+analysis of existing results without either segmentation backend. Unavailable
+backends are disabled in the application.
 
-For a Git checkout, install the additional dependency with
-`python -m pip install -r requirements-cellpose.txt` and run `./run_exhale.py`.
-The regular dependencies declared in `pyproject.toml` must also be installed in
-that environment.
-
-Trained Cellpose weights are downloaded on first use to the model directory in
-application settings. The same mechanism is used for installed applications and
-Git checkouts; the large weights are not included in the application installer.
-DINOv3 code and derived model weights retain the [DINOv3 license](exhale/resources/licenses/DINOv3-LICENSE.md).
-
-On Linux, run the following command to add EXHALE to the current user's desktop
+Run `exhale` to start the application. To add it to the current user's desktop
 environment and application menu:
 
 ```bash
 exhale --install-desktop
 ```
 
-To remove the desktop and menu entry, run:
+To update the application and its selected backends:
+
+```bash
+uv tool upgrade exhale-lung
+```
+
+uv retains the installation settings, including extras and additional
+requirements. To change backend selection, rerun `uv tool install` with the
+wanted extras and, for Cellpose, the requirements argument.
+
+To uninstall, remove the desktop/menu entry before removing the application:
 
 ```bash
 exhale --remove-desktop
+uv tool uninstall exhale-lung
 ```
 
-To uninstall an EXHALE installation managed by uv, run:
+### Windows
+
+Windows 10 or later with 64-bit compatibility is required. Download the
+`exhale-…-setup.exe` installer from the
+[GitHub releases page](https://github.com/ctroein/exhale/releases) and run it.
+
+The installer offers StarDist, Cellpose, both, or neither before setup. It
+downloads a private Python environment and the selected packages; internet
+access is required, but an existing Python or uv installation is not.
+Use the Start menu or optional desktop shortcut to launch EXHALE.
+
+To update, download and run the installer for the newer release. Rerun the
+installer to change the selected backends or repair the installation.
+Uninstall through Windows Settings; the private runtime and shortcuts are
+removed while projects, trained models and application settings are retained.
+
+### macOS
+
+Download the Apple Silicon (`arm64`) or Intel (`x86_64`) DMG from the
+[GitHub releases page](https://github.com/ctroein/exhale/releases), drag
+EXHALE.app into Applications, and open it there. Setup downloads Python and the
+selected segmentation backends; neither Python nor uv needs to be installed
+beforehand. Intel Macs support StarDist but not the current Cellpose backend.
+The launcher requires macOS 13 or newer; Cellpose's PyTorch requires at least
+macOS 14 on Apple Silicon, and dependencies may require newer versions.
+
+The Mac app is not Developer ID signed or notarized. macOS may block its first
+launch; see [Apple's explanation and opening options](https://support.apple.com/102445).
+
+Subsequent launches open the installed application. Hold Option while opening
+EXHALE.app to change backends, repair the installation, or remove the private
+runtime. To update, quit EXHALE and replace the app with a newer release; setup
+will install that release with your previous backend choices. For removal, use
+**Remove Runtime** in setup, then move EXHALE.app to Trash. Projects, model files,
+and application settings are retained.
+
+Alternatively, use the same uv installation, backend selection and update
+commands as on Linux. Start the application with `exhale`. The desktop/menu
+registration commands are Linux-only; to uninstall a Mac uv installation, run:
 
 ```bash
 uv tool uninstall exhale-lung
 ```
+
+App-managed environments are separate from installations made with
+`uv tool install`.
+
+### pip and source installations
+
+Use a virtual environment with a supported Python version (3.11–3.13).
+**Windows StarDist requires Python 3.11** because of its TensorFlow dependency.
+
+For StarDist:
+
+```bash
+python -m pip install 'exhale-lung[stardist]'
+```
+
+For Cellpose (Apple Silicon required on macOS):
+
+```bash
+python -m pip install 'exhale-lung[cellpose]' -r https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt
+```
+
+Use `'exhale-lung[stardist,cellpose]'` with the same requirements argument for
+both backends. For a Git checkout:
+
+```bash
+python -m pip install -e '.[stardist,cellpose]' -r requirements-cellpose.txt
+./run_exhale.py
+```
+
+Omit unwanted extras and the requirements file when Cellpose is not needed.
+On Windows, launch the checkout with `python run_exhale.py`.
+
+### DINOv3 and trained models
+
+The additional requirements file pins DINOv3 to a tested source archive; Git is
+not required. For a particular EXHALE release, replace `main` in the requirements
+URL with its `vVERSION` tag and append `==VERSION` to the package specification.
+A version-pinned uv installation must be reinstalled with a newer version
+specification to upgrade.
+
+Trained Cellpose weights are downloaded on first use to the model directory in
+application settings. The same mechanism is used for installed applications and
+Git checkouts; the large weights are not included in the application installer.
+DINOv3 code and derived model weights retain the
+[DINOv3 license](exhale/resources/licenses/DINOv3-LICENSE.md).
 
 ## Developer documentation
 

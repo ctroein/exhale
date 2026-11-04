@@ -174,13 +174,25 @@ class LayerRowWidget(QtWidgets.QWidget):
             remove_cell.setFixedWidth(layer_list.remove_width)
             remove_layout = QtWidgets.QHBoxLayout(remove_cell)
             remove_layout.setContentsMargins(0, 0, 0, 0)
-            if "exhale_reference_ref" in layer.metadata:
+            if any(
+                key in layer.metadata for key in ("exhale_reference_ref", "exhale_comparison_id")
+            ):
                 remove = QtWidgets.QToolButton()
-                remove.setObjectName("removeReferenceLayer")
-                remove.setIcon(icons.icon(icons.IconName.DELETE))
-                remove.clicked.connect(
-                    lambda: layer_list.removeRequested.emit(layer.metadata["exhale_reference_ref"])
+                comparison_id = layer.metadata.get("exhale_comparison_id")
+                remove.setObjectName(
+                    "removeComparisonLayer" if comparison_id is not None else "removeReferenceLayer"
                 )
+                remove.setIcon(icons.icon(icons.IconName.DELETE))
+                if comparison_id is not None:
+                    remove.clicked.connect(
+                        lambda: layer_list.removeComparisonRequested.emit(comparison_id)
+                    )
+                else:
+                    remove.clicked.connect(
+                        lambda: layer_list.removeRequested.emit(
+                            layer.metadata["exhale_reference_ref"]
+                        )
+                    )
                 remove_layout.addWidget(remove)
             layout.addWidget(remove_cell)
 
@@ -475,6 +487,7 @@ class LayerListWidget(QtWidgets.QListWidget):
 
     presentationChanged = QtCore.Signal()
     removeRequested = QtCore.Signal(object)
+    removeComparisonRequested = QtCore.Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -533,7 +546,10 @@ class LayerListWidget(QtWidgets.QListWidget):
         self.remove_width = (
             self.fontMetrics().height() + 8
             if self.helper is not None
-            and any("exhale_reference_ref" in layer.metadata for layer in self.helper.user_layers())
+            and any(
+                "exhale_reference_ref" in layer.metadata or "exhale_comparison_id" in layer.metadata
+                for layer in self.helper.user_layers()
+            )
             else 0
         )
         self.clear()
