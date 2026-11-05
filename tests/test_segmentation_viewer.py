@@ -7,6 +7,7 @@ from weakref import WeakKeyDictionary
 import numpy as np
 import pytest
 from napari.components import ViewerModel
+from qtpy import QtWidgets
 
 from exhale.analysis.segmentation_viewer import SegmentationViewer
 from exhale.data.projectdata import LayerPresentation, SegmentationResult
@@ -20,8 +21,15 @@ from exhale.data.segmentationhistory import SegmentationCandidate
 from exhale.data.source_refs import ElementRef
 
 
+@pytest.fixture(scope="module")
+def qt_app():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    yield app
+    app.processEvents()
+
+
 @pytest.fixture
-def viewer():
+def viewer(qt_app):
     helper = SegmentationViewer.__new__(SegmentationViewer)
     helper.viewer = ViewerModel()
     helper.result = None
@@ -29,6 +37,7 @@ def viewer():
     helper.inspection_callback = None
     helper.selection_callback = None
     helper.edit_session = None
+    helper._pending_stroke = None
     helper._selection_layers = []
     helper.nuc_layer = None
     helper._image_colors = WeakKeyDictionary()
@@ -37,7 +46,9 @@ def viewer():
     helper.info_widget = Mock()
     helper._tt_show = Mock()
     helper._tt_hide = Mock()
-    return helper
+    yield helper
+    helper.cancel_stroke()
+    qt_app.processEvents()
 
 
 def result(labels, sample_id="sample", method="stardist"):
@@ -272,6 +283,7 @@ def test_brush_drag_previews_then_commits_once_and_cancel_restores_labels(viewer
     event.type = "mouse_release"
     with pytest.raises(StopIteration):
         next(drag)
+    QtWidgets.QApplication.processEvents()
     assert commits == ["brush"] and session.can_undo
     session.undo()
     assert not session.can_undo
@@ -284,6 +296,7 @@ def test_brush_drag_previews_then_commits_once_and_cancel_restores_labels(viewer
     event.type = "mouse_release"
     with pytest.raises(StopIteration):
         next(drag)
+    QtWidgets.QApplication.processEvents()
     assert commits == ["brush"] and not session.changed
     np.testing.assert_array_equal(viewer.nuc_layer.data, labels)
     viewer.set_result(candidate.result)
@@ -314,6 +327,7 @@ def test_outline_modifier_selects_operation_for_the_whole_gesture(viewer, modifi
     event.type = "mouse_release"
     with pytest.raises(StopIteration):
         next(drag)
+    QtWidgets.QApplication.processEvents()
     assert all(call.args[0] == expected for call in viewer.edit_callback.call_args_list)
 
 
@@ -356,6 +370,7 @@ def test_mouse_button_resolves_brush_operation_and_control_does_not_invert(
     event.type = "mouse_release"
     with pytest.raises(StopIteration):
         next(drag)
+    QtWidgets.QApplication.processEvents()
     assert len(commits) == 1 and viewer.edit_tool == tool
     assert [operation for operation, points in commits[0]] == [expected]
     session.undo()
@@ -381,3 +396,92 @@ def test_new_comparison_uses_distinct_monochrome_and_keeps_color_on_refresh(view
     viewer.set_result(active, np.ones((2, 2)), comparisons=[(other, "Other")], fit=False)
     assert other.comparison_presentation == presentation
     np.testing.assert_allclose(viewer.label_display_mode(layer)[1], expected)
+
+
+def test_edit_commit_can_process_nested_mouse_events_after_drag_is_forgotten(viewer):
+    """An edit dialog must not re-enter Napari's still-running drag generator."""
+    import warnings
+
+    from napari.utils._proxies import ReadOnlyWrapper
+    from napari.utils.interactions import (
+        mouse_move_callbacks,
+        mouse_press_callbacks,
+        mouse_release_callbacks,
+    )
+    from qtpy import QtCore, QtWidgets
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    labels = np.zeros((6, 6), dtype=np.uint32)
+    labels[1:3, 1:3] = 42
+    session = SegmentationEditSession(SegmentationCandidate.from_result(result(labels)))
+    session.select(42)
+    viewer.set_result(session.source.result, edit_session=session)
+    viewer.set_edit_tool("add")
+    model = viewer.viewer
+    model.mouse_drag_callbacks.append(viewer._edit_drag)
+    commits = []
+    errors = []
+
+    def event(kind, position):
+        return ReadOnlyWrapper(
+            SimpleNamespace(
+                position=position,
+                button=1,
+                type=kind,
+                modifiers=(),
+                is_dragging=True,
+            )
+        )
+
+    def edit(tool, strokes, *, preview=False):
+        if preview:
+            return session.preview_brush_stroke(strokes, size=1)
+        loop = QtCore.QEventLoop()
+
+        def nested_mouse_events():
+            try:
+                mouse_move_callbacks(model, event("mouse_move", (1, 5)))
+                mouse_release_callbacks(model, event("mouse_release", (1, 5)))
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                loop.quit()
+
+        QtCore.QTimer.singleShot(0, nested_mouse_events)
+        loop.exec()
+        session.brush_stroke(strokes, size=1)
+        commits.append(tool)
+        return session.labels
+
+    viewer.edit_callback = edit
+    with warnings.catch_warnings(record=True) as emitted:
+        warnings.simplefilter("always")
+        mouse_press_callbacks(model, event("mouse_press", (1, 2)))
+        mouse_move_callbacks(model, event("mouse_move", (1, 4)))
+        mouse_release_callbacks(model, event("mouse_release", (1, 4)))
+        app.processEvents()
+    assert not errors
+    assert not [warning for warning in emitted if "mouse callback" in str(warning.message)]
+    assert not model._mouse_drag_gen and not model._persisted_mouse_event
+    assert commits == ["brush"]
+    assert session.labels[1, 4] == 42 and session.labels[1, 5] == 0
+    assert len(session._undo) == 1
+
+
+@pytest.mark.parametrize("change", ["cancel", "different_session"])
+def test_pending_edit_does_not_commit_after_cancellation_or_mask_switch(viewer, change):
+    session = SegmentationEditSession(SegmentationCandidate.from_result(result([[0, 42], [0, 0]])))
+    viewer.set_result(session.source.result, edit_session=session)
+    callback = viewer.edit_callback = Mock(return_value=session.labels)
+    viewer._queue_stroke(session, "draw", [(0, 0), (0, 1), (1, 1)])
+    callback.assert_not_called()
+    if change == "cancel":
+        viewer.cancel_stroke()
+    else:
+        other = SegmentationEditSession(SegmentationCandidate.from_result(result([[1, 1], [0, 0]])))
+        viewer.set_result(other.source.result, edit_session=other)
+    QtWidgets.QApplication.processEvents()
+    callback.assert_not_called()
+    assert viewer._pending_stroke is None
+    assert not session.changed and not session.can_undo
+    np.testing.assert_array_equal(viewer.nuc_layer.data, viewer.edit_session.labels)

@@ -72,9 +72,9 @@ def save_candidate(candidate: SegmentationCandidate, project_dir: str | Path) ->
 
 
 def publish_segmentation(
-    project_data: ProjectData, result: SegmentationResult, project_dir: str | Path
+    project_data: ProjectData, result: SegmentationResult, project_dir: str | Path, *, activate=True
 ) -> SegmentationCandidate:
-    """Save before publication, leaving history untouched when storage fails."""
+    """Save before publication; optionally retain the active mask during a batch."""
     if result.sample_id not in project_data.samples:
         raise KeyError(result.sample_id)
     history = project_data.segmentation_histories.get(result.sample_id)
@@ -82,7 +82,7 @@ def publish_segmentation(
         history = SegmentationHistory(result.sample_id)
     candidate = SegmentationCandidate.from_result(result)
     save_candidate(history.equivalent(candidate) or candidate, project_dir)
-    candidate = history.add_candidate(candidate)
+    candidate = history.add_candidate(candidate, active_id=None if activate else history.active_id)
     project_data.segmentation_histories[result.sample_id] = history
     project_data.segmentation_previews.get(result.sample_id, {}).pop(result.method_id, None)
     return candidate

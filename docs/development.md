@@ -404,7 +404,11 @@ Pass `--iscc PATH` if ISCC.exe is not discoverable. The builder runs the launche
 self-tests before compiling `packaging/exhale.iss`. Those tests include deletion
 of a tree with paths longer than 300 characters: TensorFlow headers exceed the
 legacy Windows path limit. The launcher enables modern .NET path handling and
-uses extended paths for deletion without changing system policy. Runtime packages are downloaded
+uses extended paths for deletion without changing system policy. Cleanup visits
+entries individually and reports the failing path, operation, attributes and
+HRESULT. It removes junctions without traversing their targets. Native self-tests
+check junction target preservation and diagnostics for a locked file as well as
+long paths. Runtime packages are downloaded
 on the target machine, rather than bundled into the installer. Python 3.11 is
 used because Windows StarDist retains TensorFlow 2.15. The installer requires
 64-bit-compatible Windows 10 or later and installs per-user without elevation.

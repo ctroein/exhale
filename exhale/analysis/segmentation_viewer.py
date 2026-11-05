@@ -2,6 +2,7 @@
 
 import numpy as np
 from napari.utils.colormaps import Colormap
+from qtpy import QtCore
 from skimage.measure import find_contours
 
 from ..data.constants import CONCENTRATION_UNITS
@@ -24,6 +25,7 @@ class SegmentationViewer(NapariHelper):
         self.brush_size = 5
         self._cancel_stroke = False
         self._stroke_active = False
+        self._pending_stroke = None
         self._stroke_points = []
         self._selection_layers = []
         super().__init__(theme, abundance_units)
@@ -234,6 +236,7 @@ class SegmentationViewer(NapariHelper):
     def cancel_stroke(self):
         """Discard the uncommitted preview, leaving labels and undo history untouched."""
         self._cancel_stroke = True
+        self._pending_stroke = None
         if hasattr(self, "_editing_cursor"):
             self._editing_cursor.cancel_selection()
         self._stroke_points = []
@@ -242,9 +245,30 @@ class SegmentationViewer(NapariHelper):
         if self.edit_session is not None and self.nuc_layer is not None:
             self.nuc_layer.data = self.edit_session.labels
 
+    def _queue_stroke(self, session, tool, points):
+        """Finish after Napari forgets the generator, before opening any edit dialogs."""
+        pending = object()
+        self._pending_stroke = pending
+
+        def finish():
+            if self._pending_stroke is not pending:
+                return
+            try:
+                if self.edit_session is session:
+                    self.edit_callback(tool, points)
+            finally:
+                if self._pending_stroke is pending:
+                    self._pending_stroke = None
+                if self.edit_session is session:
+                    self.nuc_layer.data = session.labels
+                    self.update_selection()
+
+        QtCore.QTimer.singleShot(0, finish)
+
     def _edit_drag(self, obj, event):
         if (
             self.edit_session is None
+            or self._pending_stroke is not None
             or self.edit_tool == "select"
             or (
                 event.button != 1
@@ -303,13 +327,15 @@ class SegmentationViewer(NapariHelper):
             if not self._cancel_stroke and self.edit_session is session:
                 preview_point()
                 if points:
-                    self.edit_callback("brush" if brush else tool, strokes if brush else points)
+                    self._queue_stroke(
+                        session, "brush" if brush else tool, strokes if brush else points
+                    )
         finally:
             self._stroke_active = False
             self._stroke_points = []
             if hasattr(self, "_editing_cursor"):
                 self._editing_cursor.refresh()
-            if self.edit_session is session:
+            if self.edit_session is session and self._pending_stroke is None:
                 self.nuc_layer.data = session.labels
                 self.update_selection()
 

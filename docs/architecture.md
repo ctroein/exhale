@@ -118,6 +118,25 @@ Analysis execution, persistence, and result visualization live in
 `xrf_refcopy/` stays behind a separate boundary. Its former neural inference and
 combined processing entry points have been removed.
 
+Batch segmentation uses a separate `SegmentationBatchController` owned by
+`AnalysisController`. The review dialog captures checked samples and their nuclei
+channels; method/options are snapshotted when starting the batch. Samples with
+an existing run of that method are skipped by default. The queue is session-only.
+One `BatchSegmentationWorker` loads and segments maps sequentially in a background
+thread and publishes each completed output through GUI-thread callbacks. Model
+acquisition and loaded model caches are reused. Individual failures are collected
+while other samples continue; a shared model-acquisition failure stops the queue.
+
+`publish_segmentation(..., activate=False)` saves an immutable candidate while
+retaining the sample's current active mask. Working edits and viewer selection
+are preserved; first results can be shown for the already-viewed empty sample.
+Batch inference locks run/method/options controls while leaving inspection and
+editing available. Stop cooperatively cancels current inference and the remaining
+queue, keeping published masks. Clearing or closing a project invalidates queued
+callbacks and waits for cancellation before source handles are closed. Current
+backend calls may finish before cancellation takes effect. Element clustering
+cannot run concurrently with either single or batch segmentation.
+
 The lightweight segmentation-method registry supplies stable method IDs,
 dependency checks and worker factories without importing numerical backends.
 `AnalysisWorker` accepts a private snapshot of one map and returns a
@@ -466,3 +485,21 @@ uses the stroke to identify its targets and commits all successful divisions in
 one atomic command, preserving foreground pixels and untouched segments.
 StarDist inference thresholds are method options; their initial values are read
 from the bundled model metadata without importing a neural-network runtime.
+
+Segmentation stroke completion is queued until Napari has released its drag
+generator. Disconnection questions and edit-error dialogs may run nested Qt event
+loops; opening them inside that generator would allow mouse events to re-enter it.
+Cancellation or a changed editing session discards a pending completion.
+
+
+## Assisted-boundary experiment
+
+`analysis.boundaryfitting` provides non-mutating local fitting on original nuclei
+intensities, with edge-based and region-intensity variants, a hard displacement
+band and optional protected pixels. Curvature iteration state is local to a fit.
+It has no neural-model or GUI dependencies. `analysis.boundarycalibration` creates
+perturbed outlines and separates segments into training and validation groups;
+parameter selection uses training scores only. The command-line experiment in
+`tools/fit_boundary_parameters.py` reads accepted masks before post-processing
+and writes separate reports and diagnostic crops. It does not save projects or
+change segmentation history. The editor is not yet wired to these fitters.

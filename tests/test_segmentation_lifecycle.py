@@ -21,6 +21,7 @@ window = QtWidgets.QWidget()
 window.clustering_controller = SimpleNamespace(worker=None)
 window.project_manager = SimpleNamespace(require_project_directory=lambda _: True)
 window.analysisStatus = Mock()
+window.analysisBatchStatus = Mock()
 window.analysisChNuclei = SimpleNamespace(currentData=lambda: 'P')
 window.settings = QtCore.QSettings(QtCore.QSettings.IniFormat,
                                   QtCore.QSettings.UserScope, 'test', 'lifecycle')
@@ -51,7 +52,7 @@ def create_worker(*args, **kwargs):
 
 method = SimpleNamespace(unavailable_reason=lambda: None, create_worker=create_worker)
 control = SimpleNamespace(
-    window=window, worker=None, thread=None,
+    window=window, worker=None, thread=None, batch=SimpleNamespace(active=False),
     current_sample=lambda: SimpleNamespace(sample_id='sample'),
     current_method_id=lambda: 'cellpose',
     segmentation_parameters=lambda: None,

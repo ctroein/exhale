@@ -103,8 +103,9 @@ class ElementSettings:
         self.data_source = as_channel_data(data)
 
         values = self.data
-        self.dataRange = (values.min(), values.max())
-        positives = values[values > 0]
+        finite = values[np.isfinite(values)]
+        self.dataRange = (finite.min(), finite.max()) if finite.size else (0.0, 0.0)
+        positives = finite[finite > 0]
         self.minPositive = positives.min() if positives.size else self.dataRange[1]
         self.trfRange = list(self.dataRange)
         defaults = ElementSettingsDefaults() if defaults is None else defaults.copy()
@@ -148,21 +149,29 @@ class ElementSettings:
         else:  # percent
             p = [5, 95] if param is None else param
 
+        finite = self.data[np.isfinite(self.data)]
+        if not finite.size:
+            self.trfRange[:] = self.dataRange
+            return
         if self.normalizer == Normalizers.LOG:
+            positive = finite[finite > 0]
+            if not positive.size:
+                self.trfRange[:] = self.dataRange
+                return
             if mode == "sd":
-                data = np.log10(self.data[self.data > 0])
+                data = np.log10(positive)
                 m, sd = data.mean(), data.std()
                 mm = 10 ** (m + p * np.array([-sd, sd]))
             else:
-                mm = np.percentile(self.data[self.data > 0], p)
+                mm = np.percentile(positive, p)
             self.trfRange[0] = max(self.minPositive, mm[0])
             self.trfRange[1] = min(self.dataRange[1], mm[1])
         else:
             if mode == "sd":
-                m, sd = self.data.mean(), self.data.std()
+                m, sd = finite.mean(), finite.std()
                 mm = m + p * np.array([-sd, sd])
             else:
-                mm = np.percentile(self.data, p)
+                mm = np.percentile(finite, p)
             self.trfRange[0] = max(self.dataRange[0], mm[0])
             self.trfRange[1] = min(self.dataRange[1], mm[1])
 

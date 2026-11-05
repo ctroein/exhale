@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from qtpy import QtCore, QtWidgets
+from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import Qt
 
 from .. import icons
@@ -31,6 +31,45 @@ class _SampleTreeDelegate(QtWidgets.QStyledItemDelegate):
             return
         super().setEditorData(editor, index)
 
+    def paint(self, painter, option, index):
+        if index.column() != 2 or index.data(ProjectTab.NODE_KIND_ROLE) != "sample":
+            super().paint(painter, option, index)
+            return
+        label = index.data(Qt.DisplayRole)
+        if " (+" not in label:
+            super().paint(painter, option, index)
+            return
+        summary, counts = label.split(" (+", 1)
+        added, removed = counts.rstrip(")").split(" -", 1)
+        styled = QtWidgets.QStyleOptionViewItem(option)
+        self.initStyleOption(styled, index)
+        styled.text = ""
+        style = styled.widget.style()
+        style.drawControl(QtWidgets.QStyle.CE_ItemViewItem, styled, painter, styled.widget)
+        rect = style.subElementRect(QtWidgets.QStyle.SE_ItemViewItemText, styled, styled.widget)
+        metrics = styled.fontMetrics
+        baseline = rect.y() + (rect.height() + metrics.ascent() - metrics.descent()) // 2
+        dark = styled.palette.color(QtGui.QPalette.Window).lightness() < 128
+        base_color = styled.palette.color(
+            QtGui.QPalette.HighlightedText
+            if styled.state & QtWidgets.QStyle.State_Selected
+            else QtGui.QPalette.Text
+        )
+        segments = (
+            (summary + " (", base_color),
+            ("+" + added, QtGui.QColor("#79bd85") if dark else QtGui.QColor("#286c37")),
+            (" -" + removed, QtGui.QColor("#d98080") if dark else QtGui.QColor("#993939")),
+            (")", base_color),
+        )
+        painter.save()
+        painter.setClipRect(rect)
+        x = rect.x()
+        for text, color in segments:
+            painter.setPen(color)
+            painter.drawText(x, baseline, text)
+            x += metrics.horizontalAdvance(text)
+        painter.restore()
+
 
 class ProjectTab(QtCore.QObject):
     """Coordinate Project data tab controls with the authoritative project model."""
@@ -51,17 +90,12 @@ class ProjectTab(QtCore.QObject):
             "abundanceUnitsValue",
             "channelList",
             "dataRootValue",
-            "elementMapList",
-            "mapsLabel",
             "projectDirectoryValue",
             "refreshChannelsButton",
             "removeButton",
             "resolutionUnits",
             "resolutionValue",
             "sampleTree",
-            "selectedSampleLabel",
-            "selectedSampleValue",
-            "sampleSizeValue",
         ):
             setattr(self, name, getattr(window, name))
         self.widget.installEventFilter(self)
@@ -71,26 +105,29 @@ class ProjectTab(QtCore.QObject):
         self.channelList.setSelectionMode(
             QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection
         )
-        self.channelList.setItemDelegate(IconCheckDelegate(self.channelList))
-        self.elementMapList.use_sample_check_delegate()
+        self.channelList.setRootIsDecorated(False)
+        self.channelList.setItemDelegateForColumn(0, IconCheckDelegate(self.channelList))
+        self.channelList.header().setStretchLastSection(False)
+        self.channelList.header().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+        self.channelList.header().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
         self.refreshChannelsButton.setIcon(icons.icon(icons.IconName.REFRESH))
         self.addProjectFilesButton.setIcon(icons.icon(icons.IconName.FILE_DATA))
         self.addSampleFilesButton.setIcon(icons.icon(icons.IconName.FILE))
         self.removeButton.setIcon(icons.icon(icons.IconName.DELETE))
         self.sampleTree.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.sampleTree.setItemDelegate(_SampleTreeDelegate(self))
-        for column in range(2):
+        for column in range(3):
             self.sampleTree.header().setSectionResizeMode(column, QtWidgets.QHeaderView.Interactive)
         header = self.sampleTree.header()
         header.setStretchLastSection(False)
         header.sectionResized.connect(self._tree_section_resized)
         self._tree_widths_initialized = False
         self._maps_column_min_width = 0
+        self._size_column_min_width = 0
 
         self.sampleTree.currentItemChanged.connect(self._tree_selection_changed)
         self.sampleTree.itemDoubleClicked.connect(self._begin_tree_edit)
         self.sampleTree.itemChanged.connect(self._tree_item_changed)
-        self.elementMapList.stateToggleRequested.connect(self._cycle_map_state)
         self.channelList.itemChanged.connect(self._project_channel_check_changed)
         self.refreshChannelsButton.clicked.connect(self.refresh_channels)
         self.addProjectFilesButton.clicked.connect(window.source_manager.select_and_open_files)
@@ -111,7 +148,7 @@ class ProjectTab(QtCore.QObject):
             and event.type() == QtCore.QEvent.Resize
             and self._tree_widths_initialized
         ):
-            self._fit_tree_columns(self.sampleTree.columnWidth(1), event.size().width())
+            self._fit_tree_columns(event.size().width())
         elif (
             watched is self.channelList
             and event.type() == QtCore.QEvent.KeyPress
@@ -121,7 +158,7 @@ class ProjectTab(QtCore.QObject):
             if current is not None:
                 selected = self.channelList.selectedItems() or [current]
                 self._set_project_channels(
-                    selected, current.checkState() == Qt.CheckState.Unchecked
+                    selected, current.checkState(0) == Qt.CheckState.Unchecked
                 )
             return True
         return super().eventFilter(watched, event)
@@ -168,13 +205,13 @@ class ProjectTab(QtCore.QObject):
             self.sampleTree.clear()
             selected_item = None
             for sample in self.project.samples.values():
-                effective = sample.effective_channels(self.project.project_channels)
                 sample_item = QtWidgets.QTreeWidgetItem(
-                    [sample.name, f"{len(effective)}/{len(sample.channels)}"]
+                    [sample.name, self._sample_size(sample), self._map_count(sample)]
                 )
                 sample_item.setFlags(sample_item.flags() | Qt.ItemFlag.ItemIsEditable)
                 sample_item.setData(0, self.NODE_KIND_ROLE, "sample")
                 sample_item.setData(0, self.NODE_ID_ROLE, sample.sample_id)
+                sample_item.setToolTip(2, self._map_count_tooltip(sample))
                 self.sampleTree.addTopLevelItem(sample_item)
                 if sample.sample_id == selected:
                     selected_item = sample_item
@@ -191,7 +228,7 @@ class ProjectTab(QtCore.QObject):
                     if not asset.is_available:
                         name += " [unavailable]"
                     file_item = QtWidgets.QTreeWidgetItem(
-                        [name, channels[0].key if single_map_tiff else ""]
+                        [name, "", channels[0].key if single_map_tiff else ""]
                     )
                     file_item.setFlags(file_item.flags() | Qt.ItemFlag.ItemIsEditable)
                     if single_map_tiff:
@@ -215,7 +252,6 @@ class ProjectTab(QtCore.QObject):
                 selected_item = self.sampleTree.topLevelItem(0)
             self.sampleTree.setCurrentItem(selected_item)
         self.refresh_channels()
-        self.refresh_sample_maps()
         self._update_selection_controls()
         self._sync_resolution_controls()
         self._sync_abundance_units_control()
@@ -228,35 +264,41 @@ class ProjectTab(QtCore.QObject):
         padding = metrics.horizontalAdvance("  ") + 24
         maps_width = (
             max(
-                metrics.horizontalAdvance(header.model().headerData(1, Qt.Horizontal)),
-                metrics.horizontalAdvance("000/000"),
+                metrics.horizontalAdvance(header.model().headerData(2, Qt.Horizontal)),
+                metrics.horizontalAdvance("000/000 (+00 -00)"),
             )
             + padding
         )
         self._maps_column_min_width = maps_width
+        self._size_column_min_width = metrics.horizontalAdvance("00000×00000") + padding
+        self._size_column_width = self._size_column_min_width
+        self._maps_column_width = self._maps_column_min_width
         self._tree_widths_initialized = True
-        self._fit_tree_columns(maps_width)
+        self._fit_tree_columns()
 
     def _tree_section_resized(self, logical_index, _old_size, new_size):
         if not self._tree_widths_initialized:
             return
-        total = self.sampleTree.viewport().width()
-        maps_width = total - new_size if logical_index == 0 else new_size
-        self._fit_tree_columns(maps_width, total)
+        if logical_index == 1:
+            self._size_column_width = new_size
+        elif logical_index == 2:
+            self._maps_column_width = new_size
+        self._fit_tree_columns()
 
-    def _fit_tree_columns(self, maps_width, total=None):
-        """Make the two adjustable columns exactly fill the tree viewport."""
+    def _fit_tree_columns(self, total=None):
+        """Give the summary columns enough room and leave remaining space for names."""
         if total is None:
             total = self.sampleTree.viewport().width()
         if total <= 0:
             return
         minimum = self.sampleTree.header().minimumSectionSize()
-        maps_minimum = max(minimum, self._maps_column_min_width)
-        maps_width = min(max(maps_width, maps_minimum), max(maps_minimum, total - minimum))
-        name_width = total - maps_width
+        size_width = max(minimum, self._size_column_width)
+        maps_width = max(minimum, self._maps_column_width)
+        name_width = max(minimum, total - size_width - maps_width)
         with QtCore.QSignalBlocker(self.sampleTree.header()):
             self.sampleTree.setColumnWidth(0, name_width)
-            self.sampleTree.setColumnWidth(1, maps_width)
+            self.sampleTree.setColumnWidth(1, size_width)
+            self.sampleTree.setColumnWidth(2, maps_width)
 
     @staticmethod
     def _path_labels(paths):
@@ -275,7 +317,9 @@ class ProjectTab(QtCore.QObject):
 
     def refresh_channels(self):
         current = self.channelList.currentItem()
-        current_key = None if current is None else current.data(ElementListWidget.CHANNEL_KEY_ROLE)
+        current_key = (
+            None if current is None else current.data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+        )
         keys = {key for sample in self.project.samples.values() for key in sample.channels}
         ordered = sorted(
             keys, key=lambda key: (key not in self.project.project_channels, key.casefold())
@@ -293,60 +337,55 @@ class ProjectTab(QtCore.QObject):
                 name = project_channel.name if project_channel is not None else available.name
                 text = key if name == key else f"{name} [{key}]"
                 enabled = project_channel is not None
-                item = QtWidgets.QListWidgetItem(text)
+                item = QtWidgets.QTreeWidgetItem([text, ""])
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked)
-                item.setData(ElementListWidget.CHANNEL_KEY_ROLE, key)
-                item.setData(ElementListWidget.ELEMENT_REF_ROLE, available.ref)
-                self.channelList.addItem(item)
+                item.setCheckState(0, Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked)
+                item.setData(0, ElementListWidget.CHANNEL_KEY_ROLE, key)
+                item.setData(0, ElementListWidget.ELEMENT_REF_ROLE, available.ref)
+                self.channelList.addTopLevelItem(item)
                 if key == current_key:
                     selected_item = item
             self.channelList.setCurrentItem(selected_item)
+        self.refresh_channel_counts()
 
-    def refresh_sample_maps(self):
-        sample_id = self.selected_sample_id()
-        sample = self.project.samples.get(sample_id)
-        current = self.elementMapList.currentItem()
-        current_key = None if current is None else current.data(ElementListWidget.CHANNEL_KEY_ROLE)
-        self.mapsLabel.setText("Sample elements")
-        with QtCore.QSignalBlocker(self.elementMapList):
-            self.elementMapList.clear()
-            if sample is None:
-                return
-            ordered = sorted(
-                sample.channels,
-                key=lambda key: (key not in self.project.project_channels, key.casefold()),
-            )
-            has_project_elements = any(key in self.project.project_channels for key in ordered)
-            divider_added = False
-            selected_item = None
-            for key in ordered:
-                channel = sample.channels[key]
-                state = self.project.sample_channel_state(sample_id, key)
-                deferred = key not in sample.channel_overrides
-                name = (
-                    self.project.project_channels[key].name
-                    if deferred and key in self.project.project_channels
-                    else channel.name
+    def refresh_channel_counts(self):
+        """Update per-element availability and override explanations without moving rows."""
+        samples = list(self.project.samples.values())
+        total = len(samples)
+        with QtCore.QSignalBlocker(self.channelList):
+            for row in range(self.channelList.topLevelItemCount()):
+                item = self.channelList.topLevelItem(row)
+                key = item.data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+                present = sum(self._has_map(sample, key) for sample in samples)
+                default_enabled = key in self.project.project_channels
+                included = sum(
+                    self._has_map(sample, key)
+                    and not default_enabled
+                    and key in sample.channel_overrides
+                    and sample.channel_overrides[key] is not None
+                    for sample in samples
                 )
-                item = self.elementMapList.addSampleChannel(
-                    key if name == key else f"{name} [{key}]",
-                    key,
-                    channel.ref,
-                    state,
-                    deferred=deferred,
-                    project_enabled=key in self.project.project_channels,
-                    group_divider=(
-                        has_project_elements
-                        and key not in self.project.project_channels
-                        and not divider_added
-                    ),
+                excluded = sum(
+                    self._has_map(sample, key)
+                    and default_enabled
+                    and key in sample.channel_overrides
+                    and sample.channel_overrides[key] is None
+                    for sample in samples
                 )
-                if key not in self.project.project_channels:
-                    divider_added = True
-                if key == current_key:
-                    selected_item = item
-            self.elementMapList.setCurrentItem(selected_item)
+                item.setText(1, f"{present}/{total}")
+                tooltip = (
+                    f"Available: {present}/{total} samples\n"
+                    f"Project default: {'included' if default_enabled else 'excluded'}\n"
+                    f"Sample {'exclusions' if default_enabled else 'inclusions'}: "
+                    f"{excluded if default_enabled else included}"
+                )
+                item.setToolTip(0, tooltip)
+                item.setToolTip(1, tooltip)
+
+    @staticmethod
+    def _has_map(sample, key):
+        channel = sample.channels.get(key)
+        return channel is not None and channel.ref is not None
 
     def reload_icons(self):
         """Reload palette-dependent icons used by the project-data controls."""
@@ -355,7 +394,6 @@ class ProjectTab(QtCore.QObject):
         self.removeButton.setIcon(icons.icon(icons.IconName.DELETE))
         self.refreshChannelsButton.setIcon(icons.icon(icons.IconName.REFRESH))
         self.channelList.viewport().update()
-        self.elementMapList.viewport().update()
         with QtCore.QSignalBlocker(self.sampleTree):
             for row in range(self.sampleTree.topLevelItemCount()):
                 sample_item = self.sampleTree.topLevelItem(row)
@@ -365,19 +403,12 @@ class ProjectTab(QtCore.QObject):
                     file_item.setIcon(0, icons.icon(icon_name))
 
     def _tree_selection_changed(self):
-        self.refresh_sample_maps()
         self._update_selection_controls()
 
     def _update_selection_controls(self):
         sample_id = self.selected_sample_id()
         sample = self.project.samples.get(sample_id)
         item = self.sampleTree.currentItem()
-        self.selectedSampleValue.setText(sample.name if sample is not None else "—")
-        self.sampleSizeValue.setText(
-            f"{sample.shape[1]} × {sample.shape[0]} px"
-            if sample is not None and sample.shape is not None
-            else "—"
-        )
         self.addSampleFilesButton.setEnabled(sample is not None)
         self.removeButton.setEnabled(sample is not None and item is not None)
 
@@ -425,17 +456,18 @@ class ProjectTab(QtCore.QObject):
         changed = False
         with QtCore.QSignalBlocker(self.channelList):
             for item in items:
-                key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
-                ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
+                key = item.data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+                ref = item.data(0, ElementListWidget.ELEMENT_REF_ROLE)
                 if enabled:
                     try:
                         settings = self.window.element_controller.ensure_settings(ref)
                     except SourceUnavailableError as exc:
                         self.window.show_source_unavailable(exc.source_id)
                         item.setCheckState(
+                            0,
                             Qt.CheckState.Checked
                             if key in self.project.project_channels
-                            else Qt.CheckState.Unchecked
+                            else Qt.CheckState.Unchecked,
                         )
                         continue
                     _sample, channel = self.project.channel_for_ref(ref)
@@ -444,41 +476,60 @@ class ProjectTab(QtCore.QObject):
                 else:
                     self.project.remove_project_channel(key)
                 changed = True
-                item.setCheckState(Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked)
+                item.setCheckState(0, Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked)
         if not changed:
             return
         self.window.element_controller.effective_channels_changed()
-        self.window.element_controller.refresh_current_channel_states()
-        self.refresh_sample_maps()
+        self.window.element_controller.sample_changed()
         self.refresh_map_counts()
+        self.refresh_channel_counts()
         self._mark_changed()
 
-    def _project_channel_check_changed(self, item):
-        self._set_project_channels([item], item.checkState() == Qt.CheckState.Checked)
-
-    def _cycle_map_state(self, item):
-        sample_id = self.selected_sample_id()
-        if sample_id is None:
+    def _project_channel_check_changed(self, item, column):
+        if column != 0:
             return
-        key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
-        ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
-        if not self.window.element_controller.cycle_sample_channel(sample_id, key, ref):
-            self.refresh_sample_maps()
-            return
-        self.window.element_controller.effective_channels_changed()
-        self.window.element_controller.refresh_current_channel_states()
-        self.refresh_sample_maps()
-        self.refresh_map_counts()
-        self._mark_changed()
+        self._set_project_channels([item], item.checkState(0) == Qt.CheckState.Checked)
 
     def refresh_map_counts(self):
         for row in range(self.sampleTree.topLevelItemCount()):
             item = self.sampleTree.topLevelItem(row)
             sample = self.project.samples[item.data(0, self.NODE_ID_ROLE)]
-            item.setText(
-                1,
-                f"{len(sample.effective_channels(self.project.project_channels))}/{len(sample.channels)}",
-            )
+            item.setText(2, self._map_count(sample))
+            item.setToolTip(2, self._map_count_tooltip(sample))
+
+    def _map_count_tooltip(self, sample):
+        project_keys = self.project.project_channels
+        effective = sample.effective_channels(project_keys)
+        unavailable = sum(not self._has_map(sample, key) for key in project_keys)
+        project_included = sum(key in effective for key in project_keys)
+        project_excluded = len(project_keys) - project_included - unavailable
+        extra_included = sum(key not in project_keys for key in effective)
+        return (
+            f"Project elements: {project_included} included, {unavailable} unavailable, "
+            f"{project_excluded} excluded.\nExtra elements: {extra_included} included."
+        )
+
+    @staticmethod
+    def _sample_size(sample):
+        return f"{sample.shape[1]}×{sample.shape[0]}" if sample.shape is not None else "—"
+
+    def _map_count(self, sample):
+        included, available, added, removed = self._map_counts(sample)
+        suffix = f" (+{added} -{removed})" if added or removed else ""
+        return f"{included}/{available}{suffix}"
+
+    def _map_counts(self, sample):
+        project_keys = self.project.project_channels
+        included = len(sample.effective_channels(project_keys))
+        added = sum(
+            self._has_map(sample, key) and key not in project_keys and override is not None
+            for key, override in sample.channel_overrides.items()
+        )
+        removed = sum(
+            self._has_map(sample, key) and key in project_keys and override is None
+            for key, override in sample.channel_overrides.items()
+        )
+        return included, len(sample.channels), added, removed
 
     def _resolution_changed(self, *_):
         self.project.image_defaults.setResolution(

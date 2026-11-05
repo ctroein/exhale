@@ -36,7 +36,30 @@ internal sealed class RuntimeSetup
     static void DeleteTree(string path)
     {
         // TensorFlow headers exceed MAX_PATH even in a normal installation folder.
-        Directory.Delete(ExtendedPath(path), true);
+        string fullPath = ExtendedPath(path);
+        string operation = "read attributes";
+        FileAttributes attributes = 0;
+        try
+        {
+            attributes = File.GetAttributes(fullPath);
+            bool directory = (attributes & FileAttributes.Directory) != 0;
+            // Never traverse junctions or symbolic links into their targets.
+            if (directory && (attributes & FileAttributes.ReparsePoint) == 0)
+            {
+                operation = "enumerate directory";
+                foreach (string entry in Directory.GetFileSystemEntries(fullPath)) DeleteTree(entry);
+            }
+            operation = directory ? "remove directory or directory link" : "delete file or file link";
+            if (directory) Directory.Delete(fullPath, false);
+            else File.Delete(fullPath);
+        }
+        catch (Exception error)
+        {
+            if (!(error is IOException) && !(error is UnauthorizedAccessException)) throw;
+            throw new IOException("Runtime cleanup failed: operation=" + operation +
+                "; path=" + fullPath + "; attributes=" + attributes +
+                "; HRESULT=0x" + error.HResult.ToString("X8"), error);
+        }
     }
     internal static string Quote(string value)
     {
@@ -217,6 +240,42 @@ internal sealed class RuntimeSetup
             File.WriteAllText(ExtendedPath(longFile), "header");
             DeleteTree(longRoot);
             if (Directory.Exists(longRoot)) throw new Exception("Long-path deletion failed.");
+            string target = Path.Combine(directory, "junction-target");
+            Directory.CreateDirectory(target);
+            string sentinel = Path.Combine(target, "preserve.txt");
+            File.WriteAllText(sentinel, "outside the deleted tree");
+            string junctionRoot = Path.Combine(directory, "junction-test");
+            Directory.CreateDirectory(junctionRoot);
+            string junction = Path.Combine(junctionRoot, "linked-directory");
+            var linkInfo = new ProcessStartInfo(Environment.GetEnvironmentVariable("ComSpec"),
+                "/d /c mklink /J " + Quote(junction) + " " + Quote(target));
+            linkInfo.UseShellExecute = false;
+            linkInfo.CreateNoWindow = true;
+            using (var process = Process.Start(linkInfo))
+            {
+                process.WaitForExit();
+                if (process.ExitCode != 0) throw new Exception("Could not create the junction test fixture.");
+            }
+            if ((File.GetAttributes(junction) & FileAttributes.ReparsePoint) == 0)
+                throw new Exception("Junction test fixture is not a reparse point.");
+            DeleteTree(junctionRoot);
+            if (Directory.Exists(junctionRoot) || File.ReadAllText(sentinel) != "outside the deleted tree")
+                throw new Exception("Junction cleanup followed the link or left the deleted tree behind.");
+            string lockedRoot = Path.Combine(directory, "locked-file-test");
+            Directory.CreateDirectory(lockedRoot);
+            string lockedFile = Path.Combine(lockedRoot, "locked.txt");
+            using (var stream = new FileStream(lockedFile, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                try { DeleteTree(lockedRoot); throw new Exception("Locked-file deletion unexpectedly succeeded."); }
+                catch (IOException error)
+                {
+                    string report = error.ToString();
+                    if (!report.Contains(ExtendedPath(lockedFile)) ||
+                        !report.Contains("operation=delete file or file link") || !report.Contains("HRESULT=0x"))
+                        throw new Exception("Cleanup failure omitted the offending path or operation.", error);
+                }
+            }
+            DeleteTree(lockedRoot);
             foreach (string selection in new[] { "none", "stardist", "cellpose", "both" })
             {
                 string home = Path.Combine(directory, selection);

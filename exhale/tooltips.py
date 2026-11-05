@@ -32,10 +32,8 @@ MAIN_WINDOW = {
     "removeButton": (
         "Remove the selected sample or file from the project. Files on disk are not deleted."
     ),
-    "mapsLabel": (
-        "Choose whether each element follows the project setting, is included in this sample, "
-        "or is excluded from it."
-    ),
+    "sampleElementsHelp": "How project defaults and sample element choices work.",
+    "projectElementsHelp": "How project defaults and sample element choices work.",
     "channelsLabel": (
         "Set which elements samples use by default. Sample-specific choices take precedence."
     ),
@@ -71,6 +69,8 @@ MAIN_WINDOW = {
     "analysisReviewedForTraining": "Use this complete mask revision as the sample’s training annotation. Accept or reject pending edits first.",
     "analysisKeepMask": "Keep this mask when older unprotected predictions leave the recent history.",
     "analysisAddComparison": "Add the selected segmentation as a comparison layer. Compared masks are retained.",
+    "analysisAbort": "Cancel the current sample and any remaining batch samples. Cancellation waits for the current inference call to return.",
+    "analysisBatch": "Choose samples and nuclei channels for sequential segmentation with the current method and options.",
     "analysisRun": "Run segmentation for this sample.",
     "analysisOptions": "Configure inference parameters for the selected segmentation method.",
     "analysisExport": "Export the edited segmentation as a TIFF image, before post-processing.",

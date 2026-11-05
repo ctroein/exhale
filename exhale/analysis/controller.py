@@ -28,6 +28,7 @@ from ..data.source_refs import SourceUnavailableError
 from ..model_settings import model_directory
 from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
 from .segmentation_options_dialog import SegmentationOptionsDialog
+from .segmentationbatch import SegmentationBatchController
 from .segmentationio import publish_segmentation
 from .segmentationmethods import SEGMENTATION_METHODS, segmentation_method
 
@@ -49,6 +50,8 @@ class AnalysisController(QtCore.QObject):
         self.naparihelper = None
         self.worker = None
         self.thread = None
+        self.batch = SegmentationBatchController(self)
+        window.analysisBatchStatus.hide()
         self._result_sample_id = None
         self._result_candidate_id = None
         self._display_result = None
@@ -196,19 +199,55 @@ class AnalysisController(QtCore.QObject):
             stamp = candidate.created_at
         return f"{'Edited ' if candidate.edited else ''}{method} {stamp}"
 
-    def _refresh_masks(self, *, rebuild=True):
+    def _refresh_masks(self, *, rebuild=True, incremental=False):
         """Keep candidate order stable while restoring the sample's active identity."""
         window = self.window
         history = self._history()
         selector = window.analysisMaskCombo
+        draft = None
         if rebuild:
             with QtCore.QSignalBlocker(selector):
-                selector.clear()
+                editor = self._mask_name_edit
+                if (
+                    incremental
+                    and history is not None
+                    and selector.currentData() == history.active_id
+                    and editor.isModified()
+                ):
+                    draft = (
+                        editor.text(),
+                        editor.cursorPosition(),
+                        editor.selectionStart(),
+                        len(editor.selectedText()),
+                    )
+                if incremental and history is not None:
+                    for row in reversed(range(selector.count())):
+                        if selector.itemData(row) not in history.candidates:
+                            selector.removeItem(row)
+                else:
+                    selector.clear()
                 if history is not None:
+                    existing = {selector.itemData(row) for row in range(selector.count())}
                     for candidate in history.candidates.values():
-                        selector.addItem(self._mask_name(candidate), candidate.candidate_id)
-                    selector.setCurrentIndex(selector.findData(history.active_id))
+                        if candidate.candidate_id not in existing:
+                            selector.addItem(self._mask_name(candidate), candidate.candidate_id)
+                    index = selector.findData(history.active_id)
+                    if selector.currentIndex() != index:
+                        selector.setCurrentIndex(index)
         self.refresh_mask_markers()
+        if draft is not None:
+            # Row removals and icon updates both make Qt replace uncommitted names.
+            text, cursor, start, length = draft
+            with QtCore.QSignalBlocker(editor):
+                editor.setText(text)
+                editor.setModified(True)
+                if start >= 0:
+                    if cursor == start:
+                        editor.setSelection(start + length, -length)
+                    else:
+                        editor.setSelection(start, length)
+                else:
+                    editor.setCursorPosition(cursor)
         candidate = self.current_candidate()
         for button, checked in (
             (window.analysisKeepMask, candidate is not None and candidate.keep),
@@ -761,6 +800,7 @@ class AnalysisController(QtCore.QObject):
 
     def shutdown(self) -> None:
         """Close auxiliary UI and stop an active worker before application exit."""
+        self.batch.shutdown()
         self.settings_dialog.close()
         if self._editing_help_dialog is not None:
             self._editing_help_dialog.close()
@@ -830,6 +870,7 @@ class AnalysisController(QtCore.QObject):
         window.channelsChanged.connect(self.update_channels)
         self.update_channels()
         window.analysisRun.pressed.connect(self.run)
+        window.analysisBatch.clicked.connect(self.run_batch)
         window.analysisAbort.pressed.connect(self.abort)
         window.analysisExport.clicked.connect(self.export_results)
         window.analysisSaveView.clicked.connect(self.save_current_view)
@@ -838,7 +879,9 @@ class AnalysisController(QtCore.QObject):
         self.set_busy(False)
 
     def abort(self) -> None:
-        if self.worker is not None:
+        if self.batch.active:
+            self.batch.abort()
+        elif self.worker is not None:
             self.worker.abort()
 
     def current_sample(self):
@@ -1294,7 +1337,7 @@ class AnalysisController(QtCore.QObject):
     def update_layer_controls(self) -> None:
         self.window.analysisLayerList.rebuild()
 
-    def set_busy(self, busy: bool) -> None:
+    def set_busy(self, busy: bool, *, preserve_view=False) -> None:
         window = self.window
         for widget in (
             window.analysisRun,
@@ -1311,9 +1354,15 @@ class AnalysisController(QtCore.QObject):
             self.settings_dialog,
         ):
             widget.setEnabled(not busy)
-        window.analysisProgress.setRange(0, 0 if busy else 1)
-        window.analysisProgress.setTextVisible(False)
-        self._model_progress_phase = None
+        batch_busy = self.batch.active
+        window.analysisRun.setEnabled(not busy and not batch_busy)
+        window.analysisBatch.setEnabled(not busy and not batch_busy)
+        window.analysisPipelineComboBox.setEnabled(not busy and not batch_busy)
+        self.settings_dialog.setEnabled(not busy and not batch_busy)
+        if not batch_busy:
+            window.analysisProgress.setRange(0, 0 if busy else 1)
+            window.analysisProgress.setTextVisible(False)
+            self._model_progress_phase = None
         window.analysisExport.setEnabled(
             not busy and self.naparihelper is not None and self.naparihelper.result is not None
         )
@@ -1322,20 +1371,23 @@ class AnalysisController(QtCore.QObject):
         )
         method_id = self.current_method_id()
         window.analysisOptions.setEnabled(
-            not busy and method_id is not None and segmentation_method(method_id).has_options
+            not busy
+            and not batch_busy
+            and method_id is not None
+            and segmentation_method(method_id).has_options
         )
-        window.analysisAbort.setEnabled(busy)
+        window.analysisAbort.setEnabled(busy or batch_busy)
         window.analysisPostprocessing.setEnabled(
             not busy and self._display_result is not None and not self._editing_mode()
         )
         self._update_edit_controls()
         if not busy:
-            self._refresh_masks()
+            self._refresh_masks(incremental=preserve_view)
             self._refresh_reference_choices()
 
     def _model_progress(self, phase, completed, total) -> None:
         """Show bounded transfer/checksum progress using the existing progress bar."""
-        if self.worker is None:
+        if self.worker is None and not self.batch.active:
             return
         if phase != self._model_progress_phase:
             self._append_status(f"{phase} trained model")
@@ -1354,10 +1406,56 @@ class AnalysisController(QtCore.QObject):
         self.window.analysisStatus.appendPlainText(strftime("[%T] ") + message)
         self.window.analysisStatus.ensureCursorVisible()
 
+    def run_batch(self) -> None:
+        """Review a batch without changing masks, working edits or the viewed sample."""
+        from .segmentation_batch_dialog import SegmentationBatchDialog
+
+        window = self.window
+        if (
+            self.worker is not None
+            or self.batch.active
+            or window.clustering_controller.worker is not None
+        ):
+            window.show_error("Another analysis is running.")
+            return
+        method_id = self.current_method_id()
+        if method_id is None:
+            window.show_error("Select a segmentation method first.")
+            return
+        method = segmentation_method(method_id)
+        reason = method.unavailable_reason()
+        if reason is not None:
+            window.show_error("The selected segmentation method is unavailable", reason)
+            return
+        if not window.project_manager.require_project_directory(
+            "Segmentation results are stored in the project directory."
+        ):
+            return
+        parameters = self.segmentation_parameters()
+        sample = self.current_sample()
+        dialog = SegmentationBatchDialog(
+            window.project_data,
+            method,
+            current_sample_id=None if sample is None else sample.sample_id,
+            current_ref=window.analysisChNuclei.currentData(),
+            parent=window,
+        )
+        if dialog.exec() != QtWidgets.QDialog.Accepted:
+            return
+        jobs = dialog.jobs()
+        if jobs:
+            window.analysisStatus.clear()
+            self._append_status(f"Starting {method.name} batch")
+            self.batch.start(jobs, method_id, parameters)
+
     def run(self) -> None:
         """Validate the selected sample and start its background segmentation."""
         window = self.window
-        if self.worker is not None or window.clustering_controller.worker is not None:
+        if (
+            self.worker is not None
+            or self.batch.active
+            or window.clustering_controller.worker is not None
+        ):
             window.show_error("Another analysis is running.")
             return
         if not window.project_manager.require_project_directory(
@@ -1365,6 +1463,7 @@ class AnalysisController(QtCore.QObject):
         ):
             return
 
+        window.analysisBatchStatus.hide()
         window.analysisStatus.clear()
         self._append_status("Initializing")
         sample = self.current_sample()
@@ -1560,6 +1659,8 @@ class AnalysisController(QtCore.QObject):
 
     def clear_project(self) -> None:
         """Clear controller-owned derived display state for a new project."""
+        self.batch.shutdown()
+        self.window.analysisBatchStatus.hide()
         self._edit_session = None
         with QtCore.QSignalBlocker(self.window.analysisProcessingTabs):
             self.window.analysisProcessingTabs.setCurrentWidget(
@@ -1569,3 +1670,4 @@ class AnalysisController(QtCore.QObject):
         if self.naparihelper is not None:
             self.naparihelper.reset_initial_fit()
             self.clear_result_view()
+        self.set_busy(self.worker is not None)

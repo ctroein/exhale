@@ -54,6 +54,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.setupUi(self)
         self.setWindowTitle(application_title)
         self._configure_tooltips()
+        self.sampleElementsHelp.clicked.connect(self.show_element_selection_help)
+        self.projectElementsHelp.clicked.connect(self.show_element_selection_help)
 
         self._exception_dialog = ExceptionDetailsDialog(self)
 
@@ -110,6 +112,20 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         apply_tab_tooltips(self, self.correlationModes, CORRELATION_TABS)
         apply_tooltips(self, MAIN_WINDOW)
 
+    def show_element_selection_help(self) -> None:
+        QtWidgets.QMessageBox.information(
+            self,
+            "Element selection",
+            "Project elements define which maps are included by default. "
+            "For each sample, you can include or exclude an available element regardless "
+            "of that default. A sample can only use maps present in its files. "
+            "Use the checkboxes under Sample elements in Element maps to change "
+            "the sample selection.\n\n"
+            "In Project data, the Element maps column shows selected/available maps. "
+            "The + and − counts show how many available maps the sample includes or excludes "
+            "contrary to the project default.",
+        )
+
     def closeEvent(self, ev):
         skip_confirmation = self._skip_next_quit_confirmation
         self._skip_next_quit_confirmation = False
@@ -131,7 +147,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def _configure_splitter_persistence(self):
         """Restore every main-window splitter after its tab has usable geometry."""
         specifications = {
-            "project_data": (self.project_tab.splitter, self.projectDataTab, (2, 2, 1)),
+            "project_data": (self.project_tab.splitter, self.projectDataTab, (2, 1)),
             "splitter": (self.splitter, self.dataTab, (1, 1, 2)),
             "analysis": (self.analysisSplitter, self.analysisTab, (180, 400, 200)),
             "analysis_left": (self.analysisLeftSplitter, self.analysisTab, (2, 1)),
@@ -215,9 +231,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.analysisToolSplit.set_icon_name(icons.IconName.SPLIT)
         self.analysisMergeSegments.set_icon_name(icons.IconName.MERGE)
         self.analysisEditingHelp.setIcon(icons.icon(icons.IconName.HELP))
+        self.sampleElementsHelp.setIcon(icons.icon(icons.IconName.HELP))
+        self.projectElementsHelp.setIcon(icons.icon(icons.IconName.HELP))
         self.analysisOptions.setIcon(icons.icon(icons.IconName.ADJUSTMENTS))
         self.analysisKeepMask.set_icon_name(icons.IconName.LOCK)
         self.analysisRun.setIcon(icons.icon(icons.IconName.START))
+        self.analysisBatch.setIcon(icons.icon(icons.IconName.FILE_DATA))
         self.analysisAbort.setIcon(icons.icon(icons.IconName.STOP))
         self.analysisAddReference.setIcon(icons.icon(icons.IconName.ADD_LAYER))
         self.analysisAddComparison.setIcon(icons.icon(icons.IconName.ADD_LAYER))
@@ -379,6 +398,7 @@ Licensed under the MIT License.</p>
         self._restore_active_tab()
 
     def clear_project(self):
+        self.analysis_controller.batch.shutdown()
         # Close open files first
         self.source_manager.close_source_handles()
 

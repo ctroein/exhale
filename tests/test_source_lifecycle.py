@@ -72,6 +72,20 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.deleteLater()
         self.app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
 
+    def test_hdf5_nan_values_allow_dirty_state_comparison(self):
+        filename = str(Path(self.temp.name) / "partly-missing.h5")
+        with h5py.File(filename, "w") as handle:
+            handle.attrs["default"] = "entry"
+            data = np.array([[1.0, np.nan], [2.0, 3.0]])
+            handle.create_dataset("entry/plotselect/Fe", data=data)
+
+        self.win.source_manager.open_files([filename])
+        ref = next(iter(self.win.project_data.samples.values())).channels["Fe"].ref
+        settings = self.win.element_controller.ensure_settings(ref)
+
+        self.assertTrue(np.isfinite(settings.trfRange).all())
+        self.assertTrue(self.win.project_state_manager.compare_now())
+
     def test_tabs_and_file_actions(self):
         tabs = self.win.tabWidget
         self.assertEqual(
@@ -85,6 +99,18 @@ class SourceLifecycleTests(unittest.TestCase):
             self.win.actionOpenFile.trigger()
         self.assertTrue(self.win.project_data.sources[self.h5].is_open)
         self.assertEqual(self.win.loadedFileComboBox.count(), 1)
+
+    def test_element_selection_help_is_shared(self):
+        with patch.object(QtWidgets.QMessageBox, "information") as information:
+            self.win.sampleElementsHelp.click()
+            self.win.projectElementsHelp.click()
+
+        self.assertEqual(information.call_count, 2)
+        first = information.call_args_list[0].args
+        second = information.call_args_list[1].args
+        self.assertEqual(first, second)
+        self.assertEqual(first[1], "Element selection")
+        self.assertIn("Sample elements in Element maps", first[2])
 
     def test_element_correlations_reuse_the_session_cache(self):
         self.win.source_manager.open_files([self.h5])
@@ -217,15 +243,16 @@ class SourceLifecycleTests(unittest.TestCase):
         tiff_channel.data_source.release_cache()
         self.win.project_tab.refresh_channels()
         hdf5_item = next(
-            self.win.channelList.item(row)
-            for row in range(self.win.channelList.count())
-            if self.win.channelList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
+            self.win.channelList.topLevelItem(row)
+            for row in range(self.win.channelList.topLevelItemCount())
+            if self.win.channelList.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+            == "Fe"
         )
 
         with patch.object(QtWidgets.QMessageBox, "warning") as warning:
-            hdf5_item.setCheckState(QtCore.Qt.CheckState.Checked)
+            hdf5_item.setCheckState(0, QtCore.Qt.CheckState.Checked)
             self.assertIn("Fe", self.win.project_data.project_channels)
-            hdf5_item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+            hdf5_item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
 
         self.assertNotIn("Fe", self.win.project_data.project_channels)
         self.assertTrue(self.win.element_controller.has_settings_failure(tiff_channel.ref))
@@ -304,7 +331,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(file_item.text(0), Path(self.h5).name)
         self.assertIs(source.handle, handle)
 
-    def test_sample_tree_and_sample_elements_separate_files_from_maps(self):
+    def test_sample_tree_shows_dimensions_and_override_counts(self):
         self.win.source_manager.open_files([self.h5, self.tiff, self.multichannel_tiff])
         tree = self.win.sampleTree
         hdf5_sample = tree.topLevelItem(0)
@@ -313,10 +340,13 @@ class SourceLifecycleTests(unittest.TestCase):
         tiff_file = tiff_sample.child(0)
         multichannel_tiff_file = tiff_sample.child(1)
 
-        self.assertFalse(self.win.mapsPane.isHidden())
+        self.assertEqual(tree.headerItem().text(1), "Size")
+        self.assertEqual(self.win.channelList.headerItem().text(1), "In samples")
+        self.assertEqual(hdf5_sample.text(1), "4×3")
+        self.assertEqual(hdf5_sample.text(2), "0/2")
         self.assertEqual(hdf5_file.childCount(), 0)
         self.assertEqual(tiff_file.childCount(), 0)
-        self.assertEqual(tiff_file.text(1), "image")
+        self.assertEqual(tiff_file.text(2), "image")
         self.assertEqual(
             hdf5_file.icon(0).cacheKey(), icons.icon(icons.IconName.FILE_DATA).cacheKey()
         )
@@ -327,42 +357,52 @@ class SourceLifecycleTests(unittest.TestCase):
             multichannel_tiff_file.icon(0).cacheKey(),
             icons.icon(icons.IconName.FILE_MULTICHANNEL_IMAGE).cacheKey(),
         )
+        self.assertEqual(self.win.projectDataSplitter.count(), 2)
+        self.assertIs(self.win.projectDataSplitter.widget(1), self.win.channelsPane)
 
-        tree.setCurrentItem(hdf5_sample)
-        self.app.processEvents()
-        self.assertEqual(self.win.mapsLabel.text(), "Sample elements")
-        self.assertEqual(
-            {
-                self.win.elementMapList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE)
-                for row in range(self.win.elementMapList.count())
-            },
-            {"Fe", "Zn"},
-        )
-
-        map_item = self.win.elementMapList.item(0)
-        key = map_item.data(ElementListWidget.CHANNEL_KEY_ROLE)
         sample_id = hdf5_sample.data(0, self.win.project_tab.NODE_ID_ROLE)
-        sample = self.win.project_data.samples[sample_id]
-        if key not in sample.channel_overrides:
-            expected_state = SampleChannelState.OVERRIDE
-        elif sample.channel_overrides[key] is not None:
-            expected_state = SampleChannelState.SKIP
-        else:
-            expected_state = (
-                SampleChannelState.INHERIT
-                if key in self.win.project_data.project_channels
-                else SampleChannelState.SKIP
-            )
-        self.win.elementMapList.setCurrentItem(map_item)
-        QtTest.QTest.keyClick(self.win.elementMapList, QtCore.Qt.Key_Space)
+        self.win.loadedFileComboBox.setCurrentIndex(self.win.loadedFileComboBox.findData(sample_id))
+        self.win.project_data.override_sample_channel(sample_id, "Fe")
+        self.win.project_tab.refresh_map_counts()
+        self.assertEqual(hdf5_sample.text(2), "1/2 (+1 -0)")
+        self.win.show()
+        self.app.processEvents()
+        self.assertFalse(tree.viewport().grab().isNull())
+
+        project_item = next(
+            self.win.channelList.topLevelItem(row)
+            for row in range(self.win.channelList.topLevelItemCount())
+            if self.win.channelList.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+            == "Fe"
+        )
+        project_item.setCheckState(0, QtCore.Qt.CheckState.Checked)
+        self.assertEqual(hdf5_sample.text(2), "1/2")
+        self.assertEqual(project_item.text(1), "1/2")
         self.assertEqual(
-            self.win.project_data.sample_channel_state(sample_id, key),
-            expected_state,
+            project_item.toolTip(1),
+            "Available: 1/2 samples\nProject default: included\nSample exclusions: 0",
+        )
+        self.assertEqual(
+            tiff_sample.toolTip(2),
+            "Project elements: 4 included, 1 unavailable, 0 excluded.\nExtra elements: 0 included.",
+        )
+        sample_item = next(
+            self.win.elementList.item(row)
+            for row in range(self.win.elementList.count())
+            if self.win.elementList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
+        )
+        self.assertTrue(sample_item.data(ElementListWidget.SAMPLE_PROJECT_ENABLED_ROLE))
+        self.win.project_data.skip_sample_channel(sample_id, "Fe")
+        self.win.project_tab.refresh_map_counts()
+        self.assertEqual(hdf5_sample.text(2), "0/2 (+0 -1)")
+        self.assertEqual(
+            hdf5_sample.toolTip(2),
+            "Project elements: 0 included, 4 unavailable, 1 excluded.\nExtra elements: 0 included.",
         )
 
     def test_sample_element_state_cycles_only_when_its_indicator_is_clicked(self):
         self.win.source_manager.open_files([self.h5])
-        element_list = self.win.elementMapList
+        element_list = self.win.elementList
         element_list.setCurrentRow(0)
         item = element_list.currentItem()
         sample_id = self.win.project_tab.selected_sample_id()
@@ -431,16 +471,18 @@ class SourceLifecycleTests(unittest.TestCase):
             element_list.selectionMode(),
             QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection,
         )
-        for row in range(element_list.count()):
-            element_list.item(row).setSelected(True)
-        element_list.setCurrentRow(0, QtCore.QItemSelectionModel.SelectionFlag.NoUpdate)
+        for row in range(element_list.topLevelItemCount()):
+            element_list.topLevelItem(row).setSelected(True)
+        element_list.setCurrentItem(
+            element_list.topLevelItem(0), 0, QtCore.QItemSelectionModel.SelectionFlag.NoUpdate
+        )
 
         QtTest.QTest.keyClick(element_list, QtCore.Qt.Key_Space)
         self.assertEqual(set(self.win.project_data.project_channels), {"Fe", "Zn"})
         self.assertTrue(
             all(
-                element_list.item(row).checkState() == QtCore.Qt.CheckState.Checked
-                for row in range(element_list.count())
+                element_list.topLevelItem(row).checkState(0) == QtCore.Qt.CheckState.Checked
+                for row in range(element_list.topLevelItemCount())
             )
         )
 
@@ -449,11 +491,13 @@ class SourceLifecycleTests(unittest.TestCase):
 
     def test_project_element_indicator_updates_project_state(self):
         self.win.source_manager.open_files([self.h5])
+        self.win.show()
+        self.app.processEvents()
         element_list = self.win.project_tab.channelList
-        item = element_list.item(0)
-        delegate = element_list.itemDelegate()
+        item = element_list.topLevelItem(0)
+        delegate = element_list.itemDelegateForColumn(0)
         self.assertIsInstance(delegate, IconCheckDelegate)
-        self.assertTrue(item.icon().isNull())
+        self.assertTrue(item.icon(0).isNull())
 
         index = element_list.indexFromItem(item)
         option = QtWidgets.QStyleOptionViewItem()
@@ -466,8 +510,8 @@ class SourceLifecycleTests(unittest.TestCase):
             pos=delegate.indicator_rect(option, index).center(),
         )
 
-        key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
-        self.assertEqual(item.checkState(), QtCore.Qt.CheckState.Checked)
+        key = item.data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+        self.assertEqual(item.checkState(0), QtCore.Qt.CheckState.Checked)
         self.assertIn(key, self.win.project_data.project_channels)
 
     def test_action_icons_have_fallbacks(self):
@@ -581,24 +625,24 @@ class SourceLifecycleTests(unittest.TestCase):
 
         project_list = self.win.project_tab.channelList
         project_order = [
-            project_list.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE)
-            for row in range(project_list.count())
+            project_list.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+            for row in range(project_list.topLevelItemCount())
         ]
         fe_item = next(
-            project_list.item(row)
-            for row in range(project_list.count())
-            if project_list.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
+            project_list.topLevelItem(row)
+            for row in range(project_list.topLevelItemCount())
+            if project_list.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
         )
         project_list.setCurrentItem(fe_item)
-        fe_item.setCheckState(QtCore.Qt.CheckState.Checked)
+        fe_item.setCheckState(0, QtCore.Qt.CheckState.Checked)
 
         self.assertIn("Fe", self.win.project_data.project_channels)
         self.assertEqual(len(self.win.project_data.effective_refs()), 2)
         self.assertIs(project_list.currentItem(), fe_item)
         self.assertEqual(
             [
-                project_list.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE)
-                for row in range(project_list.count())
+                project_list.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+                for row in range(project_list.topLevelItemCount())
             ],
             project_order,
         )
@@ -647,9 +691,11 @@ class SourceLifecycleTests(unittest.TestCase):
             if self.win.elementList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
         )
         project_item = next(
-            self.win.project_tab.channelList.item(row)
-            for row in range(self.win.project_tab.channelList.count())
-            if self.win.project_tab.channelList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE)
+            self.win.project_tab.channelList.topLevelItem(row)
+            for row in range(self.win.project_tab.channelList.topLevelItemCount())
+            if self.win.project_tab.channelList.topLevelItem(row).data(
+                0, ElementListWidget.CHANNEL_KEY_ROLE
+            )
             == "Fe"
         )
         ref = element.data(ElementListWidget.ELEMENT_REF_ROLE)
@@ -662,34 +708,10 @@ class SourceLifecycleTests(unittest.TestCase):
             self.assertNotIn("Fe", sample.channel_overrides)
             self.assertEqual(element.checkState(), QtCore.Qt.CheckState.PartiallyChecked)
 
-            tree = self.win.project_tab.sampleTree
-            sample_item = next(
-                tree.topLevelItem(row)
-                for row in range(tree.topLevelItemCount())
-                if tree.topLevelItem(row).data(0, self.win.project_tab.NODE_ID_ROLE)
-                == sample.sample_id
-            )
-            tree.setCurrentItem(sample_item)
-            map_item = next(
-                self.win.elementMapList.item(row)
-                for row in range(self.win.elementMapList.count())
-                if self.win.elementMapList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE)
-                == "Fe"
-            )
-            map_item.setCheckState(QtCore.Qt.CheckState.Checked)
-            self.assertNotIn("Fe", sample.channel_overrides)
-            map_item = next(
-                self.win.elementMapList.item(row)
-                for row in range(self.win.elementMapList.count())
-                if self.win.elementMapList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE)
-                == "Fe"
-            )
-            self.assertEqual(map_item.checkState(), QtCore.Qt.CheckState.PartiallyChecked)
-
-            project_item.setCheckState(QtCore.Qt.CheckState.Checked)
+            project_item.setCheckState(0, QtCore.Qt.CheckState.Checked)
             self.assertNotIn("Fe", self.win.project_data.project_channels)
-            self.assertEqual(project_item.checkState(), QtCore.Qt.CheckState.Unchecked)
-            self.assertEqual(show_error.call_count, 3)
+            self.assertEqual(project_item.checkState(0), QtCore.Qt.CheckState.Unchecked)
+            self.assertEqual(show_error.call_count, 2)
 
     def test_analysis_inputs_follow_the_segmentation_sample(self):
         other = str(Path(self.temp.name) / "other.h5")
@@ -1107,7 +1129,11 @@ class SourceLifecycleTests(unittest.TestCase):
         sample = self.win.project_data.samples[first_id]
         fe_ref = sample.channels["Fe"].ref
         zn_ref = sample.channels["Zn"].ref
-        parameters = SegmentationParameters(clip_percentile=99.7)
+        from exhale.analysis.segmentation_backends import stardist_thresholds
+
+        parameters = SegmentationParameters(
+            clip_percentile=99.7, method_options=stardist_thresholds()
+        )
         output = SegmentationOutput(np.ones_like(self.data), "model", "1")
         self.win.project_data.set_segmentation_result(
             SegmentationResult(first_id, "stardist", fe_ref, parameters, output)
@@ -1139,6 +1165,9 @@ class SourceLifecycleTests(unittest.TestCase):
 
             def set_edit_tool(self, tool):
                 self.edit_tool = tool
+
+            def set_brush_size(self, size):
+                self.brush_size = size
 
             def apply_layer_settings(self, settings):
                 self.layer_settings_applied = settings
@@ -1286,11 +1315,11 @@ class SourceLifecycleTests(unittest.TestCase):
 
         project_list = self.win.project_tab.channelList
         fe_item = next(
-            project_list.item(row)
-            for row in range(project_list.count())
-            if project_list.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
+            project_list.topLevelItem(row)
+            for row in range(project_list.topLevelItemCount())
+            if project_list.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
         )
-        fe_item.setCheckState(QtCore.Qt.CheckState.Checked)
+        fe_item.setCheckState(0, QtCore.Qt.CheckState.Checked)
 
         first_id = self.win.project_data.assets[self.h5].sample_id
         second_id = self.win.project_data.assets[other].sample_id
@@ -1317,16 +1346,16 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(self.win.imageElementBoxes[0].combo.currentData().source_id, self.h5)
 
         fe_item = next(
-            project_list.item(row)
-            for row in range(project_list.count())
-            if project_list.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
+            project_list.topLevelItem(row)
+            for row in range(project_list.topLevelItemCount())
+            if project_list.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
         )
-        fe_item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+        fe_item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
         self.win.loadedFileComboBox.setCurrentIndex(self.win.loadedFileComboBox.findData(first_id))
         self.assertIsNone(self.win.imageElementBoxes[0].combo.currentData())
         self.assertEqual(self.win.imageElementBoxes[0].combo.count(), 1)
 
-        fe_item.setCheckState(QtCore.Qt.CheckState.Checked)
+        fe_item.setCheckState(0, QtCore.Qt.CheckState.Checked)
         self.win.loadedFileComboBox.setCurrentIndex(self.win.loadedFileComboBox.findData(first_id))
         self.assertEqual(self.win.imageElementBoxes[0].combo.currentData().source_id, self.h5)
 

@@ -13,6 +13,27 @@ explicit compatibility exceptions, records installed versions, runs automated
 checks, and launches the checkout for manual testing. Existing trials can be
 reused while investigating and fixing failures.
 
+## Boundary-fitting experiment
+
+### `tools/fit_boundary_parameters.py`
+
+Reads saved project masks and original nuclei intensities for offline parameter
+comparison. Selects samples/masks, writes JSON/CSV results and diagnostic PNG/NPZ
+crops, and closes source handles without saving the project. Usage and experiment
+assumptions are in [`boundary-fitting.md`](boundary-fitting.md).
+
+### `exhale/analysis/boundaryfitting.py`
+
+Fits approximate outlines with bounded local edge-based or region-intensity
+contour evolution. Owns deterministic curvature smoothing and optional protected
+pixels; does not mutate input maps or masks and imports no neural runtime.
+
+### `exhale/analysis/boundarycalibration.py`
+
+Builds deterministic outline perturbations, separates complete segments into
+training and validation groups, scores overlap/boundary distance, and chooses
+method parameters on the training group before withheld evaluation.
+
 ## Launch and package files
 
 ### `run_exhale.py`
@@ -103,6 +124,25 @@ Exports the project's reviewed raw source maps and accepted instance masks as
 uncompressed TIFF pairs with a JSON provenance manifest. Review is independent of
 active selections. Stages complete datasets before publication, cleans up failed
 exports, preserves source values and label IDs, and releases newly read caches.
+
+### `exhale/data/segmentationbatch.py`
+
+Defines immutable sample/channel jobs and lightweight nuclei-channel suggestions
+from existing assignments or P/P_* keys. Offers effective available channels
+without materializing map arrays.
+
+### `exhale/analysis/segmentation_batch_dialog.py`
+
+Reviews batch scope, per-sample nuclei inputs and method-based skipping in stable
+sample rows. Designer source is `segmentation_batch_dialog.ui`; generated output
+is `analysis/segmentation_batch_dialog_ui.py`.
+
+### `exhale/analysis/segmentationbatch.py`
+
+Owns the sequential batch worker and transient queue lifecycle. Loads one raw map
+at a time, reuses model acquisition/inference, publishes completed candidates on
+the GUI thread without replacing an active mask or working edits, aggregates
+failures, and invalidates queued callbacks when a project is cleared or closed.
 
 ### `exhale/analysis/segmentationio.py`
 

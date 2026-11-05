@@ -54,19 +54,14 @@
         </layout></item>
         <item><widget class="QSplitter" name="projectDataSplitter">
          <property name="orientation"><enum>Qt::Horizontal</enum></property><property name="handleWidth"><number>8</number></property>
-         <widget class="QWidget" name="samplesPane"><layout class="QVBoxLayout" name="samplesLayout" stretch="0,1,0,0">
+         <widget class="QWidget" name="samplesPane"><layout class="QVBoxLayout" name="samplesLayout" stretch="0,1,0">
           <item><layout class="QHBoxLayout" name="samplesHeaderLayout"><item><widget class="QLabel" name="samplesLabel"><property name="text"><string>Samples and files</string></property></widget></item><item><spacer name="samplesHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item></layout></item>
-          <item><widget class="QTreeWidget" name="sampleTree"><column><property name="text"><string>Name</string></property></column><column><property name="text"><string>Element map(s)</string></property></column></widget></item>
-          <item><layout class="QHBoxLayout" name="selectedSampleLayout"><item><widget class="QLabel" name="selectedSampleLabel"><property name="text"><string>Selected sample</string></property></widget></item><item><widget class="QLabel" name="selectedSampleValue"><property name="text"><string>—</string></property></widget></item><item><spacer name="selectedSampleSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QLabel" name="sampleSizeLabel"><property name="text"><string>Size</string></property></widget></item><item><widget class="QLabel" name="sampleSizeValue"><property name="text"><string>—</string></property></widget></item></layout></item>
+          <item><widget class="QTreeWidget" name="sampleTree"><column><property name="text"><string>Name</string></property></column><column><property name="text"><string>Size</string></property></column><column><property name="text"><string>Element maps</string></property></column></widget></item>
           <item><layout class="QHBoxLayout" name="sampleButtonsLayout"><item><widget class="QToolButton" name="addProjectFilesButton"><property name="text"><string>Add sample(s)…</string></property><property name="toolButtonStyle"><enum>Qt::ToolButtonTextBesideIcon</enum></property></widget></item><item><widget class="QPushButton" name="addSampleFilesButton"><property name="text"><string>Add files to sample…</string></property></widget></item><item><spacer name="sampleButtonsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="removeButton"><property name="text"><string>Remove selected item</string></property></widget></item></layout></item>
          </layout></widget>
-         <widget class="QWidget" name="mapsPane"><layout class="QVBoxLayout" name="mapsLayout" stretch="0,1">
-          <item><widget class="QLabel" name="mapsLabel"><property name="text"><string>Sample elements</string></property></widget></item>
-          <item><widget class="ElementListWidget" name="elementMapList"/></item>
-         </layout></widget>
          <widget class="QWidget" name="channelsPane"><layout class="QVBoxLayout" name="channelsLayout" stretch="0,1">
-          <item><layout class="QHBoxLayout" name="channelsHeaderLayout"><item><widget class="QLabel" name="channelsLabel"><property name="text"><string>Project elements</string></property></widget></item><item><spacer name="channelsHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QToolButton" name="refreshChannelsButton"/></item></layout></item>
-          <item><widget class="QListWidget" name="channelList"/></item>
+          <item><layout class="QHBoxLayout" name="channelsHeaderLayout"><item><widget class="QLabel" name="channelsLabel"><property name="text"><string>Project elements</string></property></widget></item><item><spacer name="channelsHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QToolButton" name="projectElementsHelp"><property name="text"><string>Help</string></property></widget></item><item><widget class="QToolButton" name="refreshChannelsButton"/></item></layout></item>
+          <item><widget class="QTreeWidget" name="channelList"><column><property name="text"><string>Name</string></property></column><column><property name="text"><string>In samples</string></property></column></widget></item>
          </layout></widget>
         </widget></item>
        </layout>
@@ -89,13 +84,7 @@
             <item>
              <widget class="QComboBox" name="loadedFileComboBox"/>
             </item>
-            <item>
-             <widget class="QLabel" name="label">
-              <property name="text">
-                 <string>Sample elements</string>
-              </property>
-             </widget>
-            </item>
+            <item><layout class="QHBoxLayout" name="sampleElementsHeader"><item><widget class="QLabel" name="label"><property name="text"><string>Sample elements</string></property></widget></item><item><spacer name="sampleElementsHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QToolButton" name="sampleElementsHelp"><property name="text"><string>Help</string></property></widget></item></layout></item>
             <item>
              <widget class="ElementListWidget" name="elementList"/>
             </item>
@@ -370,7 +359,7 @@
             <number>8</number>
            </property>
            <widget class="QWidget" name="analysisControlsWidget">
-            <layout class="QVBoxLayout" name="verticalLayout_7" stretch="0,0,0,0,1">
+            <layout class="QVBoxLayout" name="verticalLayout_7" stretch="0,0,0,0,0,1">
              <property name="spacing">
               <number>5</number>
              </property>
@@ -408,7 +397,7 @@
 </layout></item>
 </layout></item>
              <item>
-              <layout class="QHBoxLayout" name="horizontalLayout_8" stretch="1,3,0">
+              <layout class="QHBoxLayout" name="horizontalLayout_8" stretch="1,0,3,0">
                <item>
                 <widget class="QPushButton" name="analysisRun">
                  <property name="text">
@@ -416,6 +405,7 @@
                  </property>
                 </widget>
                </item>
+<item><widget class="QPushButton" name="analysisBatch"><property name="text"><string>Batch…</string></property></widget></item>
                <item>
                 <widget class="QProgressBar" name="analysisProgress">
                  <property name="value">
@@ -438,6 +428,7 @@
                </item>
               </layout>
              </item>
+<item><widget class="QLabel" name="analysisBatchStatus"><property name="textFormat"><enum>Qt::PlainText</enum></property><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
 <item>
  <widget class="QTabWidget" name="analysisProcessingTabs">
   <property name="currentIndex"><number>1</number></property>

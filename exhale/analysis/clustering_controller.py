@@ -216,7 +216,11 @@ class ClusteringController(QtCore.QObject):
 
     def run(self):
         """Run only intensity partitioning and element-region extraction."""
-        if self.worker is not None or self.window.analysis_controller.worker is not None:
+        if (
+            self.worker is not None
+            or self.window.analysis_controller.worker is not None
+            or self.window.analysis_controller.batch.active
+        ):
             self.window.show_error("Another analysis is running.")
             return
         if not self.window.project_manager.require_project_directory(

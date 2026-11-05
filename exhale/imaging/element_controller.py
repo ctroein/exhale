@@ -281,8 +281,8 @@ class ElementController:
     def _finish_channel_state_change(self) -> None:
         self.effective_channels_changed()
         self.refresh_current_channel_states()
-        self.window.project_tab.refresh_sample_maps()
         self.window.project_tab.refresh_map_counts()
+        self.window.project_tab.refresh_channel_counts()
         self.window.project_state_manager.project_changed()
 
     def set_controls_enabled(self, enabled: bool) -> None:

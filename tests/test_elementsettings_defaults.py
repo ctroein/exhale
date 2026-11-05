@@ -1,5 +1,6 @@
 """Adaptive defaults copied into new element settings and projects."""
 
+import json
 import unittest
 
 import numpy as np
@@ -7,6 +8,7 @@ import numpy as np
 from exhale.data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from exhale.data.projectdata import ProjectData
 from exhale.data.source_refs import ElementRef
+from exhale.project.projectio import export_project_state
 
 
 class ElementSettingsDefaultsTests(unittest.TestCase):
@@ -54,6 +56,28 @@ class ElementSettingsDefaultsTests(unittest.TestCase):
 
         self.assertEqual(restored, defaults)
         self.assertIsNot(restored, defaults)
+
+    def test_nonfinite_map_values_do_not_enter_saved_display_ranges(self):
+        values = np.array([[1.0, np.nan], [3.0, np.inf]])
+        project = ProjectData()
+        element = ElementSettings(self.ref, data=values, defaults=project.element_defaults)
+        project.element_settings[self.ref] = element
+
+        np.testing.assert_allclose(element.dataRange, [1.0, 3.0])
+        np.testing.assert_allclose(element.trfRange, [1.0, 3.0])
+        json.dumps(export_project_state(project), allow_nan=False)
+
+        element.setMinmaxByMode("percent", [0, 100])
+        np.testing.assert_allclose(element.trfRange, [1.0, 3.0])
+
+    def test_map_with_no_finite_values_has_serializable_empty_range(self):
+        project = ProjectData()
+        element = ElementSettings(self.ref, data=np.array([[np.nan, np.inf]]))
+        project.element_settings[self.ref] = element
+
+        self.assertEqual(element.dataRange, (0.0, 0.0))
+        self.assertEqual(element.trfRange, [0.0, 0.0])
+        json.dumps(export_project_state(project), allow_nan=False)
 
 
 if __name__ == "__main__":
