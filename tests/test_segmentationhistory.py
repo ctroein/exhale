@@ -259,3 +259,35 @@ def test_removing_a_missing_candidate_does_not_mutate_history():
     with pytest.raises(KeyError):
         history.remove("missing")
     assert history.active is candidate and tuple(history.candidates) == (candidate.candidate_id,)
+
+
+def test_review_transfer_is_exclusive_revision_bound_and_independent_of_active_mask():
+    history = SegmentationHistory("sample")
+    first = history.add_result(result(1))
+    second = history.add_result(result(2))
+    order = tuple(history.candidates)
+    history.set_reviewed(first.candidate_id)
+    assert history.reviewed is first and first.reviewed_revision == first.revision_id
+    assert history.active is second
+    history.set_reviewed(second.candidate_id)
+    assert history.reviewed is second and not first.reviewed
+    assert tuple(history.candidates) == order
+    history.set_reviewed(second.candidate_id, False)
+    assert history.reviewed is None
+    with pytest.raises(KeyError):
+        history.set_reviewed("missing")
+    assert history.reviewed is None
+
+
+def test_adding_a_reviewed_candidate_transfers_review_and_editing_does_not_inherit_it():
+    history = SegmentationHistory("sample")
+    first = history.add_result(result(1))
+    history.set_reviewed(first.candidate_id)
+    child = SegmentationCandidate.from_result(result(2))
+    child.edited = True
+    child.parent_id = first.candidate_id
+    history.add_candidate(child)
+    assert history.reviewed is first and not child.reviewed
+    child.set_reviewed(True)
+    history.add_candidate(child)
+    assert history.reviewed is child and not first.reviewed

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from qtpy import QtCore, QtGui, QtWidgets
 
-from . import appearance, application_description, application_name, application_title, icons
+from . import appearance, application_name, application_title, icons
 from .analysis.clustering_controller import ClusteringController
 from .analysis.controller import AnalysisController
 from .analysis.correlation_controller import CorrelationController
@@ -64,6 +64,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.actionNewProject.triggered.connect(self.project_manager.new_project)
         self.actionOpenProject.triggered.connect(self.project_manager.open_project)
         self.actionSaveProject.triggered.connect(self.project_manager.save_project)
+        self.actionExportTraining.triggered.connect(self.project_manager.export_training_data)
         self.actionSettings.triggered.connect(self.show_settings)
         self.actionAbout.triggered.connect(self.showAbout)
         self.actionQuit.triggered.connect(self.close)
@@ -213,6 +214,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.analysisToolBrushErase.set_icon_name(icons.IconName.ERASER)
         self.analysisToolSplit.set_icon_name(icons.IconName.SPLIT)
         self.analysisMergeSegments.set_icon_name(icons.IconName.MERGE)
+        self.analysisEditingHelp.setIcon(icons.icon(icons.IconName.HELP))
         self.analysisOptions.setIcon(icons.icon(icons.IconName.ADJUSTMENTS))
         self.analysisKeepMask.set_icon_name(icons.IconName.LOCK)
         self.analysisRun.setIcon(icons.icon(icons.IconName.START))
@@ -239,6 +241,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.clusteringFit.set_icon_name(icons.IconName.MAXIMIZE)
         for button in self.findChildren(IconToolButton):
             button.reload_icon()
+        controller = getattr(self, "analysis_controller", None)
+        if controller is not None:
+            controller.refresh_mask_markers()
 
     def reload_appearance(self):
         """Refresh components that cache palette-derived resources."""
@@ -328,7 +333,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         information = QtWidgets.QLabel(
             f"""
-<p>{application_name} ({application_description}) was created for the<br>
+<p>{application_name} was created for the<br>
 {application_name} project at Lund University and MAX IV,
 <a href="https://www.vr.se/english/swecris.html?project=2023-02821_Vinnova#/">
 funded by Vinnova</a>.</p>

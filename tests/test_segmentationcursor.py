@@ -65,6 +65,15 @@ helper.set_brush_size(2)
 QtTest.QTest.mouseMove(native, point)
 QtTest.QTest.qWait(60)
 assert overlay.isVisible()
+assert overlay._paint_tool == 'add'
+QtTest.QTest.keyPress(native, QtCore.Qt.Key_Control)
+assert overlay._paint_tool == 'add' and helper.edit_tool == 'add'
+QtTest.QTest.keyRelease(native, QtCore.Qt.Key_Control)
+assert overlay._paint_tool == 'add'
+QtTest.QTest.mousePress(native, QtCore.Qt.RightButton, pos=point)
+assert overlay._paint_tool == 'remove' and helper.edit_tool == 'add'
+QtTest.QTest.mouseRelease(native, QtCore.Qt.RightButton, pos=point)
+assert overlay._paint_tool == 'add'
 zoom = helper.viewer.scene.camera.zoom
 assert abs(overlay._path.boundingRect().width() - 2 * zoom) < 1e-6
 QtTest.QTest.mouseMove(native, QtCore.QPoint(-10, -10))
@@ -85,6 +94,35 @@ minus = native.cursor().pixmap().toImage()
 assert not plus.isNull() and not minus.isNull() and plus != minus
 QtTest.QTest.keyRelease(native, QtCore.Qt.Key_Control)
 assert overlay._base_cursor is None
+# Area drags are consumed before Napari can pan or point-select.
+helper.set_edit_tool('select')
+selected = []
+helper.rectangle_selection_callback = lambda corners, additive: selected.append(
+    (session.rectangle_ids(corners), additive))
+center = tuple(helper.viewer.scene.camera.center)
+start, end = point - QtCore.QPoint(8, 8), point + QtCore.QPoint(8, 8)
+QtTest.QTest.mousePress(native, QtCore.Qt.LeftButton, QtCore.Qt.ShiftModifier, pos=start)
+QtTest.QTest.mouseMove(native, end)
+QtTest.QTest.qWait(60)
+assert overlay._selection_rect is not None and overlay.isVisible()
+assert overlay._ant_timer.isActive()
+QtTest.QTest.mouseRelease(native, QtCore.Qt.LeftButton, QtCore.Qt.ShiftModifier, pos=end)
+assert selected == [({1}, False)]
+assert overlay._selection_rect is None and not overlay._ant_timer.isActive()
+assert tuple(helper.viewer.scene.camera.center) == center
+mods = QtCore.Qt.ShiftModifier | QtCore.Qt.ControlModifier
+QtTest.QTest.mousePress(native, QtCore.Qt.LeftButton, mods, pos=end)
+QtTest.QTest.mouseMove(native, start)
+QtTest.QTest.qWait(60)
+QtTest.QTest.mouseRelease(native, QtCore.Qt.LeftButton, mods, pos=start)
+assert selected[-1] == ({1}, True)
+QtTest.QTest.mousePress(native, QtCore.Qt.LeftButton, mods, pos=start)
+QtTest.QTest.mouseMove(native, end)
+QtTest.QTest.qWait(60)
+QtTest.QTest.keyClick(native, QtCore.Qt.Key_Escape)
+assert overlay._selection_rect is None and not overlay._ant_timer.isActive()
+QtTest.QTest.mouseRelease(native, QtCore.Qt.LeftButton, mods, pos=end)
+assert len(selected) == 2
 assert not session.changed and not session.can_undo
 # Hiding unregisters the global key observer; showing restores it.
 host.hide()

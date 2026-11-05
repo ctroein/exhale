@@ -255,9 +255,9 @@ def test_brush_drag_previews_then_commits_once_and_cancel_restores_labels(viewer
 
     def edit(tool, points, *, preview=False):
         if preview:
-            return session.preview(tool, points, size=3)
+            return session.preview_brush_stroke(points, size=3)
         commits.append(tool)
-        session.edit(tool, points, size=3)
+        session.brush_stroke(points, size=3)
         return session.labels
 
     viewer.edit_callback = edit
@@ -272,7 +272,7 @@ def test_brush_drag_previews_then_commits_once_and_cancel_restores_labels(viewer
     event.type = "mouse_release"
     with pytest.raises(StopIteration):
         next(drag)
-    assert commits == ["add"] and session.can_undo
+    assert commits == ["brush"] and session.can_undo
     session.undo()
     assert not session.can_undo
     np.testing.assert_array_equal(session.labels, labels)
@@ -284,7 +284,7 @@ def test_brush_drag_previews_then_commits_once_and_cancel_restores_labels(viewer
     event.type = "mouse_release"
     with pytest.raises(StopIteration):
         next(drag)
-    assert commits == ["add"] and not session.changed
+    assert commits == ["brush"] and not session.changed
     np.testing.assert_array_equal(viewer.nuc_layer.data, labels)
     viewer.set_result(candidate.result)
     camera = getattr(viewer.viewer, "scene", viewer.viewer).camera
@@ -315,3 +315,69 @@ def test_outline_modifier_selects_operation_for_the_whole_gesture(viewer, modifi
     with pytest.raises(StopIteration):
         next(drag)
     assert all(call.args[0] == expected for call in viewer.edit_callback.call_args_list)
+
+
+@pytest.mark.parametrize(
+    "tool, button, expected",
+    [("add", 1, "add"), ("add", 2, "remove"), ("remove", 1, "remove"), ("remove", 2, "add")],
+)
+def test_mouse_button_resolves_brush_operation_and_control_does_not_invert(
+    viewer, tool, button, expected
+):
+    from vispy.util.keys import CONTROL
+
+    labels = np.zeros((12, 15), dtype=np.uint32)
+    labels[3:6, 3:6] = 42
+    session = SegmentationEditSession(SegmentationCandidate.from_result(result(labels)))
+    session.select(42)
+    viewer.set_result(session.source.result, edit_session=session)
+    viewer.set_edit_tool(tool)
+    commits = []
+
+    def edit(operation, strokes, *, preview=False):
+        assert operation == "brush"
+        if preview:
+            return session.preview_brush_stroke(strokes, size=1)
+        commits.append(strokes)
+        session.brush_stroke(strokes, size=1)
+        return session.labels
+
+    viewer.edit_callback = edit
+    event = SimpleNamespace(
+        position=(4, 5), button=button, type="mouse_press", modifiers=(CONTROL,)
+    )
+    drag = viewer._edit_drag(None, event)
+    next(drag)
+    event.type = "mouse_move"
+    event.position = (4, 9)
+    next(drag)
+    assert viewer.nuc_layer.data[4, 5] == (42 if expected == "add" else 0)
+    assert viewer.nuc_layer.data[4, 8] == (42 if expected == "add" else 0)
+    event.type = "mouse_release"
+    with pytest.raises(StopIteration):
+        next(drag)
+    assert len(commits) == 1 and viewer.edit_tool == tool
+    assert [operation for operation, points in commits[0]] == [expected]
+    session.undo()
+    np.testing.assert_array_equal(session.labels, labels)
+    assert not session.can_undo
+
+
+def test_new_comparison_uses_distinct_monochrome_and_keeps_color_on_refresh(viewer):
+    active = result([[0, 1], [0, 0]])
+    other = SegmentationCandidate.from_result(result([[0, 42], [42, 42]]))
+    viewer.set_result(active, np.ones((2, 2)))
+    expected = viewer.automatic_layer_color(include_labels=True).getRgbF()
+    viewer.set_result(active, np.ones((2, 2)), comparisons=[(other, "Other")])
+    presentation = other.comparison_presentation
+    assert presentation.label_mode == viewer.LABEL_MONOCHROME
+    np.testing.assert_allclose(presentation.color, expected)
+    layer = next(
+        layer for layer in viewer.user_layers() if "exhale_comparison_id" in layer.metadata
+    )
+    mode, color = viewer.label_display_mode(layer)
+    assert mode == viewer.LABEL_MONOCHROME
+    np.testing.assert_allclose(color, expected)
+    viewer.set_result(active, np.ones((2, 2)), comparisons=[(other, "Other")], fit=False)
+    assert other.comparison_presentation == presentation
+    np.testing.assert_allclose(viewer.label_display_mode(layer)[1], expected)

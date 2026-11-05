@@ -150,6 +150,26 @@ Structurally usable existing nested label datasets load directly without
 constructing the legacy model. A failed write leaves the previous sidecar intact;
 failed or cancelled workers never replace the project's successful result.
 
+Downstream mask inputs use immutable `data.segmentationref.SegmentationReference`
+records containing sample, candidate, revision and post-processing settings.
+`ProjectData.segmentation_reference()` captures an accepted candidate; draft edits
+are not downstream inputs. Consumers persist `reference.to_json()` with their
+own output and reconstruct it with `SegmentationReference.from_json()`.
+`segmentation_reference_is_current(reference, candidate_id)` compares with the
+consumer's explicitly chosen input. Changed label identity or processing, and
+missing inputs, make results outdated. Status is derived, so restoring the exact
+input makes results current again. Names, colors, review state, added provenance
+and viewer selection do not invalidate numerical results. No check automatically
+replaces or recomputes consumer output.
+
+`resolve_segmentation_reference()` returns read-only labels using the recorded
+processing settings even if current controls differ. A missing exact revision
+raises an unavailable-input error; it never substitutes a newer or active mask.
+References do not pin candidates in history; removal or pruning can make an input
+unavailable. Future consumers must decide their retention policy when introduced.
+Element clustering and cluster-distance results remain segmentation-independent;
+no segmentation reference fields or controls are added to them in this stage.
+
 The sample-level candidate model is defined in `data.segmentationhistory` and
 owned by `ProjectData.segmentation_histories`. Each candidate owns a snapshot of
 labels and mutable presentation/settings, with candidate/revision IDs, name,
@@ -184,6 +204,23 @@ presentation is saved separately on that candidate, so changing its visibility,
 color, opacity or blending does not alter its active-mask presentation. Switching
 masks within a sample preserves the camera. Layer ordering is saved with the
 active view. No duplicate comparison layer is drawn for the active candidate.
+
+Each sample has at most one whole-image Reviewed for training revision, selected
+independently of its active mask. Reviewing another candidate transfers the status
+without changing list order or active selection. Lock and review are independent
+markers in the chooser. Unaccepted edits cannot be reviewed; accepted corrections
+start unreviewed while the previous reviewed snapshot remains available until the
+user transfers review. Review changes update JSON without rewriting labels.
+
+Project → Export training data… exports every reviewed sample, regardless of the
+active tab, sample or mask. Each new training directory contains matching
+uncompressed images/0001.tif and masks/0001.tif pairs plus manifest.json. Images
+retain raw source values/dtype; instance masks retain IDs and exclude reversible
+post-processing and working drafts. The manifest records sample/channel/source,
+candidate/revision, model/run/parameter provenance and project units/resolution.
+Publication is atomic: failed reads/writes leave no partial dataset, and existing
+exports are never overwritten. The export does not dirty the project or retain
+newly materialized source caches.
 
 Pruning removes only live history entries. Sidecar files remain available to
 older saved-project and recovery JSON, including after a run is discarded.
@@ -413,3 +450,19 @@ only when Inno finishes copying files. It also launches the installed applicatio
 and provides setup rollback. Python 3.11, downloaded dependencies and installation
 records belong to `{app}/runtime`; user projects and trained models do not.
 Inno coordinates uninstallation, and native runtime locks protect active processes.
+
+Segmentation editing help lives in a separate nonmodal, scrollable dialog. The
+viewer resolves right-button brush inversion using the selected tool’s size. The
+controller remembers separate drawing and erasing diameters for the shared input.
+Each stroke is committed by the edit session as one undoable operation.
+
+Rectangular segmentation selection is a transient Qt canvas overlay, intercepting
+Shift drags before Napari navigation. The edit session resolves intersected pixel
+IDs; the controller handles pending disconnections before changing selection.
+It does not change labels, revisions, undo history or project dirty state.
+
+Brush drawing allocates one new ID per stroke when selection is empty. Splitting
+uses the stroke to identify its targets and commits all successful divisions in
+one atomic command, preserving foreground pixels and untouched segments.
+StarDist inference thresholds are method options; their initial values are read
+from the bundled model metadata without importing a neural-network runtime.

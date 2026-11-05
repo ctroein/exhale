@@ -28,6 +28,7 @@ from .segmentation import (
 )
 from .segmentationediting import SegmentationEditSession
 from .segmentationhistory import SegmentationCandidate, SegmentationHistory
+from .segmentationref import SegmentationReference
 from .source_refs import ElementRef, LoadedSource
 from .tiffimport import infer_tiff_import
 
@@ -432,6 +433,43 @@ class ProjectData:
             result.sample_id, SegmentationHistory(result.sample_id)
         )
         return history.add_result(result)
+
+    def segmentation_reference(
+        self, sample_id: str, candidate_id: str | None = None
+    ) -> SegmentationReference:
+        """Capture an accepted input; omitting candidate_id explicitly uses the active mask.
+
+        Unaccepted editing drafts are not downstream inputs. Consumers keep the
+        returned reference with their output instead of looking up the newest run.
+        """
+        history = self.segmentation_histories.get(sample_id)
+        candidate = (
+            None
+            if history is None
+            else history.candidates.get(history.active_id if candidate_id is None else candidate_id)
+        )
+        if candidate is None:
+            raise ValueError("The requested segmentation mask is unavailable")
+        return SegmentationReference.from_candidate(candidate)
+
+    def segmentation_reference_is_current(
+        self, reference: SegmentationReference, candidate_id: str
+    ) -> bool:
+        """Compare with a consumer's chosen input, independently of the viewer selection.
+
+        A missing input is outdated. The caller supplies its intended candidate,
+        which may differ from the mask currently being inspected in the viewer.
+        This check neither updates results nor recomputes labels.
+        """
+        history = self.segmentation_histories.get(reference.sample_id)
+        candidate = None if history is None else history.candidates.get(candidate_id)
+        return reference.matches(candidate)
+
+    def resolve_segmentation_reference(self, reference: SegmentationReference):
+        """Return the recorded read-only labels, or report an unavailable exact revision."""
+        history = self.segmentation_histories.get(reference.sample_id)
+        candidate = None if history is None else history.candidates.get(reference.candidate_id)
+        return reference.labels(candidate)
 
     def rename_sample(self, sample_id: str, name: str) -> None:
         if not name:

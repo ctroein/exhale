@@ -320,3 +320,54 @@ def test_removed_parent_files_remain_usable_by_previous_json_and_child_stays_ind
     assert retained.active.edited and retained.active.provenance == child.provenance
     old, issues = read(previous)
     assert not issues and len(old.segmentation_histories[parent.sample_id].candidates) == 2
+
+
+def test_review_choice_roundtrips_without_rewriting_label_snapshots(project, tmp_path):
+    first = publish_segmentation(project, result(project), tmp_path)
+    second = publish_segmentation(project, result(project, 2), tmp_path)
+    history = project.segmentation_histories[first.sample_id]
+    history.set_reviewed(first.candidate_id)
+    saved = tmp_path / "project.xhp"
+    projectio.save_project(project, saved)
+    stamps = {
+        candidate.candidate_id: sidecar(candidate, tmp_path).stat().st_mtime_ns
+        for candidate in (first, second)
+    }
+    loaded, issues = read(saved)
+    assert not issues
+    restored = loaded.segmentation_histories[first.sample_id]
+    assert restored.reviewed.candidate_id == first.candidate_id
+    assert restored.active_id == second.candidate_id
+    history.set_reviewed(second.candidate_id)
+    projectio.save_project(project, saved)
+    for candidate in (first, second):
+        assert sidecar(candidate, tmp_path).stat().st_mtime_ns == stamps[candidate.candidate_id]
+    loaded, issues = read(saved)
+    assert not issues
+    restored = loaded.segmentation_histories[first.sample_id]
+    assert restored.reviewed.candidate_id == second.candidate_id
+    assert not restored.candidates[first.candidate_id].reviewed
+
+
+def test_downstream_reference_survives_project_reload_and_resolves_original_processing(
+    project, tmp_path
+):
+    from exhale.data.segmentation import SegmentationPostprocessing
+    from exhale.data.segmentationref import SegmentationReference
+
+    candidate = project.add_segmentation_candidate(result(project, 3))
+    candidate.result.postprocessing = SegmentationPostprocessing(minimum_area=2, expansion=1)
+    reference = project.segmentation_reference(candidate.sample_id)
+    expected = project.resolve_segmentation_reference(reference).copy()
+    # A future consumer stores this JSON alongside its own output, not mask arrays.
+    saved_reference = json.loads(json.dumps(reference.to_json()))
+    candidate.result.postprocessing = SegmentationPostprocessing(minimum_area=999)
+    filename = tmp_path / "project.xhp"
+    projectio.save_project(project, filename)
+    restored, issues = read(filename)
+    assert not issues
+    reference = SegmentationReference.from_json(saved_reference)
+    before = projectio.export_project_state(restored, tmp_path)
+    assert not restored.segmentation_reference_is_current(reference, candidate.candidate_id)
+    np.testing.assert_array_equal(restored.resolve_segmentation_reference(reference), expected)
+    assert projectio.export_project_state(restored, tmp_path) == before

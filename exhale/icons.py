@@ -24,6 +24,8 @@ class IconName(str, Enum):
     SETTINGS = "settings.svg"
     ADJUSTMENTS = "adjustments.svg"
     LOCK = "lock.svg"
+    REVIEWED = "checkmark.svg"
+    HELP = "help-circle.svg"
     INFO = "info-circle.svg"
     QUIT = "x-mark.svg"
     MAXIMIZE = "arrows-maximize.svg"
@@ -151,6 +153,21 @@ def svg_icon(path: Path):
         pattern = re.compile("|".join(map(re.escape, replacements.keys())))
         svg = pattern.sub(lambda m: replacements[m.group(0)], svg)
     return QtGui.QIcon(SvgIconEngine(svg))
+
+
+def mask_status_icon(locked: bool, reviewed: bool, extent: int, pixel_ratio: float) -> QtGui.QIcon:
+    """Compose independent mask lock/review markers at the widget's display scale."""
+    symbols = ([IconName.LOCK] if locked else []) + ([IconName.REVIEWED] if reviewed else [])
+    if not symbols:
+        return QtGui.QIcon()
+    pixmap = QtGui.QPixmap(round(extent * len(symbols) * pixel_ratio), round(extent * pixel_ratio))
+    pixmap.setDevicePixelRatio(pixel_ratio)
+    pixmap.fill(QtCore.Qt.transparent)
+    painter = QtGui.QPainter(pixmap)
+    for index, name in enumerate(symbols):
+        icon(name).paint(painter, QtCore.QRect(index * extent, 0, extent, extent))
+    painter.end()
+    return QtGui.QIcon(pixmap)
 
 
 def initialize() -> None:

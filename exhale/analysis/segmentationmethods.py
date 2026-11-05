@@ -33,6 +33,7 @@ SEGMENTATION_METHODS = (
         method_id="stardist",
         name="StarDist",
         required_modules=("stardist", "tensorflow", "csbdeep"),
+        has_options=True,
     ),
 )
 SEGMENTATION_METHODS += (

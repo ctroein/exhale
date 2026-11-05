@@ -184,6 +184,13 @@ settings. Persistence code operates exclusively on that model. After a model has
 been loaded, project lifecycle controllers refresh the interface and coordinate
 its selections and signals.
 
+Downstream computations that use segmentation must retain a `SegmentationReference`
+with their output, including its post-processing settings. Compare it with the
+consumer's chosen input to determine whether output is outdated; do not infer the
+input from whichever mask is currently displayed. Resolve the recorded revision
+without substituting another mask, and never silently recompute stored output.
+The current element clustering does not consume segmentation.
+
 ## Running and testing
 
 Run commands from the repository root. The usual entry points are:
@@ -417,8 +424,9 @@ Rerunning setup updates the application and can change the selected extras.
 The launcher forwards ordinary arguments to its private `python -m exhale`,
 streams output to `{app}/runtime.log`, and reports launch failures. An exclusive
 runtime file lock protects setup and launch; an application mutex also prevents
-Inno setup/uninstall while EXHALE is running. Inno removes shortcuts and the private
-runtime on uninstall. User projects, settings and trained-model storage remain
+Inno setup/uninstall while EXHALE is running. Before removing the launcher and shortcuts, Inno calls `--remove-runtime` to
+delete the private runtime using extended paths. A cleanup failure aborts
+uninstallation and retains the launcher and its diagnostic log for retry. User projects, settings and trained-model storage remain
 independent. An old `_internal` directory is removed when upgrading a legacy
 bundled installation.
 

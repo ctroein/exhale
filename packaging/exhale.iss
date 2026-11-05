@@ -62,7 +62,6 @@ Filename: "{app}\exhale.exe"; Description: "Launch EXHALE"; Flags: nowait postin
 Type: filesandordirs; Name: "{app}\_internal"
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{app}\runtime"
 Type: files; Name: "{app}\runtime.lock"
 Type: files; Name: "{app}\runtime.log"
 
@@ -150,4 +149,26 @@ end;
 function RuntimeActivated: Boolean;
 begin
   Result := Activated;
+end;
+
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ExitCode: Integer;
+  Removed: Boolean;
+begin
+  if (CurUninstallStep = usUninstall) and DirExists(ExpandConstant('{app}\runtime')) then begin
+    { After user confirmation, before Inno removes the native launcher. }
+    Log('Removing private runtime using the launcher long-path cleanup.');
+    Removed := Exec(ExpandConstant('{app}\exhale.exe'), '--remove-runtime --quiet',
+      '', SW_HIDE, ewWaitUntilTerminated, ExitCode);
+    if (not Removed) or (ExitCode <> 0) or DirExists(ExpandConstant('{app}\runtime')) then begin
+      Log('Private runtime cleanup failed; stopping uninstall. Launcher exit code: ' + IntToStr(ExitCode));
+      if not UninstallSilent then
+        MsgBox('EXHALE could not remove its private runtime. Close EXHALE and try again. See ' +
+          ExpandConstant('{app}\runtime.log'), mbError, MB_OK);
+      Abort;
+    end;
+    Log('Private runtime removed successfully.');
+  end;
 end;

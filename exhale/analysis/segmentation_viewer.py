@@ -5,7 +5,7 @@ from napari.utils.colormaps import Colormap
 from skimage.measure import find_contours
 
 from ..data.constants import CONCENTRATION_UNITS
-from ..data.projectdata import SegmentationLayerSettings, SegmentationResult
+from ..data.projectdata import LayerPresentation, SegmentationLayerSettings, SegmentationResult
 from .naparihelper import NapariHelper
 
 
@@ -17,6 +17,7 @@ class SegmentationViewer(NapariHelper):
         self.input_map = None
         self.inspection_callback = None
         self.selection_callback = None
+        self.rectangle_selection_callback = None
         self.edit_session = None
         self.edit_callback = None
         self.edit_tool = "select"
@@ -133,8 +134,22 @@ class SegmentationViewer(NapariHelper):
                 opacity=0.6,
             )
             layer.editable = False
+            if candidate.comparison_presentation is None:
+                color = self.automatic_layer_color(exclude=layer, include_labels=True)
+                candidate.comparison_presentation = LayerPresentation(
+                    visible=True,
+                    opacity=0.6,
+                    blending=self.BLENDING_NORMAL,
+                    color=color.getRgbF(),
+                    label_mode=self.LABEL_MONOCHROME,
+                    palette_index=0,
+                )
             layer.metadata["exhale_comparison_id"] = candidate.candidate_id
             layer.metadata[self.LAYER_ID_KEY] = identity
+            # Let subsequent new masks see this layer's saved color and visibility.
+            self.apply_layer_settings(
+                SegmentationLayerSettings(layers={identity: candidate.comparison_presentation})
+            )
             comparison_layers.append(layer)
         self._set_active_layer_order(
             (source_layer, *reference_layers, *comparison_layers, self.nuc_layer)
@@ -197,10 +212,18 @@ class SegmentationViewer(NapariHelper):
     def set_edit_tool(self, tool):
         """Reserve left drags for drawing while keeping wheel zoom available."""
         self.edit_tool = tool
+        if hasattr(self, "_editing_cursor"):
+            self._editing_cursor.cancel_selection()
         camera = getattr(self.viewer, "scene", self.viewer).camera
         camera.mouse_pan = self.edit_session is None or tool == "select"
         if hasattr(self, "_editing_cursor"):
             self._editing_cursor.refresh()
+
+    def effective_edit_tool(self, inverted=False):
+        """Resolve right-button inversion without changing the selected tool."""
+        if inverted and self.edit_tool in ("add", "remove"):
+            return "remove" if self.edit_tool == "add" else "add"
+        return self.edit_tool
 
     def set_brush_size(self, size):
         """Update the transient footprint without changing labels or project state."""
@@ -211,6 +234,8 @@ class SegmentationViewer(NapariHelper):
     def cancel_stroke(self):
         """Discard the uncommitted preview, leaving labels and undo history untouched."""
         self._cancel_stroke = True
+        if hasattr(self, "_editing_cursor"):
+            self._editing_cursor.cancel_selection()
         self._stroke_points = []
         if hasattr(self, "_editing_cursor"):
             self._editing_cursor.refresh()
@@ -221,12 +246,16 @@ class SegmentationViewer(NapariHelper):
         if (
             self.edit_session is None
             or self.edit_tool == "select"
-            or event.button != 1
+            or (
+                event.button != 1
+                and not (event.button == 2 and self.edit_tool in ("add", "remove"))
+            )
             or self.edit_callback is None
         ):
             return
         session = self.edit_session
         tool = self.edit_tool
+        inverted = event.button == 2
         if tool == "draw":
             modifiers = {
                 getattr(key, "name", str(key)).lower() for key in getattr(event, "modifiers", ())
@@ -238,19 +267,30 @@ class SegmentationViewer(NapariHelper):
         self._cancel_stroke = False
         self._stroke_active = True
         points = []
+        strokes = []
+        brush = tool in ("add", "remove")
         self._stroke_points = points
 
         def preview_point():
             coordinates = self.nuc_layer.world_to_data(event.position)[-2:]
-            if np.isfinite(coordinates).all():
-                point = tuple(map(float, coordinates))
-                if not points or point != points[-1]:
-                    points.append(point)
-                    if hasattr(self, "_editing_cursor"):
-                        self._editing_cursor.refresh()
-                    labels = self.edit_callback(tool, points, preview=True)
-                    if labels is not None:
-                        self.nuc_layer.data = labels
+            if not np.isfinite(coordinates).all():
+                return
+            point = tuple(map(float, coordinates))
+            operation = self.effective_edit_tool(inverted)
+            changed_tool = brush and (not strokes or strokes[-1][0] != operation)
+            if not points or point != points[-1] or changed_tool:
+                if changed_tool:
+                    strokes.append((operation, [points[-1]] if points else []))
+                if brush:
+                    strokes[-1][1].append(point)
+                points.append(point)
+                if hasattr(self, "_editing_cursor"):
+                    self._editing_cursor.refresh()
+                labels = self.edit_callback(
+                    "brush" if brush else tool, strokes if brush else points, preview=True
+                )
+                if labels is not None:
+                    self.nuc_layer.data = labels
 
         try:
             preview_point()
@@ -263,7 +303,7 @@ class SegmentationViewer(NapariHelper):
             if not self._cancel_stroke and self.edit_session is session:
                 preview_point()
                 if points:
-                    self.edit_callback(tool, points)
+                    self.edit_callback("brush" if brush else tool, strokes if brush else points)
         finally:
             self._stroke_active = False
             self._stroke_points = []

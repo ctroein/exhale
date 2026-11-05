@@ -82,6 +82,22 @@ class SegmentationEditSession:
             else:
                 self.selected_ids.add(identity)
 
+    def rectangle_ids(self, corners):
+        """Find IDs with any pixel area inside a data-coordinate rectangle.
+
+        Pixel centers are integers; edges halfway between centers count only
+        when the rectangle overlaps the pixel interior. Clip outside the image.
+        """
+        corners = np.asarray(corners, dtype=float)
+        if corners.shape != (2, 2) or not np.isfinite(corners).all():
+            raise ValueError("Selection requires two finite image-coordinate corners")
+        low, high = corners.min(axis=0), corners.max(axis=0)
+        if np.any(high <= low):
+            return set()
+        low = np.clip(np.floor(low + 0.5), 0, self._labels.shape).astype(int)
+        high = np.clip(np.ceil(high + 0.5), 0, self._labels.shape).astype(int)
+        return set(map(int, np.unique(self._labels[low[0] : high[0], low[1] : high[1]]))) - {0}
+
     def apply_labels(self, labels, *, pending=None):
         """Commit one complete operation, rejecting invalid data before any mutation."""
         validated = SegmentationOutput(labels, "annotation", "working").labels
@@ -181,8 +197,6 @@ class SegmentationEditSession:
             raise ValueError("Editing points must be finite image coordinates")
         labels = self._labels.copy()
         if tool == "split":
-            if len(self.selected_ids) != 1:
-                raise ValueError("Select one segment to split")
             # The dividing line is a viewer-only preview; labels change on release.
             return labels
         outline = tool in ("draw", "outline_add", "outline_remove")
@@ -215,6 +229,45 @@ class SegmentationEditSession:
                 mask &= np.isin(labels, list(self.selected_ids))
             labels[mask] = 0
         return labels
+
+    def preview_brush_stroke(self, strokes, *, size=5, protect=True):
+        """Compose temporary draw/erase sections without committing partial strokes."""
+        labels = self._labels.copy()
+        new_identity = self._unused_id(labels) if not self.selected_ids else None
+        for operation, points in strokes:
+            points = np.asarray(points, dtype=float)
+            if points.ndim != 2 or points.shape[1] != 2 or not np.isfinite(points).all():
+                raise ValueError("Editing points must be finite image coordinates")
+            mask = self.brush_mask(labels.shape, points, size)
+            if operation == "add":
+                if len(self.selected_ids) > 1:
+                    raise ValueError("Select at most one segment before drawing")
+                identity = (
+                    new_identity if new_identity is not None else next(iter(self.selected_ids))
+                )
+                if protect:
+                    mask &= (labels == 0) | (labels == identity)
+                labels[mask] = identity
+            elif operation == "remove":
+                if protect and not self.selected_ids:
+                    raise ValueError("Select a segment before erasing from it")
+                if protect:
+                    mask &= np.isin(labels, list(self.selected_ids))
+                labels[mask] = 0
+            else:
+                raise ValueError(f"Unknown brush operation {operation!r}")
+        return labels
+
+    def brush_stroke(self, strokes, *, size=5, protect=True, disconnected="ask"):
+        """Commit a stroke with temporary tool inversions as one undoable operation."""
+        previous_ids = set(map(int, self.areas[0]))
+        created = not self.selected_ids
+        changed = self._commit_edit(
+            self.preview_brush_stroke(strokes, size=size, protect=protect), disconnected
+        )
+        if changed and created:
+            self.selected_ids = set(map(int, self.areas[0])) - previous_ids
+        return changed
 
     def _split_parts(self, labels, identity):
         """Retain the largest part's ID and allocate IDs for the remaining parts."""
@@ -259,7 +312,7 @@ class SegmentationEditSession:
     def edit(self, tool, points, *, size=5, protect=True, disconnected="ask"):
         """Commit one complete outline/stroke, including incidental splitting, atomically."""
         if tool == "split":
-            return self.split_selected(points)
+            return self.split_stroke(points)
         labels = self.preview(tool, points, size=size, protect=protect)
         previous_ids = set(map(int, self.areas[0]))
         changed = self._commit_edit(labels, disconnected)
@@ -306,56 +359,50 @@ class SegmentationEditSession:
             parts[foreground] = groups[parts[foreground] - 1] + 1
         return parts, count
 
-    def split_selected(self, points):
-        """Split along a stroke atomically, retaining all pixels and unrelated IDs.
+    def split_stroke(self, points):
+        """Split every divided segment in one stroke, irrespective of selection.
 
-        Failed cuts leave labels, pending questions, revisions and undo untouched.
-        The largest resulting part retains the original ID; other parts get unused IDs.
-        A two-part split keeps only the larger part selected for another cut.
+        Retain all foreground pixels and untouched IDs. Failed cuts leave the
+        session unchanged. For each two-part split, select only its larger part.
         """
-        if len(self.selected_ids) != 1:
-            raise ValueError("Select one segment to split")
         points = np.asarray(points, dtype=float)
         if points.ndim != 2 or points.shape[1] != 2 or not np.isfinite(points).all():
             raise ValueError("A dividing stroke requires finite image coordinates")
         if len(points) < 2 or not np.any(points[1:] != points[0]):
-            raise ValueError("Draw a dividing stroke through the selected segment")
-        identity = next(iter(self.selected_ids))
-        selected = self._labels == identity
-        ys, xs = np.nonzero(selected)
-        low = np.array((ys.min(), xs.min()))
-        high = np.array((ys.max() + 1, xs.max() + 1))
-        bounds = (slice(low[0], high[0]), slice(low[1], high[1]))
-        mask = selected[bounds]
-        cut = np.zeros(mask.shape, dtype=bool)
-        points = np.floor(points - low + 0.5).astype(int)
+            raise ValueError("Draw a dividing stroke through a segment")
+        points = np.floor(points + 0.5).astype(int)
+        cut = np.zeros(self._labels.shape, dtype=bool)
         for start, end in zip(points[:-1], points[1:], strict=True):
             y, x = line(*start, *end)
-            valid = (y >= 0) & (y < mask.shape[0]) & (x >= 0) & (x < mask.shape[1])
+            valid = (y >= 0) & (y < cut.shape[0]) & (x >= 0) & (x < cut.shape[1])
             cut[y[valid], x[valid]] = True
-        parts, count = self._cut_components(mask, cut)
-        if count <= self._components(self._labels, identity)[1]:
-            raise ValueError(
-                "The stroke did not divide the segment. Draw through it from edge to edge."
-            )
-        # Assign the cut pixels to their nearest surviving part instead of erasing
-        # a strip from the mask. The original foreground area is preserved exactly.
-        nearest = ndimage.distance_transform_edt(
-            parts == 0, return_distances=False, return_indices=True
-        )
-        parts[mask & cut] = parts[tuple(nearest[:, mask & cut])]
-        sizes = np.bincount(parts[mask])
-        largest = int(np.argmax(sizes[1:]) + 1)
         labels = self._labels.copy()
-        region = labels[bounds]
-        output_ids = {identity}
-        for part in range(1, count + 1):
-            value = identity if part == largest else self._unused_id(labels, output_ids)
-            region[mask & (parts == part)] = value
-            output_ids.add(value)
-        changed = self.apply_labels(labels, pending=self.pending_disconnections - {identity})
+        split_ids, selection = set(), set()
+        for identity in sorted(set(map(int, np.unique(self._labels[cut]))) - {0}):
+            mask = self._labels == identity
+            parts, count = self._cut_components(mask, cut)
+            if count <= self._components(self._labels, identity)[1]:
+                continue
+            nearest = ndimage.distance_transform_edt(
+                parts == 0, return_distances=False, return_indices=True
+            )
+            parts[mask & cut] = parts[tuple(nearest[:, mask & cut])]
+            sizes = np.bincount(parts[mask])
+            largest = int(np.argmax(sizes[1:]) + 1)
+            output_ids = {identity}
+            for part in range(1, count + 1):
+                value = identity if part == largest else self._unused_id(labels, output_ids)
+                labels[mask & (parts == part)] = value
+                output_ids.add(value)
+            split_ids.add(identity)
+            selection.update({identity} if count == 2 else output_ids)
+        if not split_ids:
+            raise ValueError(
+                "The stroke did not divide a segment. Draw through it from edge to edge."
+            )
+        changed = self.apply_labels(labels, pending=self.pending_disconnections - split_ids)
         if changed:
-            self.selected_ids = {identity} if count == 2 else output_ids
+            self.selected_ids = selection
         return changed
 
     def delete_selected(self):

@@ -337,25 +337,7 @@ class LayerRowWidget(QtWidgets.QWidget):
 
     def _automatic_image_color(self):
         """Choose a saturated hue far from the other visible image layers."""
-        from napari.layers import Labels
-
-        other_colors = [
-            self.helper.image_color(layer)[:3]
-            for layer in self.helper.user_layers()
-            if layer is not self.layer and layer.visible and not isinstance(layer, Labels)
-        ]
-        candidates = [QtGui.QColor.fromHsvF(index / 24, 1.0, 1.0) for index in range(24)]
-        if not other_colors:
-            return candidates[0]
-
-        def separation(candidate):
-            red, green, blue, _alpha = candidate.getRgbF()
-            return min(
-                (red - other[0]) ** 2 + (green - other[1]) ** 2 + (blue - other[2]) ** 2
-                for other in other_colors
-            )
-
-        return max(candidates, key=separation)
+        return self.helper.automatic_layer_color(exclude=self.layer)
 
     def _pick_color(self):
         self._activate()

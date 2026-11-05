@@ -177,3 +177,21 @@ assert not any("xrf_refcopy" in name for name in sys.modules)
 assert not {"tensorflow", "torch", "stardist"}.intersection(sys.modules)
 """
     subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
+
+
+def test_stardist_thresholds_forwarded_and_defaults_do_not_initialize_backend(monkeypatch):
+    defaults = backends.stardist_thresholds()
+    assert defaults["prob_thresh"] == pytest.approx(0.479071463157368)
+    assert defaults["nms_thresh"] == 0.3
+    image = np.ones((2, 2), dtype=np.float32)
+    model = SimpleNamespace(predict_instances=Mock(return_value=(image.astype(int), {})))
+    monkeypatch.setattr(backends, "prepare_segmentation_runtime", lambda: None)
+    monkeypatch.setattr(backends, "_stardist_model", lambda *_args: model)
+    monkeypatch.setattr(backends, "_stardist_version", lambda _path: "test")
+    utils = ModuleType("csbdeep.utils")
+    utils.normalize = lambda data: data
+    monkeypatch.setitem(sys.modules, "csbdeep.utils", utils)
+    backends.segment_stardist(image, prob_thresh=0.6, nms_thresh=0.2)
+    assert model.predict_instances.call_args.kwargs == {"prob_thresh": 0.6, "nms_thresh": 0.2}
+    with pytest.raises(ValueError, match="thresholds"):
+        backends.segment_stardist(image, prob_thresh=float("nan"))

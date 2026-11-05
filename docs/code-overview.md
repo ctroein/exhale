@@ -83,7 +83,8 @@ validation, tolerant object loading, and atomic writes.
 
 Owns project-directory selection and high-level new/open/save policy.
 It coordinates model persistence, post-load UI refresh, dirty-state handling,
-and the shared default location for exported project output.
+and the shared default location for exported project output. Owns the project-wide
+training-export action and destination selection.
 
 ### `exhale/project/sourcemanager.py`
 
@@ -95,6 +96,13 @@ and dirty-state refreshes required after each operation.
 
 Tracks the canonical saved baseline, dirty state, delayed autosaves, recovery,
 and prompts before replacing or closing a modified project.
+
+### `exhale/analysis/trainingio.py`
+
+Exports the project's reviewed raw source maps and accepted instance masks as
+uncompressed TIFF pairs with a JSON provenance manifest. Review is independent of
+active selections. Stages complete datasets before publication, cleans up failed
+exports, preserves source values and label IDs, and releases newly read caches.
 
 ### `exhale/analysis/segmentationio.py`
 
@@ -200,7 +208,7 @@ Napari view, reversible area filtering, input preview, reference-map selection,
 overview/cumulative area distribution, clicked-segment details and result export.
 Also owns Editing/Post-processing mode, editing-tool controls, selection, undo/redo,
 early disconnection questions, merge/split controls, explicit Accept/Reject,
-cancellable navigation and confirmed mask removal.
+cancellable navigation, confirmed mask removal and whole-image review.
 Element selection and clustering options belong
 to the independent Element clusters controller. `MainWindow` supplies the
 generated widgets and application-level services but owns no analysis state.
@@ -227,7 +235,8 @@ provenance. Candidates own label and settings snapshots, stable candidate/revisi
 identities, names, parent links, Keep and annotation/review state. History merges
 identical region partitions independently of numeric label IDs, retains run
 provenance across methods, and keeps five recent unprotected predictions plus
-protected/active masks and ancestors needed by retained revisions. Selection does
+protected/active masks and ancestors needed by retained revisions. Enforces one
+reviewed mask per sample independently of the active candidate. Selection does
 not reorder candidates. Existing result objects can be imported independently
 with malformed entries reported and skipped. Deliberate removal retains descendant
 masks/provenance and cleans active, parent and comparison references.
@@ -237,6 +246,14 @@ active selection, provenance and retention order. Compared masks are protected
 while in use, with their comparison presentation saved separately. History can
 be restored before pruning, preserving out-of-order parent links and reporting
 missing independent records.
+
+### `exhale/data/segmentationref.py`
+
+Defines immutable, JSON-serializable downstream mask references: sample, candidate,
+revision and post-processing settings. References compare against an explicitly
+chosen input and resolve the recorded processed labels while that exact mask is
+retained. Missing masks never fall back to another candidate. `ProjectData` exposes
+capture, currency-check and exact-resolution methods for future consumers.
 
 ### `exhale/data/segmentationediting.py`
 
@@ -260,10 +277,9 @@ Validates the labels against the input shape without downstream filtering or reg
 
 ### `exhale/analysis/segmentation_options_dialog.py`
 
-Snapshots and restores inference options using `segmentation_options_dialog.ui`.
-Clipping remains an internal method parameter. The Designer file exposes only
-Cellpose's minimum area, flow threshold and cell-probability threshold; StarDist
-has no exposed inference options.
+Edits method-specific StarDist thresholds and Cellpose inference settings, retaining
+separate method controls and internal preprocessing parameters. StarDist defaults
+come from bundled model metadata without initializing a backend.
 
 ### `exhale/analysis/segmentation_viewer.py`
 
@@ -281,7 +297,8 @@ Missing source data do not hide saved segmentation output.
 ### `exhale/analysis/segmentationcursor.py`
 
 Draws the transient brush footprint above the Qt/OpenGL canvas using the editing
-rasterizer, plus custom plus/minus cursors for modifier outlines. It follows
+rasterizer, custom plus/minus cursors for modifier outlines, and marching-ants
+rectangles for Shift-drag area selection. It follows
 camera transforms, brush size and pointer/modifier events without adding viewer
 layers or changing mask data, presentation, exports or project state.
 
@@ -372,6 +389,8 @@ Encapsulates the embedded Napari viewer, its Qt widget, map and analysis
 layers, layer-selection synchronization, and in-place element-map updates that
 preserve layer presentation state. Fits initial content to actual canvas sizes
 while startup layouts settle, stopping on user interaction or leaving the view.
+Owns the shared maximally separated hue picker used by image Auto colors and
+new monochrome comparison masks.
 
 ### `exhale/analysis/layerwidgets.py`
 
@@ -536,3 +555,7 @@ forwards application arguments. Supplies runtime locking and installation logs.
 
 Windows runner integration checks for the actual Inno installer: backend choices,
 upgrades, installed dependency presence, startup, and uninstallation.
+
+### `exhale/analysis/segmentation_help_dialog.py`
+
+Resizable, scrollable editing help with tool operations and keyboard shortcuts.

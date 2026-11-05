@@ -336,7 +336,7 @@ def test_split_handles_small_regions_and_preserves_unrelated_diagonal_connection
     labels[3, 3] = 42  # Connected only through a corner to the right-hand part.
     session = session_for(labels)
     session.select(42)
-    session.split_selected([(-1, 1), (4, 1)])
+    session.split_stroke([(-1, 1), (4, 1)])
     assert len(session.areas[0]) == 2 and session.selected_ids == {42}
     assert session.labels[3, 3] == session.labels[2, 2]
     np.testing.assert_array_equal(session.labels > 0, labels > 0)
@@ -352,37 +352,32 @@ def test_unsuccessful_or_invalid_split_preserves_everything(points):
     before = session.labels.copy()
     revision = session.revision_id
     with pytest.raises(ValueError):
-        session.split_selected(points)
+        session.split_stroke(points)
     np.testing.assert_array_equal(session.labels, before)
     assert session.revision_id == revision
     assert not session.can_undo and not session.pending_disconnections
     assert session.selected_ids == {42}
 
 
-def test_merge_and_split_require_the_right_selection():
+def test_merge_requires_at_least_two_selected_segments():
     session = session_for([[7, 7, 42, 42]])
     with pytest.raises(ValueError):
         session.merge_selected()
-    with pytest.raises(ValueError):
-        session.split_selected([(0, 0), (0, 1)])
     session.select(7)
     with pytest.raises(ValueError):
         session.merge_selected()
-    session.select(42, toggle=True)
-    with pytest.raises(ValueError):
-        session.split_selected([(0, 0), (0, 1)])
     assert not session.can_undo
 
 
 def test_two_part_splits_keep_larger_part_ready_for_serial_splitting():
     session = session_for(np.full((7, 12), 42, dtype=np.uint32))
     session.select(42)
-    session.split_selected([(-1, 7), (7, 7)])
+    session.split_stroke([(-1, 7), (7, 7)])
     assert session.selected_ids == {42}
     ids, areas = session.areas
     assert areas[np.searchsorted(ids, 42)] == areas.max()
     smaller = session.labels == 1
-    session.split_selected([(3, -1), (3, 7)])
+    session.split_stroke([(3, -1), (3, 7)])
     assert session.selected_ids == {42}
     assert len(session.areas[0]) == 3
     np.testing.assert_array_equal(session.labels == 1, smaller)
@@ -391,6 +386,109 @@ def test_two_part_splits_keep_larger_part_ready_for_serial_splitting():
 def test_splits_into_three_parts_keep_all_parts_selected():
     session = session_for(np.full((7, 9), 42, dtype=np.uint32))
     session.select(42)
-    session.split_selected([(-1, 2), (7, 2), (7, 5), (-1, 5)])
+    session.split_stroke([(-1, 2), (7, 2), (7, 5), (-1, 5)])
     assert len(session.areas[0]) == 3
     assert session.selected_ids == set(session.areas[0])
+
+
+def test_mixed_brush_stroke_is_one_atomic_undoable_operation():
+    session = SegmentationEditSession(source())
+    session.select(42)
+    before = session.labels.copy()
+    strokes = [("add", [(0, 0), (0, 1)]), ("remove", [(0, 1)])]
+    preview = session.preview_brush_stroke(strokes, size=1)
+    assert preview[0, 0] == 42 and preview[0, 1] == 0
+    np.testing.assert_array_equal(session.labels, before)
+    assert not session.can_undo
+    assert session.brush_stroke(strokes, size=1)
+    np.testing.assert_array_equal(session.labels, preview)
+    session.undo()
+    np.testing.assert_array_equal(session.labels, before)
+    assert not session.can_undo
+    session.redo()
+    np.testing.assert_array_equal(session.labels, preview)
+
+
+def test_invalid_mixed_brush_stroke_leaves_session_untouched():
+    session = SegmentationEditSession(source())
+    session.select(42)
+    before = session.labels.copy()
+    with pytest.raises(ValueError):
+        session.brush_stroke([("add", [(0, 0)]), ("invalid", [(0, 1)])], size=1)
+    np.testing.assert_array_equal(session.labels, before)
+    assert not session.can_undo
+
+
+@pytest.mark.parametrize(
+    "corners, expected",
+    [
+        (((-10, -10), (10, 10)), {7, 42}),
+        (((-0.4, 0.6), (0.4, 1.4)), {42}),
+        (((0.4, 0.4), (0.6, 0.6)), {7, 42}),
+        (((0.6, 0.6), (0.4, 0.4)), {7, 42}),
+        (((-0.5, -0.5), (0.5, 0.5)), set()),
+        (((-20, -20), (-10, -10)), set()),
+        (((0, 0), (0, 2)), set()),
+    ],
+)
+def test_rectangle_selects_intersecting_pixels_without_changing_mask(corners, expected):
+    session = SegmentationEditSession(source())
+    session.select(7)
+    before = session.labels.copy()
+    assert session.rectangle_ids(corners) == expected
+    assert session.selected_ids == {7}
+    np.testing.assert_array_equal(session.labels, before)
+    assert not session.changed and not session.can_undo
+
+
+def test_unselected_brush_creates_one_segment_and_selects_it_atomically():
+    session = session_for([[0, 0, 0, 0, 7], [0, 0, 0, 0, 7]])
+    before = session.labels.copy()
+    strokes = [("add", [(0, 0), (0, 4)])]
+    preview = session.preview_brush_stroke(strokes, size=1)
+    assert not session.selected_ids and not session.can_undo
+    assert preview[0, 4] == 7
+    assert set(np.unique(preview)) == {0, 1, 7}
+    assert session.brush_stroke(strokes, size=1)
+    assert session.selected_ids == {1} and len(session._undo) == 1
+    session.undo()
+    np.testing.assert_array_equal(session.labels, before)
+    session.redo()
+    np.testing.assert_array_equal(session.labels, preview)
+
+
+def test_empty_protected_brush_does_not_create_a_segment():
+    session = session_for(np.full((3, 3), 42, dtype=np.uint32))
+    assert not session.brush_stroke([("add", [(1, 1)])], size=1)
+    assert not session.selected_ids and not session.can_undo
+
+
+@pytest.mark.parametrize("selected", [(), (999,), (42, 999)])
+def test_stroke_splits_all_divided_segments_irrespective_of_selection(selected):
+    labels = np.zeros((9, 13), dtype=np.uint32)
+    labels[1:8, 1:5] = 42
+    labels[1:8, 7:11] = 999
+    labels[0, 12] = 7
+    session = session_for(labels)
+    for identity in selected:
+        session.select(identity, toggle=True)
+    session.split_stroke([(4, -1), (4, 14)])
+    np.testing.assert_array_equal(session.labels > 0, labels > 0)
+    assert session.labels[0, 12] == 7
+    assert len(session.areas[0]) == 5
+    assert session.selected_ids == {42, 999}
+    assert len(session._undo) == 1
+    session.undo()
+    np.testing.assert_array_equal(session.labels, labels)
+    assert not session.can_undo
+
+
+def test_split_ignores_crossed_segments_that_the_stroke_does_not_divide():
+    labels = np.zeros((9, 13), dtype=np.uint32)
+    labels[1:8, 1:5] = 42
+    labels[1:8, 7:11] = 999
+    session = session_for(labels)
+    session.split_stroke([(4, -1), (4, 8)])
+    np.testing.assert_array_equal(session.labels[:, 7:], labels[:, 7:])
+    assert len(session.areas[0]) == 3
+    assert session.selected_ids == {42}

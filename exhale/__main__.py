@@ -13,7 +13,6 @@ import traceback
 from pathlib import Path
 
 from . import (
-    application_description,
     application_icon_filename,
     application_name,
     application_title,
@@ -124,10 +123,7 @@ def _run_application():
 
     has_ui_files = os.path.exists(resdir.joinpath("ui"))
     parser = argparse.ArgumentParser(
-        description=(
-            f"{application_name}, {application_description}. "
-            "Graphical application for processing of XRF lung images."
-        )
+        description=(f"{application_name}: Graphical application for processing of XRF images.")
     )
     if has_ui_files:
         parser.add_argument(

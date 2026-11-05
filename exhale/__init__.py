@@ -50,7 +50,6 @@ if exhale_version is None:
         exhale_version = "dev"
 
 application_name = "Exhale"
-application_description = "Efficient X-ray Hub Aiding Lung Explorations"
 application_title = f"{application_name} {exhale_version}"
 resdir = files("exhale").joinpath("resources")
 application_icon_filename = "xrf.png"

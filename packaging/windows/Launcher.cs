@@ -139,6 +139,12 @@ internal sealed class RuntimeSetup
         if (removeUnusedRuntime && active == null && Directory.Exists(runtime))
             DeleteTree(runtime);
     }
+    internal void Remove()
+    {
+        log("Removing private runtime: " + runtime);
+        if (Directory.Exists(runtime)) DeleteTree(runtime);
+        log("Private runtime removed. Projects, trained models and application settings were retained.");
+    }
     internal void Prepare(string selection)
     {
         string[] extras = Extras(selection);
@@ -244,6 +250,14 @@ internal sealed class RuntimeSetup
                     setup.Activate();
                     if (Directory.GetDirectories(Path.Combine(home, "runtime"), "env-*").Length != 1)
                         throw new Exception("Successful update did not retire the old environment.");
+                    string userFile = Path.Combine(home, "user-project.h5");
+                    File.WriteAllText(userFile, "user data");
+                    string deepCache = Path.Combine(home, "runtime", "cache", new string('c', 120), new string('d', 120));
+                    Directory.CreateDirectory(ExtendedPath(deepCache));
+                    File.WriteAllText(ExtendedPath(Path.Combine(deepCache, "header.h")), "header");
+                    setup.Remove();
+                    if (Directory.Exists(Path.Combine(home, "runtime"))) throw new Exception("Runtime removal failed.");
+                    if (File.ReadAllText(userFile) != "user data") throw new Exception("Runtime removal affected user files.");
                 }
             }
         }
@@ -281,6 +295,7 @@ internal static class Launcher
                         if (args.Contains("--prepare-install")) setup.Prepare(args[Array.IndexOf(args, "--prepare-install") + 1]);
                         else if (args.Contains("--activate-install")) setup.Activate();
                         else if (args.Contains("--discard-install")) setup.Discard(true);
+                        else if (args.Contains("--remove-runtime")) setup.Remove();
                         else setup.Launch(args);
                     }
                     return 0;

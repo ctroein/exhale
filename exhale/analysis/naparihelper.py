@@ -223,6 +223,37 @@ class NapariHelper:
             raise ValueError("Layer opacity must be between 0 and 100 percent")
         layer.opacity = percent / 100
 
+    def automatic_layer_color(self, *, exclude=None, include_labels=False):
+        """Choose the existing maximin RGB hue against visible layer colors.
+
+        Image Auto keeps comparing image layers only. New comparison masks also
+        consider label layers, using palette samples for categorical displays.
+        """
+        other_colors = []
+        for layer in self.user_layers():
+            if layer is exclude or not layer.visible:
+                continue
+            if isinstance(layer, Image):
+                other_colors.append(self.image_color(layer)[:3])
+            elif include_labels and isinstance(layer, Labels):
+                mode, color = self.label_display_mode(layer)
+                if mode == self.LABEL_CATEGORICAL:
+                    other_colors.extend(color[:3] for color in self.categorical_colors(layer))
+                else:
+                    other_colors.append(color[:3])
+        candidates = [QtGui.QColor.fromHsvF(index / 24, 1.0, 1.0) for index in range(24)]
+        if not other_colors:
+            return candidates[0]
+
+        def separation(candidate):
+            red, green, blue, _alpha = candidate.getRgbF()
+            return min(
+                (red - other[0]) ** 2 + (green - other[1]) ** 2 + (blue - other[2]) ** 2
+                for other in other_colors
+            )
+
+        return max(candidates, key=separation)
+
     def image_color(self, layer):
         "Return the selected monochrome color for an image layer."
         if not isinstance(layer, Image):

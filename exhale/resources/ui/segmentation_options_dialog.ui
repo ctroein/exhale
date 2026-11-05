@@ -7,77 +7,131 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <layout class="QFormLayout" name="cellposePageLayout">
-     <item row="0" column="0">
-      <widget class="QLabel" name="cellposeMinSizeLabel">
-       <property name="text">
-        <string>Minimum nucleus area</string>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="1">
-      <widget class="QSpinBox" name="cellposeMinSize">
-       <property name="minimum">
-        <number>1</number>
-       </property>
-       <property name="maximum">
-        <number>999999</number>
-       </property>
-       <property name="value">
-        <number>20</number>
-       </property>
-       <property name="suffix">
-        <string> px²</string>
-       </property>
-      </widget>
-     </item>
-     <item row="1" column="0">
-      <widget class="QLabel" name="flowThresholdLabel">
-       <property name="text">
-        <string>Flow threshold</string>
-       </property>
-      </widget>
-     </item>
-     <item row="1" column="1">
-      <widget class="QDoubleSpinBox" name="flowThreshold">
-       <property name="minimum">
-        <double>0</double>
-       </property>
-       <property name="maximum">
-        <double>10</double>
-       </property>
-       <property name="value">
-        <double>0.4</double>
-       </property>
-       <property name="singleStep">
-        <double>0.1</double>
-       </property>
-      </widget>
-     </item>
-     <item row="2" column="0">
-      <widget class="QLabel" name="cellprobThresholdLabel">
-       <property name="text">
-        <string>Cell probability threshold</string>
-       </property>
-      </widget>
-     </item>
-     <item row="2" column="1">
-      <widget class="QDoubleSpinBox" name="cellprobThreshold">
-       <property name="minimum">
-        <double>-100</double>
-       </property>
-       <property name="maximum">
-        <double>100</double>
-       </property>
-       <property name="value">
-        <double>0</double>
-       </property>
-       <property name="singleStep">
-        <double>0.1</double>
-       </property>
-      </widget>
-     </item>
-    </layout>
+    <widget class="QStackedWidget" name="methodOptionsStack">
+     <widget class="QWidget" name="stardistPage">
+      <layout class="QFormLayout" name="stardistPageLayout">
+       <item row="0" column="0">
+        <widget class="QLabel" name="probThresholdLabel">
+         <property name="text">
+          <string>Probability threshold</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QDoubleSpinBox" name="probThreshold">
+         <property name="decimals">
+          <number>4</number>
+         </property>
+         <property name="minimum">
+          <double>0</double>
+         </property>
+         <property name="maximum">
+          <double>1</double>
+         </property>
+         <property name="singleStep">
+          <double>0.05</double>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="nmsThresholdLabel">
+         <property name="text">
+          <string>Overlap threshold</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QDoubleSpinBox" name="nmsThreshold">
+         <property name="decimals">
+          <number>4</number>
+         </property>
+         <property name="minimum">
+          <double>0</double>
+         </property>
+         <property name="maximum">
+          <double>1</double>
+         </property>
+         <property name="singleStep">
+          <double>0.05</double>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="cellposePage">
+      <layout class="QFormLayout" name="cellposePageLayout">
+       <item row="0" column="0">
+        <widget class="QLabel" name="cellposeMinSizeLabel">
+         <property name="text">
+          <string>Minimum nucleus area</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QSpinBox" name="cellposeMinSize">
+         <property name="minimum">
+          <number>1</number>
+         </property>
+         <property name="maximum">
+          <number>999999</number>
+         </property>
+         <property name="value">
+          <number>20</number>
+         </property>
+         <property name="suffix">
+          <string> px²</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="flowThresholdLabel">
+         <property name="text">
+          <string>Flow threshold</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QDoubleSpinBox" name="flowThreshold">
+         <property name="minimum">
+          <double>0</double>
+         </property>
+         <property name="maximum">
+          <double>10</double>
+         </property>
+         <property name="value">
+          <double>0.4</double>
+         </property>
+         <property name="singleStep">
+          <double>0.1</double>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="cellprobThresholdLabel">
+         <property name="text">
+          <string>Cell probability threshold</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QDoubleSpinBox" name="cellprobThreshold">
+         <property name="minimum">
+          <double>-100</double>
+         </property>
+         <property name="maximum">
+          <double>100</double>
+         </property>
+         <property name="value">
+          <double>0</double>
+         </property>
+         <property name="singleStep">
+          <double>0.1</double>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
    </item>
    <item>
     <widget class="QDialogButtonBox" name="buttonBox">

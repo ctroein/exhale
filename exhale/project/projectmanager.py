@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from qtpy import QtWidgets
@@ -45,6 +46,46 @@ class ProjectManager:
             self._show_error("Creating the export directory failed", exc)
             return None
         return str(directory)
+
+    def export_training_data(self) -> None:
+        """Export every sample's reviewed mask, regardless of current tab or selection."""
+        from ..analysis.trainingio import export_training_data, reviewed_candidates
+
+        try:
+            candidates = reviewed_candidates(self.window.project_data)
+        except ValueError as error:
+            QtWidgets.QMessageBox.warning(self.window, "Training export failed", str(error))
+            return
+        if not candidates:
+            QtWidgets.QMessageBox.information(
+                self.window, "Training data", "No masks are marked as reviewed for training."
+            )
+            return
+        default_directory = self.default_export_directory()
+        if default_directory is None:
+            return
+        directory = QtWidgets.QFileDialog.getExistingDirectory(
+            self.window, "Choose training export directory", default_directory
+        )
+        if not directory:
+            return
+        self.window.settings.setValue(EXPORT_DIRECTORY_SETTING, directory)
+        base = Path(directory) / datetime.now().strftime("training_%Y%m%d_%H%M%S")
+        destination = base
+        number = 2
+        while destination.exists():
+            destination = base.with_name(f"{base.name}-{number}")
+            number += 1
+        try:
+            count = export_training_data(self.window.project_data, destination)
+        except Exception as error:
+            QtWidgets.QMessageBox.warning(self.window, "Training export failed", str(error))
+            return
+        QtWidgets.QMessageBox.information(
+            self.window,
+            "Training export complete",
+            f"Exported reviewed training data for {count} samples to:\n{destination}",
+        )
 
     def new_project(self) -> bool:
         w = self.window

@@ -54,7 +54,12 @@ class AnalysisController(QtCore.QObject):
         self._display_result = None
         self._edit_session = None
         self._edit_tool = "select"
+        self._brush_sizes = {
+            "add": window.analysisBrushSize.value(),
+            "remove": window.analysisBrushSize.value(),
+        }
         self._edit_shortcuts = []
+        self._editing_help_dialog = None
         self._viewer_canvas = None
         window.napariWidget.installEventFilter(self)
         for method in SEGMENTATION_METHODS:
@@ -101,6 +106,7 @@ class AnalysisController(QtCore.QObject):
                 lambda position, widget=widget: self._mask_menu(widget, position)
             )
         window.analysisKeepMask.toggled.connect(self._keep_mask)
+        window.analysisReviewedForTraining.toggled.connect(self._review_mask)
         window.analysisAddComparison.clicked.connect(self._add_comparison)
         window.analysisComparisonCombo.currentIndexChanged.connect(self._update_comparison_controls)
         window.analysisProcessingTabs.currentChanged.connect(self._processing_tab_changed)
@@ -127,7 +133,9 @@ class AnalysisController(QtCore.QObject):
         window.analysisDisconnectedParts.setCurrentIndex(2)
         window.analysisDeleteSegment.clicked.connect(self._delete_segments)
         window.analysisMergeSegments.clicked.connect(self._merge_segments)
+        window.analysisProtectSegments.toggled.connect(self._update_edit_controls)
         window.analysisBrushSize.valueChanged.connect(self._brush_size_changed)
+        window.analysisEditingHelp.clicked.connect(self._show_editing_help)
         window.analysisUndo.clicked.connect(self._undo_edit)
         window.analysisRedo.clicked.connect(self._redo_edit)
         window.analysisOptions.clicked.connect(self._show_method_options)
@@ -138,6 +146,9 @@ class AnalysisController(QtCore.QObject):
         window.analysisLayerList.removeRequested.connect(self._remove_reference)
         window.analysisLayerList.removeComparisonRequested.connect(self._remove_comparison)
         self._area_plot = pg.PlotWidget()
+        self._area_plot.setFrameShape(QtWidgets.QFrame.Box)
+        self._area_plot.setFrameShadow(QtWidgets.QFrame.Plain)
+        self._area_plot.setLineWidth(1)
         self._area_plot.setBackground(None)
         self._area_plot.setLabel("bottom", "Segment area", units="px")
         self._area_plot.setLabel("left", "Segments")
@@ -197,6 +208,7 @@ class AnalysisController(QtCore.QObject):
                     for candidate in history.candidates.values():
                         selector.addItem(self._mask_name(candidate), candidate.candidate_id)
                     selector.setCurrentIndex(selector.findData(history.active_id))
+        self.refresh_mask_markers()
         candidate = self.current_candidate()
         for button, checked in (
             (window.analysisKeepMask, candidate is not None and candidate.keep),
@@ -206,6 +218,23 @@ class AnalysisController(QtCore.QObject):
             button.setEnabled(candidate is not None and self.worker is None)
         selector.setEnabled(candidate is not None and self.worker is None)
         self._refresh_comparison_choices()
+        self._update_review_control()
+
+    def refresh_mask_markers(self):
+        """Update independent lock/review icons without rebuilding or reordering masks."""
+        selector = self.window.analysisMaskCombo
+        history = self._history()
+        extent = selector.fontMetrics().height()
+        selector.setIconSize(QtCore.QSize(2 * extent, extent))
+        cache = {}
+        for row in range(selector.count()):
+            candidate = None if history is None else history.candidates.get(selector.itemData(row))
+            flags = (
+                (candidate.keep, candidate.reviewed) if candidate is not None else (False, False)
+            )
+            if flags not in cache:
+                cache[flags] = icons.mask_status_icon(*flags, extent, selector.devicePixelRatioF())
+            selector.setItemIcon(row, cache[flags])
 
     def _mask_changed(self):
         history = self._history()
@@ -351,16 +380,44 @@ class AnalysisController(QtCore.QObject):
         self._update_edit_controls()
         return True
 
+    def _select_rectangle(self, corners, additive):
+        """Apply area selection after resolving pending edits to the old selection."""
+        session = self._edit_session
+        if session is None:
+            return
+        selection = session.selected_ids.copy()
+        identities = session.rectangle_ids(corners)
+        target = selection | identities if additive else identities
+        if target != selection and not self._resolve_disconnections(selection):
+            return
+        # Resolving disconnected parts can allocate new IDs inside the rectangle.
+        identities = session.rectangle_ids(corners)
+        session.selected_ids = selection | identities if additive else identities
+        self.naparihelper.nuc_layer.data = session.labels
+        self.naparihelper.update_selection()
+        self._update_edit_controls()
+
     def _choose_edit_tool(self, tool):
+        if not self._tool_buttons[tool].isEnabled():
+            return
         self._edit_tool = tool
         self._tool_buttons[tool].setChecked(True)
         self._edit_tool_changed()
 
     def _brush_size_changed(self):
+        if self._edit_tool in self._brush_sizes:
+            self._brush_sizes[self._edit_tool] = self.window.analysisBrushSize.value()
         if self.naparihelper is not None:
             self.naparihelper.set_brush_size(self.window.analysisBrushSize.value())
 
     def _edit_tool_changed(self):
+        if self._edit_tool in self._brush_sizes:
+            with QtCore.QSignalBlocker(self.window.analysisBrushSize):
+                self.window.analysisBrushSize.setValue(self._brush_sizes[self._edit_tool])
+        self.window.analysisBrushLabel.setText(
+            "Eraser size" if self._edit_tool == "remove" else "Brush size"
+        )
+        self._brush_size_changed()
         if self.naparihelper is not None:
             self.naparihelper.cancel_stroke()
             self.naparihelper.set_edit_tool(self._edit_tool if self._editing_mode() else "select")
@@ -375,6 +432,14 @@ class AnalysisController(QtCore.QObject):
             protect=self.window.analysisProtectSegments.isChecked(),
         )
         try:
+            if tool == "brush":
+                if preview:
+                    return session.preview_brush_stroke(points, **args)
+                if session.brush_stroke(
+                    points, **args, disconnected=self.window.analysisDisconnectedParts.currentData()
+                ):
+                    self._editing_changed()
+                return session.labels
             if preview:
                 return session.preview(tool, points, **args)
             if tool == "draw" and not self._resolve_disconnections(session.selected_ids):
@@ -418,6 +483,18 @@ class AnalysisController(QtCore.QObject):
         self.window.analysisMergeSegments.setEnabled(
             enabled and session is not None and len(session.selected_ids) >= 2
         )
+        count = 0 if session is None else len(session.selected_ids)
+        self.window.analysisToolBrushDraw.setEnabled(enabled and session is not None and count <= 1)
+        self.window.analysisToolBrushErase.setEnabled(
+            enabled
+            and session is not None
+            and (count > 0 or not self.window.analysisProtectSegments.isChecked())
+        )
+        if (
+            self._edit_tool in ("add", "remove")
+            and not self._tool_buttons[self._edit_tool].isEnabled()
+        ):
+            self._choose_edit_tool("select")
         self.window.analysisToolSplit.setEnabled(enabled and session is not None)
         self.window.analysisProcessingTabs.setEnabled(
             enabled and self.current_candidate() is not None
@@ -427,6 +504,7 @@ class AnalysisController(QtCore.QObject):
         self.window.analysisRejectEdits.setEnabled(editing)
         for shortcut in self._edit_shortcuts:
             shortcut.setEnabled(editing)
+        self._update_review_control()
 
     def _editing_changed(self):
         """Refresh the working mask and schedule ordinary save/autosave tracking."""
@@ -502,7 +580,29 @@ class AnalysisController(QtCore.QObject):
         candidate = self.current_candidate()
         if candidate is not None:
             candidate.keep = keep
+            self.refresh_mask_markers()
             self.window.project_state_manager.project_changed()
+
+    def _update_review_control(self):
+        candidate = self.current_candidate()
+        dirty = self._edit_session is not None and self._edit_session.changed
+        checkbox = self.window.analysisReviewedForTraining
+        with QtCore.QSignalBlocker(checkbox):
+            checkbox.setChecked(candidate is not None and candidate.reviewed and not dirty)
+        checkbox.setEnabled(candidate is not None and self.worker is None and not dirty)
+
+    def _review_mask(self, reviewed):
+        candidate = self.current_candidate()
+        history = self._history()
+        if candidate is None or history is None:
+            return
+        if self._edit_session is not None and self._edit_session.changed:
+            self._update_review_control()
+            return
+        history.set_reviewed(candidate.candidate_id, reviewed)
+        self.refresh_mask_markers()
+        self._update_review_control()
+        self.window.project_state_manager.project_changed()
 
     def _refresh_comparison_choices(self):
         """List other saved masks, including comparisons restored with the project."""
@@ -580,6 +680,15 @@ class AnalysisController(QtCore.QObject):
             )
             self._set_segmentation_parameters(parameters)
 
+    def _show_editing_help(self):
+        if self._editing_help_dialog is None:
+            from .segmentation_help_dialog import SegmentationHelpDialog
+
+            self._editing_help_dialog = SegmentationHelpDialog(self.window)
+        self._editing_help_dialog.show()
+        self._editing_help_dialog.raise_()
+        self._editing_help_dialog.activateWindow()
+
     def _show_method_options(self) -> None:
         method_id = self.current_method_id()
         if method_id is not None and segmentation_method(method_id).has_options:
@@ -653,6 +762,8 @@ class AnalysisController(QtCore.QObject):
     def shutdown(self) -> None:
         """Close auxiliary UI and stop an active worker before application exit."""
         self.settings_dialog.close()
+        if self._editing_help_dialog is not None:
+            self._editing_help_dialog.close()
         if self.worker is not None:
             self.worker.abort()
             self.thread.wait()
@@ -679,6 +790,7 @@ class AnalysisController(QtCore.QObject):
             window.analysisDetails
         )
         self.naparihelper.selection_callback = self._select_segment
+        self.naparihelper.rectangle_selection_callback = self._select_rectangle
         self.naparihelper.edit_callback = self._edit_gesture
 
         layout = QtWidgets.QHBoxLayout()

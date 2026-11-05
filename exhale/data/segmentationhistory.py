@@ -164,6 +164,23 @@ class SegmentationHistory:
     def active(self) -> SegmentationCandidate | None:
         return self.candidates.get(self.active_id)
 
+    @property
+    def reviewed(self) -> SegmentationCandidate | None:
+        """Return this sample's reviewed revision independently of the active mask."""
+        reviewed = [candidate for candidate in self.candidates.values() if candidate.reviewed]
+        if len(reviewed) > 1:
+            raise ValueError("A sample has more than one reviewed segmentation")
+        return reviewed[0] if reviewed else None
+
+    def set_reviewed(self, candidate_id: str, reviewed: bool = True) -> None:
+        """Transfer whole-image review without reordering or changing label data."""
+        candidate = self.candidates[candidate_id]
+        if reviewed:
+            for other in self.candidates.values():
+                if other is not candidate:
+                    other.set_reviewed(False)
+        candidate.set_reviewed(reviewed)
+
     def activate(self, candidate_id: str) -> SegmentationCandidate:
         """Select a mask without changing its ordering or provenance."""
         candidate = self.candidates[candidate_id]
@@ -244,6 +261,10 @@ class SegmentationHistory:
             history.active_id = history._recency[-1]
             if active_id is not None:
                 issues.append("The unavailable active segmentation was replaced by a retained mask")
+        reviewed = [key for key in history._recency if history.candidates[key].reviewed]
+        if len(reviewed) > 1:
+            history.set_reviewed(reviewed[-1])
+            issues.append("Multiple reviewed masks were reduced to the most recent retained mask")
         history.prune()
         return history, issues
 
@@ -286,6 +307,8 @@ class SegmentationHistory:
         if candidate.candidate_id in self._recency:
             self._recency.remove(candidate.candidate_id)
         self._recency.append(candidate.candidate_id)
+        if candidate.reviewed:
+            self.set_reviewed(candidate.candidate_id)
         self.prune()
         return candidate
 

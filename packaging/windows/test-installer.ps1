@@ -56,6 +56,9 @@ assert (importlib.util.find_spec('dinov3') is not None) == (selection in ('cellp
 $uninstall = Start-Process "$destination/unins000.exe" -ArgumentList @(
     '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$logs/uninstall.log`""
 ) -Wait -PassThru
+if (Test-Path "$destination/runtime.log") {
+    Copy-Item "$destination/runtime.log" "$logs/uninstall-runtime.log" -Force
+}
 if ($uninstall.ExitCode -ne 0) { throw "Uninstall failed: $($uninstall.ExitCode)" }
 if (Test-Path "$destination/runtime") { throw 'Uninstall left the private runtime behind' }
 if (Test-Path "$destination/exhale.exe") { throw 'Uninstall left the launcher behind' }

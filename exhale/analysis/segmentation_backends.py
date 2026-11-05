@@ -1,6 +1,7 @@
 """Direct StarDist and Cellpose inference, input preparation and model provenance."""
 
 import hashlib
+import json
 import os
 from functools import lru_cache
 from importlib.resources import files
@@ -109,6 +110,12 @@ def _stardist_directory() -> Path:
     return Path(str(files("exhale").joinpath("resources/models/2D_versatile_fluo_copy")))
 
 
+def stardist_thresholds() -> dict:
+    """Read bundled inference defaults without initializing a neural-network runtime."""
+    values = json.loads((_stardist_directory() / "thresholds.json").read_text())
+    return {"prob_thresh": float(values["prob"]), "nms_thresh": float(values["nms"])}
+
+
 def _stardist_version(directory: Path) -> str:
     """Include inference thresholds and architecture as well as network weights."""
     digest = hashlib.sha256()
@@ -127,8 +134,13 @@ def _stardist_model(directory: str, version: str):
     return StarDist2D(None, path.name, basedir=path.parent)
 
 
-def segment_stardist(image: np.ndarray, *, callback=lambda _message: None) -> np.ndarray:
+def segment_stardist(
+    image: np.ndarray, *, prob_thresh=None, nms_thresh=None, callback=lambda _message: None
+) -> np.ndarray:
     """Call StarDist directly, retaining every returned instance and its pixels."""
+    for value in (prob_thresh, nms_thresh):
+        if value is not None and (not np.isfinite(value) or not 0 <= value <= 1):
+            raise ValueError("StarDist thresholds must be between 0 and 1")
     callback("Loading StarDist model")
     prepare_segmentation_runtime()
     from csbdeep.utils import normalize
@@ -136,7 +148,9 @@ def segment_stardist(image: np.ndarray, *, callback=lambda _message: None) -> np
     directory = _stardist_directory()
     model = _stardist_model(str(directory), _stardist_version(directory))
     callback("Segmenting with StarDist")
-    labels, _details = model.predict_instances(normalize(image))
+    labels, _details = model.predict_instances(
+        normalize(image), prob_thresh=prob_thresh, nms_thresh=nms_thresh
+    )
     callback("StarDist segmentation complete")
     return labels
 
@@ -153,9 +167,7 @@ def run_segmentation(
     callback("Preparing segmentation input")
     data = preprocess_map(image, parameters.clip_percentile)
     if method_id == "stardist":
-        if parameters.method_options:
-            raise ValueError("StarDist has no configurable inference options yet")
-        labels = segment_stardist(data, callback=callback)
+        labels = segment_stardist(data, callback=callback, **parameters.method_options)
         model_id = "stardist-2d-versatile-fluo"
         version = _stardist_version(_stardist_directory())
     elif method_id == "cellpose":

@@ -1,4 +1,4 @@
-"""Transient Qt brush shading and modifier cursors for the segmentation canvas."""
+"""Transient Qt brush shading, area selection and cursors for the segmentation canvas."""
 
 import numpy as np
 from qtpy import QtCore, QtGui, QtWidgets
@@ -33,8 +33,7 @@ class _ModifierKeys(QtCore.QObject):
         self.owner = owner
 
     def eventFilter(self, watched, event):
-        self.owner.modifier_event(watched, event)
-        return False
+        return self.owner.modifier_event(watched, event)
 
 
 class SegmentationCursor(QtWidgets.QWidget):
@@ -56,7 +55,15 @@ class SegmentationCursor(QtWidgets.QWidget):
         self._inside = False
         self._position = QtCore.QPointF()
         self._modifiers = QtCore.Qt.NoModifier
+        self._buttons = QtCore.Qt.NoButton
         self._path = QtGui.QPainterPath()
+        self._paint_tool = "select"
+        self._selection_rect = None
+        self._selection_additive = False
+        self._ant_offset = 0
+        self._ant_timer = QtCore.QTimer(self)
+        self._ant_timer.setInterval(100)
+        self._ant_timer.timeout.connect(self._advance_ants)
         self._base_cursor = None
         self._cursor_update = False
         self._cursors = {}
@@ -72,17 +79,21 @@ class SegmentationCursor(QtWidgets.QWidget):
     def eventFilter(self, watched, event):
         kind = event.type()
         if watched is self.canvas:
+            if self._selection_event(event):
+                return True
             if kind == QtCore.QEvent.Show:
                 self._watch_modifiers(True)
             elif kind == QtCore.QEvent.Enter:
                 self._inside = True
                 self._position = QtCore.QPointF(self.canvas.mapFromGlobal(QtGui.QCursor.pos()))
                 self._modifiers = QtWidgets.QApplication.keyboardModifiers()
+                self._buttons = QtWidgets.QApplication.mouseButtons()
                 self.refresh()
             elif kind in (QtCore.QEvent.Leave, QtCore.QEvent.Hide, QtCore.QEvent.Close):
                 if kind != QtCore.QEvent.Leave:
                     self._watch_modifiers(False)
                 self._inside = False
+                self._buttons = QtCore.Qt.NoButton
                 self.refresh()
             elif kind in (
                 QtCore.QEvent.MouseMove,
@@ -94,6 +105,7 @@ class SegmentationCursor(QtWidgets.QWidget):
                 )
                 self._inside = self.canvas.rect().contains(self._position.toPoint())
                 self._modifiers = event.modifiers()
+                self._buttons = event.buttons()
                 self.refresh()
             elif kind == QtCore.QEvent.Resize:
                 self.setGeometry(self.canvas.rect())
@@ -102,6 +114,62 @@ class SegmentationCursor(QtWidgets.QWidget):
                 if self._base_cursor is not None:
                     self._base_cursor = self.canvas.cursor()
                 self.refresh()
+        return False
+
+    def _advance_ants(self):
+        self._ant_offset = (self._ant_offset + 1) % 8
+        self.update()
+
+    def cancel_selection(self):
+        """Discard an unfinished rectangle without changing the current selection."""
+        if self._selection_rect is not None:
+            self._selection_rect = None
+            self._ant_timer.stop()
+            self.refresh()
+
+    def _selection_event(self, event):
+        """Consume Shift drags before Napari can select a point or pan the camera."""
+        kind = event.type()
+        if kind in (QtCore.QEvent.Hide, QtCore.QEvent.Close):
+            self.cancel_selection()
+        if (
+            kind == QtCore.QEvent.MouseButtonPress
+            and event.button() == QtCore.Qt.LeftButton
+            and event.modifiers() & QtCore.Qt.ShiftModifier
+            and self.helper.edit_tool == "select"
+            and self.helper.edit_session is not None
+        ):
+            self.canvas.setFocus(QtCore.Qt.MouseFocusReason)
+            point = event.position() if hasattr(event, "position") else QtCore.QPointF(event.pos())
+            self._selection_rect = QtCore.QRectF(point, point)
+            self._selection_additive = bool(event.modifiers() & QtCore.Qt.ControlModifier)
+            self._ant_timer.start()
+            self.refresh()
+            return True
+        if self._selection_rect is not None:
+            if kind in (QtCore.QEvent.MouseMove, QtCore.QEvent.MouseButtonRelease):
+                point = (
+                    event.position() if hasattr(event, "position") else QtCore.QPointF(event.pos())
+                )
+                self._selection_rect.setBottomRight(point)
+                self.refresh()
+                if (
+                    kind == QtCore.QEvent.MouseButtonRelease
+                    and event.button() == QtCore.Qt.LeftButton
+                ):
+                    rect = self._selection_rect.normalized()
+                    additive = self._selection_additive
+                    self.cancel_selection()
+                    callback = self.helper.rectangle_selection_callback
+                    if not rect.isEmpty() and callback is not None:
+                        corners = [
+                            self.helper.nuc_layer.world_to_data(
+                                self.helper.viewer.canvas_to_world((point.y(), point.x()))
+                            )[-2:]
+                            for point in (rect.topLeft(), rect.bottomRight())
+                        ]
+                        callback(corners, additive)
+                return True
         return False
 
     def _watch_modifiers(self, enabled):
@@ -117,6 +185,15 @@ class SegmentationCursor(QtWidgets.QWidget):
     def modifier_event(self, watched, event):
         """Refresh a stationary pointer when modifier keys change in this window."""
         kind = event.type()
+        if (
+            self._selection_rect is not None
+            and kind == QtCore.QEvent.KeyPress
+            and event.key() == QtCore.Qt.Key_Escape
+            and isinstance(watched, QtWidgets.QWidget)
+            and watched.window() is self.canvas.window()
+        ):
+            self.cancel_selection()
+            return True
         if (
             self._inside
             and kind in (QtCore.QEvent.KeyPress, QtCore.QEvent.KeyRelease)
@@ -134,6 +211,7 @@ class SegmentationCursor(QtWidgets.QWidget):
                 else:
                     self._modifiers &= ~modifier
             self.refresh()
+        return False
 
     def _modifier_cursor(self, symbol):
         ratio = self.canvas.devicePixelRatioF()
@@ -179,7 +257,12 @@ class SegmentationCursor(QtWidgets.QWidget):
     def refresh(self, _event=None):
         """Refresh the footprint and modifier cursor from current viewer state."""
         active = self._inside and self.helper.edit_session is not None and self.canvas.isVisible()
-        tool = self.helper.edit_tool if active else "select"
+        tool = (
+            self.helper.effective_edit_tool(bool(self._buttons & QtCore.Qt.RightButton))
+            if active
+            else "select"
+        )
+        self._paint_tool = tool
         symbol = None
         if tool == "draw":
             if self._modifiers & QtCore.Qt.ControlModifier:
@@ -217,7 +300,7 @@ class SegmentationCursor(QtWidgets.QWidget):
                 inverse[0, 1], inverse[1, 1], inverse[0, 0], inverse[1, 0], offset[0], offset[1]
             )
             self._path = transform.map(path)
-        if self._path.isEmpty():
+        if self._path.isEmpty() and self._selection_rect is None:
             self.hide()
         else:
             self.show()
@@ -226,14 +309,25 @@ class SegmentationCursor(QtWidgets.QWidget):
 
     def paintEvent(self, event):
         painter = QtGui.QPainter(self)
-        if self.helper.edit_tool == "split":
+        if self._selection_rect is not None:
+            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.setPen(QtGui.QPen(QtCore.Qt.black, 1))
+            painter.drawRect(self._selection_rect.normalized())
+            pen = QtGui.QPen(QtCore.Qt.white, 1, QtCore.Qt.CustomDashLine)
+            pen.setDashPattern([4, 4])
+            pen.setDashOffset(self._ant_offset)
+            painter.setPen(pen)
+            painter.drawRect(self._selection_rect.normalized())
+            painter.end()
+            return
+        if self._paint_tool == "split":
             for color, width in ((QtCore.Qt.black, 3), (QtCore.Qt.white, 1)):
                 painter.setPen(QtGui.QPen(color, width))
                 painter.setBrush(QtCore.Qt.NoBrush)
                 painter.drawPath(self._path)
             painter.end()
             return
-        draw = self.helper.edit_tool == "add"
+        draw = self._paint_tool == "add"
         painter.setBrush(QtGui.QColor(255, 255, 255, 75) if draw else QtGui.QColor(0, 0, 0, 75))
         painter.setPen(QtGui.QPen(QtCore.Qt.black if draw else QtCore.Qt.white, 1))
         painter.drawPath(self._path)
