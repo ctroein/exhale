@@ -271,7 +271,7 @@ class SegmentationCursor(QtWidgets.QWidget):
                 symbol = "+"
         self._set_cursor(symbol)
         self._path = QtGui.QPainterPath()
-        if tool in ("add", "remove", "split") and self.helper.nuc_layer is not None:
+        if tool in ("add", "remove", "split", "draw") and self.helper.nuc_layer is not None:
             viewer = self.helper.viewer
             layer = self.helper.nuc_layer
             # Derive the 2-D affine map from Napari's public canvas conversion.
@@ -284,7 +284,7 @@ class SegmentationCursor(QtWidgets.QWidget):
             matrix = np.column_stack((basis[2] - origin, basis[1] - origin))
             inverse = np.linalg.inv(matrix)
             position = origin + matrix @ (self._position.x(), self._position.y())
-            if tool == "split":
+            if tool in ("split", "draw"):
                 path = QtGui.QPainterPath()
                 for index, (y, x) in enumerate(self.helper._stroke_points):
                     if index == 0:
@@ -320,7 +320,7 @@ class SegmentationCursor(QtWidgets.QWidget):
             painter.drawRect(self._selection_rect.normalized())
             painter.end()
             return
-        if self._paint_tool == "split":
+        if self._paint_tool in ("split", "draw"):
             for color, width in ((QtCore.Qt.black, 3), (QtCore.Qt.white, 1)):
                 painter.setPen(QtGui.QPen(color, width))
                 painter.setBrush(QtCore.Qt.NoBrush)

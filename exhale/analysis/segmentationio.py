@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -16,6 +15,7 @@ import pandas as pd
 
 from ..data.segmentation import SegmentationOutput
 from ..data.segmentationhistory import SegmentationCandidate, SegmentationHistory
+from ..fileio import create_staging_file
 
 if TYPE_CHECKING:
     from ..data.projectdata import ProjectData, SegmentationResult
@@ -142,10 +142,7 @@ def _atomic_hdf5(filename: str | Path):
     filename.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(
-            dir=filename.parent, prefix=f".{filename.name}.", suffix=".tmp", delete=False
-        ) as stream:
-            temporary = Path(stream.name)
+        temporary = create_staging_file(filename.parent, prefix=f".{filename.name}.")
         with h5py.File(temporary, "w") as handle:
             yield handle
             handle.flush()
@@ -203,63 +200,46 @@ def save_xrf_sample(
     sample: XRFSample, filename: str | Path, *, method_id: str = "stardist"
 ) -> None:
     """Atomically store an analyzed sample in an HDF5 sidecar."""
-    filename = Path(filename)
-    filename.parent.mkdir(parents=True, exist_ok=True)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            dir=filename.parent,
-            prefix=f".{filename.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as stream:
-            temporary = Path(stream.name)
-        with h5py.File(temporary, "w") as handle:
-            handle.attrs["format"] = SEGMENTATION_FORMAT
-            handle.attrs["version"] = SEGMENTATION_VERSION
-            handle.attrs["method_id"] = method_id
-            handle.attrs["name"] = sample.name
-            handle.attrs["processed"] = sample.is_processed
-            handle.attrs["combined"] = sample.is_combined
+    with _atomic_hdf5(filename) as handle:
+        handle.attrs["format"] = SEGMENTATION_FORMAT
+        handle.attrs["version"] = SEGMENTATION_VERSION
+        handle.attrs["method_id"] = method_id
+        handle.attrs["name"] = sample.name
+        handle.attrs["processed"] = sample.is_processed
+        handle.attrs["combined"] = sample.is_combined
 
-            if sample.nuclei is not None:
-                nuclei = handle.create_group("nuclei")
-                nuclei.attrs["processed"] = sample.nuclei.is_processed
-                _write_optional_array(nuclei, "raw", sample.nuclei.raw)
-                _write_optional_array(nuclei, "nuclei_labels", sample.nuclei.nuclei_labels)
-                _write_optional_array(nuclei, "expanded_labels", sample.nuclei.expanded_labels)
-                _write_optional_array(nuclei, "membrane_labels", sample.nuclei.membrane_labels)
+        if sample.nuclei is not None:
+            nuclei = handle.create_group("nuclei")
+            nuclei.attrs["processed"] = sample.nuclei.is_processed
+            _write_optional_array(nuclei, "raw", sample.nuclei.raw)
+            _write_optional_array(nuclei, "nuclei_labels", sample.nuclei.nuclei_labels)
+            _write_optional_array(nuclei, "expanded_labels", sample.nuclei.expanded_labels)
+            _write_optional_array(nuclei, "membrane_labels", sample.nuclei.membrane_labels)
 
-            if sample.tissue is not None:
-                tissue = handle.create_group("tissue")
-                tissue.attrs["processed"] = sample.tissue.is_processed
-                _write_optional_array(tissue, "raw", sample.tissue.raw)
-                _write_optional_array(tissue, "log_image", sample.tissue.log_image)
-                _write_optional_array(tissue, "tissue_mask", sample.tissue.tissue_mask)
-                _write_optional_array(tissue, "tissue_labels", sample.tissue.tissue_labels)
+        if sample.tissue is not None:
+            tissue = handle.create_group("tissue")
+            tissue.attrs["processed"] = sample.tissue.is_processed
+            _write_optional_array(tissue, "raw", sample.tissue.raw)
+            _write_optional_array(tissue, "log_image", sample.tissue.log_image)
+            _write_optional_array(tissue, "tissue_mask", sample.tissue.tissue_mask)
+            _write_optional_array(tissue, "tissue_labels", sample.tissue.tissue_labels)
 
-            elements = handle.create_group("elements")
-            for index, channel in enumerate(sample.elements.values()):
-                element = elements.create_group(str(index))
-                element.attrs["processed"] = channel.is_processed
-                element.attrs["name"] = channel.name
-                _write_optional_array(element, "raw", channel.raw)
-                _write_optional_array(element, "log_image", channel.log_image)
-                _write_optional_array(element, "cluster_labels", channel.cluster_labels)
-                _write_optional_array(element, "intensity_thresholds", channel.intensity_thresholds)
-                _write_dataframe(element, "cluster_df", channel.cluster_df)
+        elements = handle.create_group("elements")
+        for index, channel in enumerate(sample.elements.values()):
+            element = elements.create_group(str(index))
+            element.attrs["processed"] = channel.is_processed
+            element.attrs["name"] = channel.name
+            _write_optional_array(element, "raw", channel.raw)
+            _write_optional_array(element, "log_image", channel.log_image)
+            _write_optional_array(element, "cluster_labels", channel.cluster_labels)
+            _write_optional_array(element, "intensity_thresholds", channel.intensity_thresholds)
+            _write_dataframe(element, "cluster_df", channel.cluster_df)
 
-            tables = handle.create_group("tables")
-            _write_dataframe(tables, "nuclei", sample._df_nuclei)
-            _write_dataframe(tables, "membrane", sample._df_membrane)
-            _write_dataframe(tables, "background", sample._df_background)
-            _write_dataframe(tables, "results", sample.results_df)
-            handle.flush()
-        os.replace(temporary, filename)
-    except Exception:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-        raise
+        tables = handle.create_group("tables")
+        _write_dataframe(tables, "nuclei", sample._df_nuclei)
+        _write_dataframe(tables, "membrane", sample._df_membrane)
+        _write_dataframe(tables, "background", sample._df_background)
+        _write_dataframe(tables, "results", sample.results_df)
 
 
 def load_xrf_sample(filename: str | Path, *, expected_method_id: str | None = None) -> XRFSample:

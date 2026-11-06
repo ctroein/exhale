@@ -56,6 +56,7 @@ class IconName(str, Enum):
     LAYERS_ADD = "layers-plus.svg"
     ADD_LAYER = "layer-plus.svg"
     START = "bolt.svg"
+    BATCH = "stack-bolt.svg"
     STOP = "player-stop.svg"
 
 

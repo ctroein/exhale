@@ -11,7 +11,7 @@ import numpy as np
 from scipy import ndimage
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
-from skimage.draw import line, polygon
+from skimage.draw import line
 
 from .segmentation import SegmentationOutput, segment_areas
 from .segmentationhistory import SegmentationCandidate, partition_digest
@@ -190,6 +190,88 @@ class SegmentationEditSession:
             mask[low[0] : high[0], low[1] : high[1]] |= hit
         return mask
 
+    @staticmethod
+    def outline_mask(shape, points):
+        """Fill non-zero winding regions, retaining opposite-direction inner holes.
+
+        Count directed crossings at source pixel centers before rasterization.
+        Repeated turns in the same direction add rather than cancel. Pixels
+        exactly on the drawn boundary are included, as with ordinary outlines.
+        """
+        points = np.asarray(points, dtype=float)
+        if points.ndim != 2 or points.shape[1] != 2 or not np.isfinite(points).all():
+            raise ValueError("Editing points must be finite image coordinates")
+        mask = np.zeros(shape, dtype=bool)
+        if len(points) < 3:
+            return mask
+        start = np.clip(np.ceil(points.min(axis=0)), 0, shape).astype(int)
+        stop = np.clip(np.floor(points.max(axis=0)) + 1, 0, shape).astype(int)
+        if np.any(stop <= start):
+            return mask
+        following = np.roll(points, -1, axis=0)
+        y0, x0 = points.T
+        y1, x1 = following.T
+        horizontal = y0 == y1
+        direction = np.where(y1 > y0, 1, -1)
+        columns = np.arange(start[1], stop[1])
+        for row in range(start[0], stop[0]):
+            crossing = ((y0 <= row) & (row < y1)) | ((y1 <= row) & (row < y0))
+            indices = np.flatnonzero(crossing)
+            intersections = x0[indices] + (
+                (row - y0[indices]) * (x1[indices] - x0[indices]) / (y1[indices] - y0[indices])
+            )
+            order = np.argsort(intersections)
+            winding = np.r_[0, np.cumsum(direction[indices][order])]
+            mask[row, start[1] : stop[1]] = (
+                winding[np.searchsorted(intersections[order], columns, side="right")] != 0
+            )
+            # Include exact boundary hits separately from the half-open crossings.
+            edges = np.flatnonzero(
+                ~horizontal & (np.minimum(y0, y1) <= row) & (row <= np.maximum(y0, y1))
+            )
+            hits = x0[edges] + (
+                (row - y0[edges]) * (x1[edges] - x0[edges]) / (y1[edges] - y0[edges])
+            )
+            nearest = np.rint(hits)
+            valid = (
+                np.isclose(hits, nearest, rtol=0, atol=1e-9) & (nearest >= 0) & (nearest < shape[1])
+            )
+            mask[row, nearest[valid].astype(int)] = True
+            for edge in np.flatnonzero(horizontal & (y0 == row)):
+                left = int(np.clip(np.ceil(min(x0[edge], x1[edge])), 0, shape[1]))
+                right = int(np.clip(np.floor(max(x0[edge], x1[edge])) + 1, 0, shape[1]))
+                mask[row, left:right] = True
+        return mask
+
+    def preview_region(self, tool, mask, *, protect=True):
+        """Paint an outline region without committing it or changing its input mask."""
+        if tool not in ("draw", "outline_add", "outline_remove", "add", "remove"):
+            raise ValueError(f"Unknown editing tool {tool!r}")
+        mask = np.array(mask, dtype=bool, copy=True)
+        if mask.shape != self._labels.shape:
+            raise ValueError("An outline region must match the mask dimensions")
+        labels = self._labels.copy()
+        operation = {"outline_add": "add", "outline_remove": "remove"}.get(tool, tool)
+        if operation == "draw":
+            if protect:
+                mask &= labels == 0
+            if mask.any():
+                labels[mask] = self._unused_id(labels)
+        elif operation == "add":
+            if len(self.selected_ids) != 1:
+                raise ValueError("Select one segment before drawing into it")
+            identity = next(iter(self.selected_ids))
+            if protect:
+                mask &= (labels == 0) | (labels == identity)
+            labels[mask] = identity
+        else:
+            if protect and not self.selected_ids:
+                raise ValueError("Select a segment before erasing from it")
+            if protect:
+                mask &= np.isin(labels, list(self.selected_ids))
+            labels[mask] = 0
+        return labels
+
     def preview(self, tool, points, *, size=5, protect=True):
         """Build a gesture's proposed labels without committing or changing the session."""
         points = np.asarray(points, dtype=float)
@@ -208,27 +290,12 @@ class SegmentationEditSession:
         if outline:
             if len(points) < 3:
                 return labels
-            mask = np.zeros(labels.shape, dtype=bool)
-            mask[polygon(points[:, 0], points[:, 1], labels.shape)] = True
+            mask = self.outline_mask(labels.shape, points)
         elif operation in ("add", "remove"):
             mask = self.brush_mask(labels.shape, points, size)
         else:
             raise ValueError(f"Unknown editing tool {tool!r}")
-        if operation == "draw":
-            if protect:
-                mask &= labels == 0
-            if mask.any():
-                labels[mask] = self._unused_id(labels)
-        elif operation == "add":
-            identity = next(iter(self.selected_ids))
-            if protect:
-                mask &= (labels == 0) | (labels == identity)
-            labels[mask] = identity
-        elif operation == "remove":
-            if protect:
-                mask &= np.isin(labels, list(self.selected_ids))
-            labels[mask] = 0
-        return labels
+        return self.preview_region(tool, mask, protect=protect)
 
     def preview_brush_stroke(self, strokes, *, size=5, protect=True):
         """Compose temporary draw/erase sections without committing partial strokes."""
@@ -314,6 +381,16 @@ class SegmentationEditSession:
         if tool == "split":
             return self.split_stroke(points)
         labels = self.preview(tool, points, size=size, protect=protect)
+        return self._commit_region(tool, labels, disconnected)
+
+    def edit_region(self, tool, mask, *, protect=True, disconnected="ask"):
+        """Commit an already fitted outline as one ordinary undoable edit."""
+        return self._commit_region(
+            tool, self.preview_region(tool, mask, protect=protect), disconnected
+        )
+
+    def _commit_region(self, tool, labels, disconnected):
+        """Keep allocation and selection identical for fitted and manual outlines."""
         previous_ids = set(map(int, self.areas[0]))
         changed = self._commit_edit(labels, disconnected)
         if changed and tool == "draw":

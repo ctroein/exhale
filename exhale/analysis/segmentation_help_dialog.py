@@ -28,7 +28,14 @@ class SegmentationHelpDialog(QtWidgets.QDialog):
 <h3>Drawing and erasing</h3>
 <p><b>Outline (O)</b> creates a segment by drawing around its boundary.
  To change an existing segment, select it first, then hold Shift while starting
- an outline to add the enclosed area, or Ctrl to remove it.</p>
+ an outline to add the enclosed area, or Ctrl to remove it.
+ The line closes when you release the mouse. Going around again in the same
+ direction keeps the overlap filled; returning around an inner area in the
+ opposite direction leaves it empty.</p>
+<p>Enable <b>Fit to features</b> to adjust an approximate outline to the nuclei
+ element map when you release the mouse. It favors nearby edges where the
+ intensity falls toward the outside of your outline. The distance in pixels limits how far
+ the boundary can move inward or outward. Use Undo if the result is unsuitable.</p>
 <p><b>Brush draw (B)</b> paints into the selected segment, or creates a new one
  if nothing is selected. <b>Brush erase (E)</b> removes parts of a segment.
  Use the size control to adjust the brush or eraser; each remembers its own size.

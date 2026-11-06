@@ -6,12 +6,12 @@ import json
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 
 from tifffile import imwrite
 
 from .. import application_name, exhale_version
+from ..fileio import staging_directory
 
 if TYPE_CHECKING:
     from ..data.projectdata import ProjectData
@@ -40,8 +40,7 @@ def export_training_data(project: ProjectData, destination: str | Path) -> int:
     if destination.exists():
         raise FileExistsError(f"The export directory already exists: {destination}")
     records = []
-    with TemporaryDirectory(prefix=".exhale-training-", dir=destination.parent) as temporary:
-        root = Path(temporary)
+    with staging_directory(destination.parent, prefix=".exhale-training-") as root:
         (root / "images").mkdir()
         (root / "masks").mkdir()
         for index, candidate in enumerate(candidates, 1):

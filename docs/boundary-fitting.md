@@ -3,8 +3,9 @@
 This experiment compares two ways of fitting an approximate outline to the
 nuclei channel: an edge-based geodesic contour and a region-intensity Chan–Vese
 contour. It reads a saved project without running neural segmentation or changing
-the project. The assisted-outline editing tool is not connected to these routines
-yet; this experiment is for choosing useful initial parameters.
+the project. These are the earlier pixel-mask methods; the editor now uses the
+contour-normal heuristic described below, with only its displacement limit exposed.
+The command-line experiment retains the earlier methods for comparison.
 
 ## Preparing and choosing masks
 
@@ -85,3 +86,36 @@ boundaries magenta, and coincident boundary pixels white. NPZ files contain the
 original intensity crop and the target, initial and fitted binary masks.
 Use `--previews` to change the number. Images are written to disk and are not
 opened automatically.
+
+## Current drawing-tool heuristic
+
+`fit_outline` resamples each boundary at approximately one-pixel arc-length
+intervals and smooths its tangent over 1.5 samples to obtain local normals. It
+searches inward/outward along those normals within the requested adjustment
+range. Up to 65 distinct offsets combine 33 uniform samples across that range
+with 33 samples within eight pixels, retaining fine sampling for large ranges.
+
+The source map is rescaled between local 1st/99.9th percentiles. Gaussian
+image derivatives use sigma 1.5 pixels. Only outward intensity decreases earn
+an edge reward, weighted by squared directional alignment. Reward saturates at
+the 90th percentile of positive normal-gradient values for the current loop,
+so a few very strong edges cannot dominate the score without limit.
+
+The pointwise cost is negative edge reward plus 0.6 times squared displacement
+relative to the adjustment range. A cyclic dynamic program adds 0.2 times squared
+neighboring displacement differences, including the closing edge. A final cyclic
+least-squares smoothing step penalizes second differences with weight 2. This
+smooths the adjustment rather than shortening the original boundary.
+
+The rasterized mask must remain within the hard displacement bounds and exclude
+protected pixels. If component or hole counts change, retry at one-half,
+one-quarter and one-eighth displacement, otherwise retain the drawing. This is
+a conservative heuristic; preserving topology does not prove that a selected
+edge is biologically correct.
+
+The engineering comparison used five eligible segments from each of 11 exported
+samples (seed 47), with outlines expanded by two/six pixels and shifted by four
+pixels in both axes. The references were unedited Cellpose masks. This tests
+outline recovery, not agreement with independent manual annotations. Synthetic
+regressions additionally cover extreme internal bright spots, edge polarity,
+cyclic seam independence, protected pixels, holes and displacement bounds.

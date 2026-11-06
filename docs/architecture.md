@@ -492,14 +492,45 @@ loops; opening them inside that generator would allow mouse events to re-enter i
 Cancellation or a changed editing session discards a pending completion.
 
 
-## Assisted-boundary experiment
+## Assisted outlines and calibration
 
-`analysis.boundaryfitting` provides non-mutating local fitting on original nuclei
-intensities, with edge-based and region-intensity variants, a hard displacement
-band and optional protected pixels. Curvature iteration state is local to a fit.
-It has no neural-model or GUI dependencies. `analysis.boundarycalibration` creates
-perturbed outlines and separates segments into training and validation groups;
-parameter selection uses training scores only. The command-line experiment in
-`tools/fit_boundary_parameters.py` reads accepted masks before post-processing
-and writes separate reports and diagnostic crops. It does not save projects or
-change segmentation history. The editor is not yet wired to these fitters.
+`analysis.boundaryfitting.fit_outline` searches near each closed drawn contour
+along its smoothed outward normals. Gaussian derivatives (sigma 1.5 pixels) favor
+bright-to-dark transitions parallel to the drawing. Edge rewards are capped
+relative to the 90th percentile of positive normal gradients, reducing the effect
+of extreme bright spots. A cyclic dynamic program penalizes distance from the
+drawing and variation between neighboring displacements; a cyclic second-difference
+regularizer smooths displacement bending without contracting the original curve.
+Normals use approximately one-pixel arc-length contour samples. Both the first
+and last samples participate in the optimization, with no special seam.
+
+Only the maximum adjustment distance is exposed, initially eight pixels. Hard
+inward/outward bounds and protected pixels apply to the rasterized result.
+Components and holes are preserved by reducing deformations that would change
+topology; an unsafe deformation leaves the original region unchanged. The method
+uses the active mask's original nuclei source, independently of viewer gain or
+transformation. It mutates neither input nor saved state.
+
+The earlier pixel-mask edge/region evolution methods remain in `fit_boundary`
+for offline comparisons. `analysis.boundarycalibration` creates perturbed outlines,
+separates segments into training/validation groups, and chooses legacy parameters
+from training scores only. `tools/fit_boundary_parameters.py` writes separate
+reports without saving projects or changing masks.
+
+Outline gestures show an open line until release, then use non-zero winding fill:
+same-direction overlaps stay filled, opposite-direction inner loops form holes
+even where they touch an outer edge.
+
+Fitted outlines apply on release as one ordinary undoable edit, using the same
+protection, selection and disconnection rules as manual outlines. There is no
+separate confirmation or pending fitted-preview state. Brush size and outline
+controls share a compact tool-options stack. The earlier pixel-mask fitters remain
+available to offline experiments only.
+
+## Atomic output permissions
+
+Project metadata, analysis sidecars, training exports and downloaded models use
+`fileio` staging paths beside their destination. Ordinary creation permissions
+allow the parent default ACL and process umask to govern published output; private
+tempfile permissions must not survive into permanent files or directories.
+Writers publish only completed output and clean up failures.

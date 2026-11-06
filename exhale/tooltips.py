@@ -84,6 +84,8 @@ MAIN_WINDOW = {
     "analysisMergeSegments": "Merge selected segments (M).",
     "analysisDeleteSegment": "Delete selected segments (Delete).",
     "analysisEditingHelp": "Editing controls and keyboard shortcuts.",
+    "analysisFitOutline": "Fit the drawn outline to features in the original nuclei element map.",
+    "analysisOutlineDistance": "Maximum inward or outward adjustment from the drawn outline, in image pixels.",
     "analysisBrushSize": "Diameter in image pixels, remembered separately for Brush draw and Brush erase.",
     "analysisAcceptEdits": "Accept the working changes as a corrected mask.",
     "analysisRejectEdits": "Discard all changes in this editing session.",

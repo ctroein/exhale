@@ -236,7 +236,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.analysisOptions.setIcon(icons.icon(icons.IconName.ADJUSTMENTS))
         self.analysisKeepMask.set_icon_name(icons.IconName.LOCK)
         self.analysisRun.setIcon(icons.icon(icons.IconName.START))
-        self.analysisBatch.setIcon(icons.icon(icons.IconName.FILE_DATA))
+        self.analysisBatch.setIcon(icons.icon(icons.IconName.BATCH))
         self.analysisAbort.setIcon(icons.icon(icons.IconName.STOP))
         self.analysisAddReference.setIcon(icons.icon(icons.IconName.ADD_LAYER))
         self.analysisAddComparison.setIcon(icons.icon(icons.IconName.ADD_LAYER))

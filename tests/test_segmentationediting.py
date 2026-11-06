@@ -492,3 +492,86 @@ def test_split_ignores_crossed_segments_that_the_stroke_does_not_divide():
     np.testing.assert_array_equal(session.labels[:, 7:], labels[:, 7:])
     assert len(session.areas[0]) == 3
     assert session.selected_ids == {42}
+
+
+def test_same_direction_retracing_and_partial_continuation_leave_no_holes():
+    square = [(2, 2), (2, 9), (9, 9), (9, 2), (2, 2)]
+    expected = np.zeros((12, 12), bool)
+    expected[2:10, 2:10] = True
+    for points in (square * 2, square + [(2, 9), (9, 9)]):
+        mask = SegmentationEditSession.outline_mask(expected.shape, points)
+        np.testing.assert_array_equal(mask, expected)
+
+
+def test_opposite_direction_retracing_cancels_the_interior():
+    square = [(2, 2), (2, 9), (9, 9), (9, 2), (2, 2)]
+    mask = SegmentationEditSession.outline_mask((12, 12), square + square[::-1])
+    assert not mask[3:9, 3:9].any()
+
+
+def test_outline_fills_both_lobes_but_preserves_oppositely_wound_inner_holes():
+    bow = [(2, 2), (9, 9), (2, 9), (9, 2)]
+    mask = SegmentationEditSession.outline_mask((12, 12), bow)
+    assert mask[5, 3] and mask[5, 8] and not mask[1].any()
+    outer = [(1, 1), (1, 10), (10, 10), (10, 1), (1, 1)]
+    inner = [(3, 3), (8, 3), (8, 8), (3, 8), (3, 3)]
+    mask = SegmentationEditSession.outline_mask((12, 12), outer + inner + [(1, 1)])
+    assert mask[2, 5] and mask[9, 5] and not mask[4:8, 4:8].any()
+
+
+@pytest.mark.parametrize("gap", [0, 0.1, 1])
+def test_u_indentation_stays_empty_when_its_mouth_touches_or_closes(gap):
+    outer = [(1, 1), (1, 10), (10, 10), (10, 1), (1, 1)]
+    inner = [(1 + gap, 4), (8, 4), (8, 7), (1 + gap, 7), (1 + gap, 4)]
+    mask = SegmentationEditSession.outline_mask((12, 12), outer + inner + [(1, 1)])
+    assert mask[5, 2] and mask[9, 5] and not mask[3:8, 5:7].any()
+
+
+def test_retraced_outline_can_enclose_the_image_from_outside_its_edges():
+    points = [(-2, -2), (-2, 15), (15, 15), (15, -2), (-2, -2)] * 2
+    assert SegmentationEditSession.outline_mask((12, 12), points).all()
+
+
+def test_fitted_region_preserves_protection_allocation_and_one_step_undo():
+    labels = np.zeros((12, 12), np.uint32)
+    labels[3:6, 3:6] = 42
+    session = session_for(labels)
+    mask = np.zeros(labels.shape, bool)
+    mask[2:10, 2:10] = True
+    initial = mask.copy()
+    proposed = session.preview_region("draw", mask)
+    assert proposed[4, 4] == 42 and proposed[2, 2] == 1
+    assert not session.changed and not session.can_undo
+    assert session.edit_region("draw", mask)
+    assert session.selected_ids == {1}
+    np.testing.assert_array_equal(session.labels, proposed)
+    np.testing.assert_array_equal(mask, initial)
+    session.undo()
+    assert not session.can_undo
+    np.testing.assert_array_equal(session.labels, labels)
+    session.redo()
+    np.testing.assert_array_equal(session.labels, proposed)
+
+
+def test_open_u_and_touching_opposite_loop_preserve_the_same_empty_interior():
+    opened = [(1, 1), (10, 1), (10, 10), (1, 10), (1, 7), (8, 7), (8, 4), (1, 4)]
+    touching = [
+        (1, 1),
+        (1, 10),
+        (10, 10),
+        (10, 1),
+        (1, 1),
+        (1, 4),
+        (8, 4),
+        (8, 7),
+        (1, 7),
+        (1, 4),
+        (1, 1),
+    ]
+    for points in (opened, touching):
+        mask = SegmentationEditSession.outline_mask((12, 12), points)
+        assert mask[5, 2] and mask[9, 5]
+        assert not mask[2:8, 5:7].any()
+        np.testing.assert_array_equal(
+            mask, SegmentationEditSession.outline_mask(mask.shape, points[::-1])
+        )

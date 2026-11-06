@@ -2,12 +2,13 @@
 
 import hashlib
 import os
-import tempfile
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
+
+from ..fileio import create_staging_file
 
 
 @dataclass(frozen=True)
@@ -109,10 +110,10 @@ def ensure_model(
             length = response.headers.get("Content-Length")
             if length is not None and int(length) != model.size:
                 raise ModelDownloadError("The model download has an unexpected file size.")
-            with tempfile.NamedTemporaryFile(
-                dir=destination.parent, prefix=f".{destination.name}.", suffix=".part", delete=False
-            ) as stream:
-                temporary = Path(stream.name)
+            temporary = create_staging_file(
+                destination.parent, prefix=f".{destination.name}.", suffix=".part"
+            )
+            with temporary.open("wb") as stream:
                 digest = hashlib.sha256()
                 completed = 0
                 read = getattr(response, "read1", response.read)

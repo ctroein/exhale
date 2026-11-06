@@ -27,6 +27,7 @@ from ..data.segmentationediting import SegmentationEditSession
 from ..data.source_refs import SourceUnavailableError
 from ..model_settings import model_directory
 from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
+from .boundaryfitting import fit_outline
 from .segmentation_options_dialog import SegmentationOptionsDialog
 from .segmentationbatch import SegmentationBatchController
 from .segmentationio import publish_segmentation
@@ -138,6 +139,9 @@ class AnalysisController(QtCore.QObject):
         window.analysisMergeSegments.clicked.connect(self._merge_segments)
         window.analysisProtectSegments.toggled.connect(self._update_edit_controls)
         window.analysisBrushSize.valueChanged.connect(self._brush_size_changed)
+        window.analysisOutlineDistance.setEnabled(window.analysisFitOutline.isChecked())
+        window.analysisFitOutline.toggled.connect(self._outline_options_changed)
+        window.analysisOutlineDistance.valueChanged.connect(self._outline_options_changed)
         window.analysisEditingHelp.clicked.connect(self._show_editing_help)
         window.analysisUndo.clicked.connect(self._undo_edit)
         window.analysisRedo.clicked.connect(self._redo_edit)
@@ -149,12 +153,11 @@ class AnalysisController(QtCore.QObject):
         window.analysisLayerList.removeRequested.connect(self._remove_reference)
         window.analysisLayerList.removeComparisonRequested.connect(self._remove_comparison)
         self._area_plot = pg.PlotWidget()
-        self._area_plot.setFrameShape(QtWidgets.QFrame.Box)
-        self._area_plot.setFrameShadow(QtWidgets.QFrame.Plain)
-        self._area_plot.setLineWidth(1)
         self._area_plot.setBackground(None)
         self._area_plot.setLabel("bottom", "Segment area", units="px")
         self._area_plot.setLabel("left", "Segments")
+        for name in ("bottom", "left"):
+            self._area_plot.getAxis(name).setStyle(stopAxisAtTick=(True, True))
         self._area_plot.setMouseEnabled(x=False, y=False)
         self._area_plot.setMenuEnabled(False)
         self._area_plot.getPlotItem().hideButtons()
@@ -461,6 +464,46 @@ class AnalysisController(QtCore.QObject):
             self.naparihelper.cancel_stroke()
             self.naparihelper.set_edit_tool(self._edit_tool if self._editing_mode() else "select")
         self.window.analysisBrushSize.setEnabled(self._edit_tool in ("add", "remove"))
+        self.window.analysisToolOptions.setCurrentWidget(
+            self.window.analysisBrushOptions
+            if self._edit_tool in ("add", "remove")
+            else self.window.analysisOutlineOptions
+            if self._edit_tool == "draw"
+            else self.window.analysisEmptyOptions
+        )
+
+    def _outline_options_changed(self):
+        if self.naparihelper is not None:
+            self.naparihelper.cancel_stroke()
+        self.window.analysisOutlineDistance.setEnabled(self.window.analysisFitOutline.isChecked())
+
+    def _fit_outline(self, tool, points):
+        """Fit raw nuclei intensities before committing one ordinary outline edit."""
+        session = self._edit_session
+        initial = session.outline_mask(session.labels.shape, points)
+        if not initial.any():
+            return None
+        protect = self.window.analysisProtectSegments.isChecked()
+        # Validate selection requirements before calculating the fit.
+        session.preview_region(tool, initial, protect=protect)
+        image = self._input_map(session.source.result)
+        if image is None:
+            raise ValueError("The nuclei element map is unavailable for outline fitting.")
+        protected = None
+        if protect:
+            permitted = session.selected_ids if tool != "draw" else set()
+            protected = (session.labels != 0) & ~np.isin(session.labels, list(permitted))
+        fitted = fit_outline(
+            image,
+            initial,
+            max_distance=self.window.analysisOutlineDistance.value(),
+            protected=protected,
+        )
+        if not fitted.any():
+            raise ValueError(
+                "No region was found. Try a closer outline or a different adjustment distance."
+            )
+        return fitted
 
     def _edit_gesture(self, tool, points, *, preview=False):
         session = self._edit_session
@@ -471,6 +514,21 @@ class AnalysisController(QtCore.QObject):
             protect=self.window.analysisProtectSegments.isChecked(),
         )
         try:
+            if tool in ("draw", "outline_add", "outline_remove"):
+                if preview:
+                    return session.labels
+                if self.window.analysisFitOutline.isChecked():
+                    if tool == "draw" and not self._resolve_disconnections(session.selected_ids):
+                        return session.labels
+                    fitted = self._fit_outline(tool, points)
+                    if fitted is not None and session.edit_region(
+                        tool,
+                        fitted,
+                        protect=args["protect"],
+                        disconnected=self.window.analysisDisconnectedParts.currentData(),
+                    ):
+                        self._editing_changed()
+                    return session.labels
             if tool == "brush":
                 if preview:
                     return session.preview_brush_stroke(points, **args)
@@ -1661,6 +1719,8 @@ class AnalysisController(QtCore.QObject):
         """Clear controller-owned derived display state for a new project."""
         self.batch.shutdown()
         self.window.analysisBatchStatus.hide()
+        if self.naparihelper is not None:
+            self.naparihelper.cancel_stroke()
         self._edit_session = None
         with QtCore.QSignalBlocker(self.window.analysisProcessingTabs):
             self.window.analysisProcessingTabs.setCurrentWidget(

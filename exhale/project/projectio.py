@@ -3,7 +3,6 @@
 
 import json
 import os
-import tempfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -32,6 +31,7 @@ from ..data.segmentation import SegmentationPostprocessing
 from ..data.segmentationediting import SegmentationEditSession
 from ..data.segmentationhistory import SegmentationCandidate, SegmentationHistory, SegmentationRun
 from ..data.source_refs import ElementRef, LoadedSource, open_source
+from ..fileio import create_staging_file
 
 PROJECT_FORMAT = "exhale-project"
 PROJECT_VERSION = 6
@@ -524,15 +524,8 @@ def save_project_state(state: dict[str, Any], filename: str | Path) -> None:
     filename.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=filename.parent,
-            prefix=f".{filename.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as stream:
-            temporary = Path(stream.name)
+        temporary = create_staging_file(filename.parent, prefix=f".{filename.name}.")
+        with temporary.open("w", encoding="utf-8") as stream:
             json.dump(state, stream, indent=2)
             stream.write("\n")
             stream.flush()

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4d3187" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Stack strokes are trimmed around the bolt with 2.5 units of clearance. -->
+    <path d="M18.1259 7.4371 L19.0000 7.0000 L11.0000 3.0000 L3.0000 7.0000 L11.0000 11.0000 L13.7209 9.6395" />
+    <path d="M3.0000 11.0000 L10.1364 14.5682" />
+    <path d="M3.0000 15.0000 L11.0000 19.0000 L11.2304 18.8848" />
+    <path d="M16.95 9.45v4.55h3.9l-5.2 7.15v-4.55h-3.9z" fill="#fff000" fill-opacity="0.8" stroke="#4d3188" stroke-width="1.5" />
+</svg>
+<!-- exhale dark #4d3187 #8d71c7 -->
+<!-- exhale blend #4d3188 Text #4d3187 .35 -->

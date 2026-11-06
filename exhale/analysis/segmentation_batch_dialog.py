@@ -21,7 +21,7 @@ class SegmentationBatchDialog(QtWidgets.QDialog, Ui_SegmentationBatchDialog):
         self.startButton = self.buttonBox.addButton(
             "Start batch", QtWidgets.QDialogButtonBox.AcceptRole
         )
-        self.startButton.setIcon(icons.icon(icons.IconName.START))
+        self.startButton.setIcon(icons.icon(icons.IconName.BATCH))
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
         self._rows = []

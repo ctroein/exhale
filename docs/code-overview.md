@@ -24,9 +24,10 @@ assumptions are in [`boundary-fitting.md`](boundary-fitting.md).
 
 ### `exhale/analysis/boundaryfitting.py`
 
-Fits approximate outlines with bounded local edge-based or region-intensity
-contour evolution. Owns deterministic curvature smoothing and optional protected
-pixels; does not mutate input maps or masks and imports no neural runtime.
+Fits closed outlines with directional normal searches, cyclic displacement
+coordination and bending regularization. Preserves topology, displacement bounds
+and protected pixels. Retains the earlier edge/region pixel-mask evolution for
+offline comparisons. Does not mutate inputs or import a neural runtime.
 
 ### `exhale/analysis/boundarycalibration.py`
 
@@ -153,6 +154,13 @@ Reads structurally usable method-based and nested label datasets directly.
 Separate `save_xrf_sample` / `load_xrf_sample` functions retain the element-clustering
 sidecars, indexed by sample, with arrays and JSON-encoded pandas tables.
 
+### `exhale/fileio.py`
+
+Reserves sibling staging files and directories with normal creation permissions,
+so published output inherits the destination parent's default ACL and process
+umask. Directory staging cleans up unpublished data on failure; file writers
+retain responsibility for atomic replacement and cleanup.
+
 ## Settings and composition
 
 ### `exhale/imaging/__init__.py`
@@ -249,6 +257,8 @@ overview/cumulative area distribution, clicked-segment details and result export
 Also owns Editing/Post-processing mode, editing-tool controls, selection, undo/redo,
 early disconnection questions, merge/split controls, explicit Accept/Reject,
 cancellable navigation, confirmed mask removal and whole-image review.
+Owns optional edge-based outline fitting and its compact tool controls;
+fitted outlines apply on release as one undoable edit.
 Element selection and clustering options belong
 to the independent Element clusters controller. `MainWindow` supplies the
 generated widgets and application-level services but owns no analysis state.
@@ -303,7 +313,8 @@ and undo history remain session-only. Changed sessions produce cached immutable
 draft snapshots for normal saving/recovery. Finishing creates a corrected child
 candidate only when region geometry differs from its source. Unchanged editing
 does not create candidates or serialized drafts.
-Rasterizes additive/subtractive outlines and pixel-snapped integer-diameter brush
+Rasterizes additive/subtractive outlines with non-zero winding fill, preserving
+opposite-direction holes while keeping same-direction overlaps filled, and pixel-snapped integer-diameter brush
 strokes, protects other instances, allocates
 IDs and handles incidental disconnection atomically. Drafts also retain pending
 disconnection questions. Merge and dividing-stroke split are atomic commands;
@@ -338,7 +349,8 @@ Missing source data do not hide saved segmentation output.
 
 Draws the transient brush footprint above the Qt/OpenGL canvas using the editing
 rasterizer, custom plus/minus cursors for modifier outlines, and marching-ants
-rectangles for Shift-drag area selection. It follows
+rectangles for Shift-drag area selection, plus open outline strokes without a
+filled closing fan. It follows
 camera transforms, brush size and pointer/modifier events without adding viewer
 layers or changing mask data, presentation, exports or project state.
 

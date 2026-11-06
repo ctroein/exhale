@@ -1,6 +1,7 @@
 """Transfer integrity, cancellation and reuse of downloaded trained models."""
 
 import hashlib
+import stat
 import threading
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -61,6 +62,9 @@ def test_download_is_verified_then_reused_offline(server, tmp_path):
     messages = []
     path = ensure_model(model, tmp_path, progress=lambda *args: messages.append(args))
     assert path.read_bytes() == state["payload"]
+    ordinary = path.parent / "ordinary-file"
+    ordinary.touch()
+    assert stat.S_IMODE(path.stat().st_mode) == stat.S_IMODE(ordinary.stat().st_mode)
     assert state["requests"] == 1
     assert messages[0] == ("Downloading", 0, model.size)
     assert messages[-1] == ("Downloading", model.size, model.size)

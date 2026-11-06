@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy import ndimage as ndi
+from skimage.draw import polygon
+from skimage.measure import find_contours
 from skimage.segmentation import (
     inverse_gaussian_gradient,
     morphological_chan_vese,
@@ -142,3 +144,153 @@ def fit_boundary(image, initial, parameters=None, *, protected=None):
     result = np.zeros(initial.shape, bool)
     result[bounds] = fitted
     return result
+
+
+def _resample_loop(points):
+    """Sample a closed pixel boundary at roughly one-pixel arc-length intervals."""
+    lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    distance = np.r_[0, np.cumsum(lengths)]
+    count = max(8, int(np.ceil(distance[-1])))
+    positions = np.linspace(0, distance[-1], count, endpoint=False)
+    return np.column_stack([np.interp(positions, distance, axis) for axis in points.T])
+
+
+def _closed_displacements(cost, offsets):
+    """Find a cyclic minimum-cost path with a penalty for unequal neighboring moves.
+
+    Carry every possible starting state through the same dynamic program and
+    include the closing transition, avoiding a seam at an arbitrary first point.
+    """
+    states = len(offsets)
+    transition = 0.2 * (offsets[:, None] - offsets[None, :]) ** 2
+    previous = np.full((states, states), np.inf)
+    np.fill_diagonal(previous, cost[0])
+    parents = np.empty((len(cost), states, states), dtype=np.uint8)
+    for index in range(1, len(cost)):
+        choices = previous[:, :, None] + transition[None, :, :]
+        parents[index] = np.argmin(choices, axis=1)
+        previous = np.min(choices, axis=1) + cost[index]
+    first, state = np.unravel_index(np.argmin(previous + transition), previous.shape)
+    selected = np.empty(len(cost), dtype=int)
+    selected[-1] = state
+    for index in range(len(cost) - 1, 0, -1):
+        selected[index - 1] = parents[index, first, selected[index]]
+    displacement = offsets[selected]
+    # Penalize bending in the displacement field, without shrinking the original
+    # contour: minimize squared change from the path plus squared second differences.
+    frequencies = 2 * np.pi * np.fft.rfftfreq(len(displacement))
+    penalty = 1 + 2 * (2 - 2 * np.cos(frequencies)) ** 2
+    return np.fft.irfft(np.fft.rfft(displacement) / penalty, n=len(displacement))
+
+
+def _mask_topology(mask):
+    """Count foreground components and holes with complementary connectivity."""
+    components = ndi.label(mask, np.ones((3, 3)))[1]
+    holes = ndi.label(ndi.binary_fill_holes(mask) & ~mask)[1]
+    return components, holes
+
+
+def fit_outline(image, initial, *, max_distance=8, protected=None):
+    """Adjust closed outlines toward nearby, outward-facing bright-to-dark edges.
+
+    Search along smoothed contour normals on a Gaussian-smoothed source map.
+    Coordinate displacements cyclically, favor staying near the drawing, and
+    regularize displacement bending. Preserve components/holes and the hard
+    displacement band by reducing a deformation if rasterization changes topology.
+    No input arrays are modified. Uninformative data retain the drawn region.
+    """
+    image, initial = np.asarray(image), np.asarray(initial, dtype=bool)
+    if image.ndim != 2 or image.shape != initial.shape or min(image.shape) < 2:
+        raise ValueError("Outline fitting needs matching two-dimensional images")
+    if not np.isfinite(max_distance) or max_distance <= 0:
+        raise ValueError("Adjustment distance must be finite and positive")
+    protected = np.zeros(initial.shape, bool) if protected is None else np.asarray(protected, bool)
+    if protected.shape != initial.shape:
+        raise ValueError("Protected pixels must match the image shape")
+    initial = initial & ~protected
+    if not initial.any():
+        raise ValueError("The initial outline contains no unprotected pixels")
+    ys, xs = np.nonzero(initial)
+    margin = int(np.ceil(max_distance + 7))
+    low = np.maximum(0, (ys.min() - margin, xs.min() - margin))
+    high = np.minimum(image.shape, (ys.max() + margin + 1, xs.max() + margin + 1))
+    bounds = tuple(slice(int(a), int(b)) for a, b in zip(low, high, strict=True))
+    data = np.array(image[bounds], dtype=float, copy=True)
+    finite = np.isfinite(data)
+    if not finite.any():
+        raise ValueError("No finite intensities near the outline")
+    data[~finite] = np.median(data[finite])
+    lower, upper = np.percentile(data[finite], (1, 99.9))
+    if upper <= lower:
+        return initial.copy()
+    data = np.clip((data - lower) / (upper - lower), 0, 1)
+    gradients = [
+        ndi.gaussian_filter(data, 1.5, order=order, mode="nearest") for order in ((1, 0), (0, 1))
+    ]
+    seed = initial[bounds]
+    outside = ndi.distance_transform_edt(~seed)
+    inside = ndi.distance_transform_edt(np.pad(seed, 1))[1:-1, 1:-1]
+    signed = outside - inside
+    allowed = (outside <= max_distance) & ~protected[bounds]
+    core = (inside > max_distance) & allowed
+    # Keep fine sampling near the drawing even for a large requested search range.
+    offsets = np.unique(
+        np.r_[
+            np.linspace(-max_distance, max_distance, 33),
+            np.linspace(-min(max_distance, 8), min(max_distance, 8), 33),
+        ]
+    )
+    loops = []
+    contours = find_contours(np.pad(seed, 1), 0.5, fully_connected="high")
+    for contour in contours:
+        points = _resample_loop(contour - 1)
+        smooth = ndi.gaussian_filter1d(points, 1.5, axis=0, mode="wrap")
+        tangent = np.roll(smooth, -1, axis=0) - np.roll(smooth, 1, axis=0)
+        normal = np.column_stack((-tangent[:, 1], tangent[:, 0]))
+        normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-12)
+        sign = ndi.map_coordinates(signed, (points + normal).T, order=1, mode="nearest")
+        opposite = ndi.map_coordinates(signed, (points - normal).T, order=1, mode="nearest")
+        normal[sign < opposite] *= -1
+        locations = points[:, None, :] + offsets[None, :, None] * normal[:, None, :]
+        sampled = np.stack(
+            [
+                ndi.map_coordinates(g, locations.reshape(-1, 2).T, order=1, mode="nearest").reshape(
+                    locations.shape[:2]
+                )
+                for g in gradients
+            ],
+            axis=-1,
+        )
+        projected = -np.sum(sampled * normal[:, None, :], axis=-1)
+        strength = np.maximum(projected, 0)
+        positive = strength[strength > 1e-12]
+        if not len(positive):
+            loops.append((points, normal, np.zeros(len(points))))
+            continue
+        scale = max(float(np.percentile(positive, 90)), 1e-12)
+        alignment = strength / np.maximum(np.linalg.norm(sampled, axis=-1), 1e-12)
+        reward = np.minimum(strength / scale, 1) * alignment**2
+        cost = -reward + 0.6 * (offsets[None, :] / max_distance) ** 2
+        valid = ((locations >= -0.5) & (locations <= np.array(seed.shape) - 0.5)).all(axis=-1)
+        cost[~valid] = np.inf
+        displacement = np.clip(_closed_displacements(cost, offsets), -max_distance, max_distance)
+        loops.append((points, normal, displacement))
+    if not any(np.any(np.abs(displacement) > 1e-9) for _, _, displacement in loops):
+        return initial.copy()
+    topology = _mask_topology(seed)
+    for fraction in (1, 0.5, 0.25, 0.125):
+        fitted = np.zeros(seed.shape, bool)
+        # Marching-squares contours nest by parity; retain both outer boundaries
+        # and holes when converting their displaced loops back into pixels.
+        for points, normal, displacement in loops:
+            moved = points + (fraction * displacement)[:, None] * normal
+            region = np.zeros(seed.shape, bool)
+            region[polygon(moved[:, 0], moved[:, 1], seed.shape)] = True
+            fitted ^= region
+        fitted &= allowed
+        fitted[core] = True
+        if _mask_topology(fitted) == topology:
+            result = initial.copy()
+            result[bounds] = fitted
+            return result
+    return initial.copy()

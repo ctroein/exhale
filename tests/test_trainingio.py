@@ -1,6 +1,7 @@
 """Reviewed training exports preserve source values, instance IDs and project state."""
 
 import json
+import stat
 from unittest.mock import patch
 
 import h5py
@@ -75,6 +76,13 @@ def test_export_uses_reviewed_raw_labels_not_active_mask_postprocessing_or_draft
     before = export_project_state(project, tmp_path)
     destination = tmp_path / "training"
     assert trainingio.export_training_data(project, destination) == 2
+    ordinary_dir = tmp_path / "ordinary-directory"
+    ordinary_dir.mkdir()
+    ordinary_file = tmp_path / "ordinary-file"
+    ordinary_file.touch()
+    for path in [destination, *destination.rglob("*")]:
+        reference = ordinary_dir if path.is_dir() else ordinary_file
+        assert stat.S_IMODE(path.stat().st_mode) == stat.S_IMODE(reference.stat().st_mode)
     manifest = json.loads((destination / "manifest.json").read_text())
     assert manifest["source_values"] == "raw"
     assert manifest["abundance_units"] == project.abundance_units

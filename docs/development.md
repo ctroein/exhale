@@ -191,6 +191,22 @@ input from whichever mask is currently displayed. Resolve the recorded revision
 without substituting another mask, and never silently recompute stored output.
 The current element clustering does not consume segmentation.
 
+## Output permissions and atomic publication
+
+Create permanent output files and directories with normal creation permissions
+(files 0666, directories 0777, reduced by the process umask or inherited default
+ACL). Do not change the process umask or force permissions with chmod. For atomic
+publication, use `exhale.fileio` to reserve unpredictable sibling staging paths
+with exclusive creation, then rename or replace only after writing succeeds.
+Clean up unpublished staging data on failure.
+
+Do not publish `NamedTemporaryFile` or `TemporaryDirectory` objects directly:
+their private 0600/0700 permissions survive renaming and prevent normal sharing.
+Those helpers remain appropriate for genuinely temporary, private scratch data.
+Permission tests must cover both umask and inherited default ACL behavior where
+supported, as well as failure cleanup. Existing restrictive outputs are not
+retroactively changed.
+
 ## Running and testing
 
 Run commands from the repository root. The usual entry points are:

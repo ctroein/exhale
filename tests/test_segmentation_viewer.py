@@ -485,3 +485,25 @@ def test_pending_edit_does_not_commit_after_cancellation_or_mask_switch(viewer, 
     assert viewer._pending_stroke is None
     assert not session.changed and not session.can_undo
     np.testing.assert_array_equal(viewer.nuc_layer.data, viewer.edit_session.labels)
+
+
+def test_queued_fitted_outline_commits_once_and_displays_the_working_mask(viewer):
+    candidate = SegmentationCandidate.from_result(result(np.zeros((8, 8), np.uint32)))
+    session = SegmentationEditSession(candidate)
+    viewer.set_result(candidate.result, edit_session=session)
+    region = np.zeros(session.labels.shape, bool)
+    region[2:6, 2:6] = True
+
+    def edit(*_args):
+        session.edit_region("draw", region)
+        return session.labels
+
+    viewer.edit_callback = Mock(side_effect=edit)
+    viewer._queue_stroke(session, "draw", [(1, 1), (1, 6), (6, 6)])
+    assert not session.changed
+    QtWidgets.QApplication.processEvents()
+    viewer.edit_callback.assert_called_once()
+    np.testing.assert_array_equal(viewer.nuc_layer.data, session.labels)
+    assert session.changed and session.can_undo
+    session.undo()
+    assert not session.changed and not session.can_undo
