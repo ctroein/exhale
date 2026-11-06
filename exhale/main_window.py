@@ -30,6 +30,7 @@ from .tooltips import (
     apply_tab_tooltips,
     apply_tooltips,
 )
+from .update_controller import UpdateController
 from .widgets import IconToolButton, initialize_splitter_on_show
 
 ACTIVE_TAB_SETTINGS_KEY = "window/active_tab"
@@ -47,6 +48,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def __init__(self, parent=None, *, initialize_analysis_view=True):
         super().__init__(parent)
         self.settings = QtCore.QSettings("CIPA", application_name)
+        self.update_controller = UpdateController(self)
         self.appearance = appearance.initialize(self.settings)
         self.project_dir = None
         self.project_manager = ProjectManager(self)
@@ -136,6 +138,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.analysis_controller.shutdown()
         self.clustering_controller.shutdown()
         self.correlation_controller.shutdown()
+        self.update_controller.shutdown()
         self._save_splitter_states()
         current_tab = self.tabWidget.currentWidget()
         if current_tab is not None:
@@ -235,6 +238,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.projectElementsHelp.setIcon(icons.icon(icons.IconName.HELP))
         self.analysisOptions.setIcon(icons.icon(icons.IconName.ADJUSTMENTS))
         self.analysisKeepMask.set_icon_name(icons.IconName.LOCK)
+        self.analysisRemoveMask.set_icon_name(icons.IconName.DELETE)
+        self.analysisRestoreMask.set_icon_name(icons.IconName.UNDO)
         self.analysisRun.setIcon(icons.icon(icons.IconName.START))
         self.analysisBatch.setIcon(icons.icon(icons.IconName.BATCH))
         self.analysisAbort.setIcon(icons.icon(icons.IconName.STOP))
@@ -420,6 +425,7 @@ Licensed under the MIT License.</p>
         self.channelsChanged.emit()
 
     def refresh_project_ui(self):
+        self.analysis_controller.restore_project_method()
         self.element_controller.refresh_sample_selector()
         # Rebuild any dependent controls
         self.channelsChanged.emit()

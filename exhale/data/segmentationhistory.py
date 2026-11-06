@@ -159,6 +159,7 @@ class SegmentationHistory:
         self.active_id: str | None = None
         self._recency: list[str] = []
         self._digests: dict[str, str] = {}
+        self._removed = []
 
     @property
     def active(self) -> SegmentationCandidate | None:
@@ -318,7 +319,22 @@ class SegmentationHistory:
         Direct children lose their parent link, not their labels or run provenance.
         Other candidates retain their order; the newest retained mask is the fallback.
         """
-        removed = self.candidates.pop(candidate_id)
+        removed = self.candidates[candidate_id]
+        position = list(self.candidates).index(candidate_id)
+        children = [
+            key for key, candidate in self.candidates.items() if candidate.parent_id == candidate_id
+        ]
+        comparison = f"comparison:{candidate_id}"
+        comparisons = {}
+        for key, candidate in self.candidates.items():
+            settings = candidate.result.layer_settings
+            if comparison in settings.layers:
+                comparisons[key] = (
+                    settings.order.index(comparison) if comparison in settings.order else None,
+                    settings.layers[comparison],
+                )
+        self.candidates.pop(candidate_id)
+        self._removed.append((removed, position, children, comparisons))
         self._recency.remove(candidate_id)
         self._digests = {
             digest: key for digest, key in self._digests.items() if key != candidate_id
@@ -333,6 +349,50 @@ class SegmentationHistory:
         if self.active_id == candidate_id:
             self.active_id = self._recency[-1] if self._recency else None
         return removed
+
+    @property
+    def can_restore_removed(self) -> bool:
+        """Whether this open sample has a deliberately removed mask to restore."""
+        return bool(self._removed)
+
+    def restore_removed(self) -> SegmentationCandidate | None:
+        """Restore the latest removal without displacing a newer review assignment.
+
+        Removal history is session-only and separate from label-edit undo.
+        Descendant links and comparison presentation are restored where the
+        affected masks still exist and have not acquired another parent.
+        """
+        if not self._removed:
+            return None
+        candidate, position, children, comparisons = self._removed[-1]
+        if self.reviewed is not None:
+            candidate.set_reviewed(False)
+        if candidate.parent_id not in self.candidates:
+            candidate.parent_id = None
+        restored = self.add_candidate(candidate)
+        self._removed.pop()
+        items = [
+            (key, value) for key, value in self.candidates.items() if key != restored.candidate_id
+        ]
+        items.insert(min(position, len(items)), (restored.candidate_id, restored))
+        self.candidates.clear()
+        self.candidates.update(items)
+        for key in children:
+            child = self.candidates.get(key)
+            if child is not None and child.parent_id is None:
+                child.parent_id = restored.candidate_id
+        comparison = f"comparison:{restored.candidate_id}"
+        for key, (index, presentation) in comparisons.items():
+            other = self.candidates.get(key)
+            if other is None:
+                continue
+            settings = other.result.layer_settings
+            settings.layers.setdefault(comparison, presentation)
+            if index is not None and comparison not in settings.order:
+                order = list(settings.order)
+                order.insert(min(index, len(order)), comparison)
+                settings.order = tuple(order)
+        return restored
 
     def prune(self) -> tuple[SegmentationCandidate, ...]:
         """Remove old predictions from memory, preserving masks needed by retained edits."""

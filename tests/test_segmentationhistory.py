@@ -261,6 +261,59 @@ def test_removing_a_missing_candidate_does_not_mutate_history():
     assert history.active is candidate and tuple(history.candidates) == (candidate.candidate_id,)
 
 
+def test_restore_recovers_identity_children_presentation_and_order():
+    from exhale.data.projectdata import LayerPresentation
+
+    history = SegmentationHistory("sample")
+    parent = history.add_result(result(1))
+    parent.name = "My mask"
+    parent.keep = True
+    child = SegmentationCandidate.from_result(result(2))
+    child.parent_id = parent.candidate_id
+    child.edited = True
+    history.add_candidate(child)
+    comparison = f"comparison:{parent.candidate_id}"
+    child.result.layer_settings.order = ("nuclei", comparison)
+    child.result.layer_settings.layers[comparison] = LayerPresentation(True, 0.4, "normal")
+    original_order = tuple(history.candidates)
+    history.remove(parent.candidate_id)
+    assert history.can_restore_removed and child.parent_id is None
+    assert comparison not in child.result.layer_settings.layers
+    assert history.restore_removed() is parent
+    assert tuple(history.candidates) == original_order
+    assert history.active is parent and parent.name == "My mask" and parent.keep
+    assert child.parent_id == parent.candidate_id
+    assert child.result.layer_settings.order == ("nuclei", comparison)
+    assert child.result.layer_settings.layers[comparison].opacity == 0.4
+    assert not history.can_restore_removed
+
+
+def test_restore_is_lifo_and_preserves_a_newer_review_assignment():
+    history = SegmentationHistory("sample")
+    first = history.add_result(result(1))
+    second = history.add_result(result(2))
+    history.set_reviewed(first.candidate_id)
+    history.remove(first.candidate_id)
+    history.set_reviewed(second.candidate_id)
+    history.remove(second.candidate_id)
+    assert history.restore_removed() is second and history.reviewed is second
+    assert history.restore_removed() is first and history.reviewed is second
+    assert not first.reviewed and history.restore_removed() is None
+
+
+def test_removed_masks_are_not_serialized():
+    history = SegmentationHistory("sample")
+    candidate = history.add_result(result(1))
+    history.remove(candidate.candidate_id)
+    restored, issues = SegmentationHistory.restore(
+        history.sample_id,
+        list(history.candidates.values()),
+        active_id=history.active_id,
+        recency=history.recency,
+    )
+    assert not issues and not restored.candidates and not restored.can_restore_removed
+
+
 def test_review_transfer_is_exclusive_revision_bound_and_independent_of_active_mask():
     history = SegmentationHistory("sample")
     first = history.add_result(result(1))

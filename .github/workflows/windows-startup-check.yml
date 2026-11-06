@@ -38,8 +38,8 @@ jobs:
           switch ("${{ matrix.backends }}") {
             "none" { pip install . }
             "stardist" { pip install ".[stardist]" }
-            "cellpose" { pip install ".[cellpose]" -r requirements-cellpose.txt }
-            "both" { pip install ".[stardist,cellpose]" -r requirements-cellpose.txt }
+            "cellpose" { pip install ".[cellpose,monai]" -r requirements-cellpose.txt }
+            "both" { pip install ".[stardist,cellpose,monai]" -r requirements-cellpose.txt }
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

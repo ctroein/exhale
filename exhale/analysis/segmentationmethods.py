@@ -44,6 +44,14 @@ SEGMENTATION_METHODS += (
         has_options=True,
     ),
 )
+SEGMENTATION_METHODS += (
+    SegmentationMethod(
+        method_id="monai",
+        name="MONAI U-Net",
+        required_modules=("torch", "monai"),
+        has_options=True,
+    ),
+)
 SEGMENTATION_METHODS_BY_ID = {method.method_id: method for method in SEGMENTATION_METHODS}
 
 
@@ -68,8 +76,11 @@ def check_installed_backends() -> None:
         if method.method_id == "stardist":
             import_module("tensorflow")
             import_module("stardist.models")
-        else:
+        elif method.method_id == "cellpose":
             module = import_module("cellpose.vit")
             if not callable(getattr(module, "dinov3_vitl16", None)):
                 raise RuntimeError("CellposeDINO is unavailable: DINOv3 failed to import")
+        elif method.method_id == "monai":
+            import_module("monai.networks.nets")
+            import_module("monai.inferers")
         print(f"{method.name}: import check passed")

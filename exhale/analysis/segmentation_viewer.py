@@ -58,6 +58,7 @@ class SegmentationViewer(NapariHelper):
         A missing source map does not prevent viewing saved segmentation labels.
         Layer settings are applied by the controller after replacing the data.
         """
+        self.clear_solo()
         if result is not None and input_map is not None:
             if np.shape(input_map) != result.output.labels.shape:
                 raise ValueError("The source map and segmentation labels have different shapes")

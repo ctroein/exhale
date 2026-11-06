@@ -4,7 +4,7 @@ from qtpy import QtCore, QtGui, QtWidgets
 
 from .. import icons
 from ..tooltips import (
-    LAYER_ADDITIVE,
+    LAYER_BLENDING,
     LAYER_CATEGORICAL,
     LAYER_COLOR,
     LAYER_DRAG,
@@ -159,7 +159,7 @@ class LayerRowWidget(QtWidgets.QWidget):
         self.drag_handle = _DragHandle(self)
         layout.addWidget(self.drag_handle)
         self.visible = QtWidgets.QCheckBox()
-        self.visible.setChecked(layer.visible)
+        self.visible.setChecked(self.helper.layer_visible(layer))
         self.visible.setToolTip(LAYER_VISIBLE)
         self.visible.toggled.connect(self._set_visible)
         layout.addWidget(self.visible)
@@ -221,10 +221,8 @@ class LayerRowWidget(QtWidgets.QWidget):
 
         self.additive = IconToolButton()
         self.additive.setCheckable(True)
-        self.additive.setChecked(layer.blending == self.helper.BLENDING_ADD)
-        self.additive.setToolTip(LAYER_ADDITIVE)
         self.additive.setFixedWidth(layer_list.blend_width)
-        self.additive.toggled.connect(self._set_blending)
+        self.additive.clicked.connect(self._cycle_blending)
         self._update_blending_icon()
         layout.addWidget(self.additive, 0, QtCore.Qt.AlignCenter)
 
@@ -271,7 +269,8 @@ class LayerRowWidget(QtWidgets.QWidget):
 
     def _set_visible(self, visible):
         self._activate()
-        self.layer.visible = visible
+        self.helper.set_layer_visible(self.layer, visible)
+        self.layer_list.refresh_blending_icons()
         self.layer_list.presentationChanged.emit()
 
     def _set_opacity(self, percent):
@@ -292,20 +291,28 @@ class LayerRowWidget(QtWidgets.QWidget):
         self.item.setSizeHint(self.sizeHint())
         self.layer_list.scheduleDelayedItemsLayout()
 
-    def _set_blending(self, additive):
+    def _cycle_blending(self):
         self._activate()
-        self.visible.setChecked(True)
-        self.helper.set_layer_blending(
-            self.layer,
-            self.helper.BLENDING_ADD if additive else self.helper.BLENDING_NORMAL,
-        )
-        self._update_blending_icon()
+        modes = (self.helper.BLENDING_NORMAL, self.helper.BLENDING_ADD, self.helper.BLENDING_SOLO)
+        current = self.helper.layer_blending(self.layer)
+        index = modes.index(current) if current in modes else 0
+        if not self.helper.layer_visible(self.layer):
+            self.helper.set_layer_visible(self.layer, True)
+        with QtCore.QSignalBlocker(self.visible):
+            self.visible.setChecked(True)
+        self.helper.set_layer_blending(self.layer, modes[(index + 1) % len(modes)])
+        self.layer_list.refresh_blending_icons()
         self.layer_list.presentationChanged.emit()
 
     def _update_blending_icon(self):
-        self.additive.set_icon_name(
-            icons.IconName.LAYERS_ADD if self.additive.isChecked() else icons.IconName.LAYERS
-        )
+        mode = self.helper.layer_blending(self.layer)
+        icon, description = {
+            self.helper.BLENDING_ADD: (icons.IconName.LAYERS_ADD, "add"),
+            self.helper.BLENDING_SOLO: (icons.IconName.LAYER_SOLO, "solo"),
+        }.get(mode, (icons.IconName.LAYERS, "normal"))
+        self.additive.setChecked(mode != self.helper.BLENDING_NORMAL)
+        self.additive.set_icon_name(icon)
+        self.additive.setToolTip(LAYER_BLENDING[description])
 
     def _set_label_mode(self, mode):
         self._activate()
@@ -336,8 +343,8 @@ class LayerRowWidget(QtWidgets.QWidget):
         self.layer_list.presentationChanged.emit()
 
     def _automatic_image_color(self):
-        """Choose a saturated hue far from the other visible image layers."""
-        return self.helper.automatic_layer_color(exclude=self.layer)
+        """Choose a saturated hue far from the other enabled image and mask layers."""
+        return self.helper.automatic_layer_color(exclude=self.layer, include_labels=True)
 
     def _pick_color(self):
         self._activate()
@@ -630,3 +637,10 @@ class LayerListWidget(QtWidgets.QListWidget):
                 row.update()
                 row._refresh_previews()
                 row.additive.reload_icon()
+
+    def refresh_blending_icons(self):
+        """Reflect an exclusive Solo change without rebuilding rows or moving focus."""
+        for index in range(1, self.count()):
+            row = self.itemWidget(self.item(index))
+            if isinstance(row, LayerRowWidget):
+                row._update_blending_icon()

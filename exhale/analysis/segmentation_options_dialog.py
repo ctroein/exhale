@@ -6,6 +6,7 @@ from ..data.projectdata import SegmentationParameters
 from ..tooltips import SEGMENTATION_OPTIONS_DIALOG, apply_tooltips
 from .segmentation_backends import stardist_thresholds
 from .segmentation_options_dialog_ui import Ui_SegmentationOptionsDialog
+from .segmentationmethods import segmentation_method
 
 
 class SegmentationOptionsDialog(QtWidgets.QDialog, Ui_SegmentationOptionsDialog):
@@ -18,7 +19,7 @@ class SegmentationOptionsDialog(QtWidgets.QDialog, Ui_SegmentationOptionsDialog)
         self._stardist_defaults = stardist_thresholds()
         self.probThreshold.setValue(self._stardist_defaults["prob_thresh"])
         self.nmsThreshold.setValue(self._stardist_defaults["nms_thresh"])
-        self._clip_percentiles = {"stardist": None, "cellpose": 99.9}
+        self._clip_percentiles = {"stardist": None, "cellpose": 99.9, "monai": 99.9}
         self.set_method("stardist")
         self.buttonBox.rejected.connect(self.hide)
         apply_tooltips(self, SEGMENTATION_OPTIONS_DIALOG)
@@ -29,9 +30,11 @@ class SegmentationOptionsDialog(QtWidgets.QDialog, Ui_SegmentationOptionsDialog)
             raise ValueError(f"Unknown segmentation method {method_id!r}")
         self.method_id = method_id
         self.methodOptionsStack.setCurrentWidget(
-            self.stardistPage if method_id == "stardist" else self.cellposePage
+            {"stardist": self.stardistPage, "cellpose": self.cellposePage, "monai": self.monaiPage}[
+                method_id
+            ]
         )
-        self.setWindowTitle("StarDist options" if method_id == "stardist" else "Cellpose options")
+        self.setWindowTitle(f"{segmentation_method(method_id).name} options")
 
     def parameters(self) -> SegmentationParameters:
         """Snapshot controls for the next run and its persisted result."""
@@ -50,6 +53,11 @@ class SegmentationOptionsDialog(QtWidgets.QDialog, Ui_SegmentationOptionsDialog)
                 "min_size": self.cellposeMinSize.value(),
                 "flow_threshold": self.flowThreshold.value(),
                 "cellprob_threshold": self.cellprobThreshold.value(),
+            }
+        if self.method_id == "monai":
+            options = {
+                "seed_threshold": self.monaiSeedThreshold.value(),
+                "min_size": self.monaiMinSize.value(),
             }
         return SegmentationParameters(
             clip_percentile=self._clip_percentiles[self.method_id],
@@ -72,3 +80,7 @@ class SegmentationOptionsDialog(QtWidgets.QDialog, Ui_SegmentationOptionsDialog)
             self.cellposeMinSize.setValue(options.get("min_size", 20))
             self.flowThreshold.setValue(options.get("flow_threshold", 0.4))
             self.cellprobThreshold.setValue(options.get("cellprob_threshold", 0.0))
+        if self.method_id == "monai":
+            options = parameters.method_options
+            self.monaiSeedThreshold.setValue(options.get("seed_threshold", 0.5))
+            self.monaiMinSize.setValue(options.get("min_size", 20))

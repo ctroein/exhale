@@ -29,14 +29,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Types]
 Name: "standard"; Description: "StarDist segmentation"
-Name: "full"; Description: "StarDist and Cellpose segmentation"
+Name: "full"; Description: "StarDist, Cellpose and MONAI U-Net"
 Name: "compact"; Description: "Viewing and composition without segmentation"
 Name: "custom"; Description: "Choose segmentation backends"; Flags: iscustom
 
 [Components]
 Name: "core"; Description: "EXHALE, private Python and application libraries"; Types: standard full compact custom; Flags: fixed
 Name: "stardist"; Description: "StarDist (TensorFlow)"; Types: standard full
-Name: "cellpose"; Description: "Cellpose (PyTorch and DINOv3)"; Types: full
+Name: "cellpose"; Description: "Cellpose and MONAI U-Net (PyTorch and DINOv3)"; Types: full
 
 [Files]
 ; Temporary copies validate the runtime before installed launcher files are replaced.

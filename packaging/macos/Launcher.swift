@@ -44,7 +44,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--setup-check") {
 class SetupDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow!
     let starDist = NSButton(checkboxWithTitle: "StarDist — TensorFlow", target: nil, action: nil)
-    let cellpose = NSButton(checkboxWithTitle: "Cellpose — PyTorch and DINOv3", target: nil, action: nil)
+    let cellpose = NSButton(checkboxWithTitle: "Cellpose and MONAI U-Net — PyTorch and DINOv3", target: nil, action: nil)
     let install = NSButton(title: "Install and Open", target: nil, action: nil)
     let remove = NSButton(title: "Remove Runtime…", target: nil, action: nil)
     let open = NSButton(title: "Open EXHALE", target: nil, action: nil)
@@ -89,7 +89,7 @@ class SetupDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         if !supportsCellpose {
             cellpose.state = .off
-            cellpose.title = "Cellpose — requires Apple Silicon and macOS 14+"
+            cellpose.title = "Cellpose and MONAI U-Net — requires Apple Silicon and macOS 14+"
         }
         install.target = self; install.action = #selector(installClicked)
         open.target = self; open.action = #selector(openClicked)

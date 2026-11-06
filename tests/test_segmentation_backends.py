@@ -89,13 +89,23 @@ def test_segmentation_registry_and_workers_do_not_eagerly_load_backends():
 import sys
 from exhale.analysis.segmentationmethods import SEGMENTATION_METHODS
 from exhale.analysis.analysisworker import AnalysisWorker
-assert {method.method_id for method in SEGMENTATION_METHODS} == {"stardist", "cellpose"}
-assert not {"torch", "triton", "tensorflow", "cellpose", "dinov3"}.intersection(sys.modules)
+assert {method.method_id for method in SEGMENTATION_METHODS} == {"stardist", "cellpose", "monai"}
+assert not {"torch", "triton", "tensorflow", "cellpose", "dinov3", "monai"}.intersection(sys.modules)
 """
     subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
 
 
-@pytest.mark.parametrize("installed", [(), ("stardist",), ("cellpose",), ("stardist", "cellpose")])
+@pytest.mark.parametrize(
+    "installed",
+    [
+        (),
+        ("stardist",),
+        ("cellpose",),
+        ("monai",),
+        ("stardist", "cellpose"),
+        ("stardist", "cellpose", "monai"),
+    ],
+)
 def test_startup_checks_only_selected_backends(monkeypatch, installed):
     from exhale.analysis import segmentationmethods as methods
 
@@ -116,6 +126,7 @@ def test_startup_checks_only_selected_backends(monkeypatch, installed):
     methods.check_installed_backends()
     assert ("stardist.models" in imports) == ("stardist" in installed)
     assert ("cellpose.vit" in imports) == ("cellpose" in installed)
+    assert ("monai.networks.nets" in imports) == ("monai" in installed)
 
 
 def test_startup_rejects_cellpose_without_dinov3(monkeypatch):

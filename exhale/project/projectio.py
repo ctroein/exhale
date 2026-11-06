@@ -431,6 +431,7 @@ def export_project_state(
         "version": PROJECT_VERSION,
         "element_defaults": project_data.element_defaults.to_json(),
         "abundance_units": project_data.abundance_units,
+        "segmentation_method": project_data.segmentation_method,
         "image_defaults": _image_options_to_json(
             project_data.image_defaults, include_resolution=True
         ),
@@ -552,6 +553,11 @@ def load_project_state(
     validate_project_state(state)
 
     issues = []
+    method = state.get("segmentation_method")
+    if method is None or isinstance(method, str):
+        project_data.segmentation_method = method
+    else:
+        issues.append("Segmentation method selection was reset: expected a string")
     abundance_units = state.get("abundance_units", project_data.abundance_units)
     if isinstance(abundance_units, str):
         project_data.abundance_units = abundance_units

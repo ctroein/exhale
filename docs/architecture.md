@@ -16,6 +16,15 @@ Qt is accessed through `qtpy`. Layouts are authored in Qt Designer `.ui`
 files. The corresponding `*_ui.py` modules are generated build products and
 contain no application policy.
 
+`UpdateController` owns Linux release-check scheduling, its worker and update
+confirmation. Application preferences store the daily-check setting and last
+attempt. `updates` identifies the running uv tool using its environment path and
+receipt, checks PyPI, and provides a copied standard-library helper outside the
+environment being updated. A pipe delays mutation until the application process
+exits. Shared application locks and an exclusive helper lock prevent replacement
+while another recognised Exhale instance is running. uv retains the original
+extras and constraints; this workflow does not rewrite dependency selections.
+
 Large workflows should have a coherent owner rather than accumulating in the
 window. `ProjectTab` coordinates project and sample controls,
 `ProjectManager` owns project-directory operations, `SourceManager` owns
@@ -284,12 +293,23 @@ The mask area is preserved; the largest part keeps its ID. Explicit splitting
 creates separate IDs regardless of the incidental-disconnection setting. A failed
 cut makes no changes. Both operations are single undoable commands.
 
-The Mask chooser's context menu extends normal name editing with Remove mask….
-Removal requires confirmation and finishes or cancels any current edits first.
+The Segmentation panel separates running a method from Review, Edit and
+Post-processing pages. Mask selection and export remain above those pages;
+the Review page holds the name, Keep, Delete, Restore and training-review controls.
+Accepting or rejecting edits returns to Review. The selected inference method
+belongs to the project. Brush and eraser sizes, feature fitting and its distance,
+segment protection and disconnected-parts preferences belong to application
+settings; changing them does not dirty the project or remember the active tool.
+
+Delete removes the selected mask without confirmation, after finishing or
+cancelling any current edits.
 It removes only the selected candidate, retains corrected descendants and their
 run provenance, and clears direct parent links to the removed candidate. The
 newest retained mask becomes active when necessary. Comparison references to the
-removed candidate are dropped; immutable sidecars stay available to older saved
+removed candidate are dropped. Restore reverses the most recent deletion for
+the sample, including surviving child links and comparison presentation, without
+replacing a newer training-review assignment. This session-only removal history
+is separate from label-edit Undo/Redo. Immutable sidecars stay available to saved
 project/autosave JSON. Reruns use the same Accept/Reject/Cancel boundary, and
 accepted corrections remain protected if inference later fails.
 
@@ -534,3 +554,50 @@ Project metadata, analysis sidecars, training exports and downloaded models use
 allow the parent default ACL and process umask to govern published output; private
 tempfile permissions must not survive into permanent files or directories.
 Writers publish only completed output and clean up failures.
+
+## MONAI U-Net segmentation
+
+The `monai` method reuses the shared segmentation worker, batch queue, candidate
+history, editing and snapshot persistence. `segmentation_monai` owns only inference
+and model-specific conversion to instance labels. Neural imports occur when a
+run starts; registry/Options setup and loading saved masks require no model runtime.
+
+The bundled model has one input and background/interior/boundary outputs, using
+MONAI's residual 2-D U-Net (channels 16/32/64/128, strides 2/2/2, two residual units).
+After shared percentile clipping (default 99.9), normalize input over its full
+minimum/maximum range. Infer 256×256 overlapping tiles with Gaussian blending of
+logits at 50% overlap; retain original dimensions, then apply softmax and watershed
+once for the entire map. Check cancellation before each tile and before watershed.
+
+Foreground probability must exceed 0.5; interior seeds use the editable threshold
+(default 0.5). Remove seed regions under three pixels and supply a distance-maximum
+seed in any remaining unseeded foreground component. Watershed uses the predicted
+boundary channel; the editable minimum nucleus area (default 20 pixels) applies
+to foreground components and final instances. This inference conversion remains
+separate from the later editable expansion and minimum-area filter.
+
+Strict weights-only loading and file/device caching prevent accidental random
+initialization or repeat loading in a batch. Results record the bundled model's
+SHA-256 and inference parameters through the existing model/provenance contract.
+The package includes the small weights; larger Cellpose weights remain on-demand.
+
+## Quick Solo layer viewing
+
+The layer mode button cycles Normal → Add → Solo → Normal. Solo is an Exhale
+presentation mode, rendered using Normal blending with every other user layer
+hidden; it is never passed to Napari as a blending enum. The backing image and
+editing decorations remain outside the user-layer isolation mechanism.
+
+`NapariHelper` preserves the requested visibility of all user layers during Solo.
+Layer checkboxes and serialized presentation use those requested values, not the
+temporary render visibility. Entering Solo on another layer advances the previous
+Solo layer to Normal. Any visibility checkbox toggle ends Solo and restores the
+other requested states before applying that toggle. Colors, gain and opacity keep
+working normally. The layer list updates mode icons in place without rebuilding
+rows or moving focus.
+
+The existing presentation field stores `blending: "solo"` for the one isolated
+layer. Restore base/comparison settings in either group without losing a Solo
+layer omitted from a partial update. Clear isolation before replacing pooled
+sample/mask data, then restore the new context's saved settings. No project format
+version change is needed.

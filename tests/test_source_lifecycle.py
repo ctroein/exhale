@@ -943,14 +943,14 @@ class SourceLifecycleTests(unittest.TestCase):
 
         control = self.win.analysis_controller
         gc.collect()
-        editor = self.win.analysisMaskCombo.lineEdit()
-        point = QtCore.QPoint(2, 2)
-        with patch.object(control, "_mask_menu") as menu:
-            editor.customContextMenuRequested.emit(point)
-        menu.assert_called_once_with(editor, point)
+        editor = self.win.analysisMaskName
+        self.assertEqual(editor.contextMenuPolicy(), QtCore.Qt.DefaultContextMenu)
         candidate = SimpleNamespace(name="Old name", name_is_custom=False)
+        editor.setProperty("candidate_id", "mask")
         with (
-            patch.object(control, "current_candidate", return_value=candidate),
+            patch.object(
+                control, "_history", return_value=SimpleNamespace(candidates={"mask": candidate})
+            ),
             patch.object(control, "_mask_name", return_value="Old name"),
         ):
             editor.setText("Renamed mask")

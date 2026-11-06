@@ -17,7 +17,7 @@ class SegmentationHelpDialog(QtWidgets.QDialog):
         redo = escape(QtGui.QKeySequence(QtGui.QKeySequence.Redo).toString())
         text.setHtml(f"""
 <h3>Getting started</h3>
-<p>Choose a mask and open Editing to add missing segments, correct their
+<p>Choose a mask and open Edit to add missing segments, correct their
  boundaries, or separate segments that were joined.</p>
 <p>Use <b>Select (S)</b> to click the segment you want to change. Ctrl+click adds or
  removes a segment from the selection; clicking the background clears it.
@@ -56,7 +56,9 @@ class SegmentationHelpDialog(QtWidgets.QDialog):
  Escape cancels an unfinished stroke or selection rectangle.
  The letters beside the tool names are keyboard shortcuts.</p>
 <p><b>Accept changes</b> keeps your corrections as a new mask; the original
- remains available. <b>Reject changes</b> discards your current edits.</p>
+ remains available. <b>Reject changes</b> discards your current edits.
+ Both return to Review, where you can name, keep or mark the mask as reviewed
+ for training.</p>
 
 """)
         layout.addWidget(text)

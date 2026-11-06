@@ -1,4 +1,4 @@
-"""Direct StarDist and Cellpose inference, input preparation and model provenance."""
+"""Segmentation dispatch, shared input preparation, lazy runtime loading and provenance."""
 
 import hashlib
 import json
@@ -176,6 +176,13 @@ def run_segmentation(
         )
         model_id = "cellpose-dino-xrf"
         version = "sha256:" + _digest(Path(model_path).expanduser().resolve())
+    elif method_id == "monai":
+        from .segmentation_monai import model_path as monai_model_path
+        from .segmentation_monai import segment_monai
+
+        labels = segment_monai(data, callback=callback, **parameters.method_options)
+        model_id = "monai-unet-xrf"
+        version = "sha256:" + _digest(monai_model_path())
     else:
         raise ValueError(f"Unknown segmentation method {method_id!r}")
     if np.asarray(labels).shape != data.shape:

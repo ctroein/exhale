@@ -364,6 +364,7 @@ class ProjectData:
         self.segmentation_histories: dict[str, SegmentationHistory] = {}
         self.segmentation_edit_sessions: dict[str, SegmentationEditSession] = {}
         self.segmentation_previews: dict[str, dict[str, SegmentationPreview]] = {}
+        self.segmentation_method: str | None = None
         self.clustering_results: dict[str, ClusteringResult] = {}
         self.matrix_plot_settings = {key: MatrixPlotSettings() for key in MATRIX_PLOT_KEYS}
         self.matrix_plot_settings[CLUSTER_DISTANCES] = MatrixPlotSettings(
@@ -901,6 +902,7 @@ class ProjectData:
         self.segmentation_histories.clear()
         self.segmentation_edit_sessions.clear()
         self.segmentation_previews.clear()
+        self.segmentation_method = None
         self.clustering_results.clear()
         for settings in self.matrix_plot_settings.values():
             settings.reset()

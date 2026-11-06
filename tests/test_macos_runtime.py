@@ -41,6 +41,7 @@ def test_selection_installs_only_requested_extras_and_checks_before_commit(runti
         runtime.install(selection)
     requirement = commands[1][7]
     extras = runtime_module.BACKENDS[selection]
+    assert ("monai" in extras) == ("cellpose" in extras)
     assert (
         requirement.endswith("[" + ",".join(extras) + "]")
         if extras

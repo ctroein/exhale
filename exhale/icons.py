@@ -54,6 +54,7 @@ class IconName(str, Enum):
     CHECKBOX_DENIED = "checkbox-denied-extended.svg"
     LAYERS = "layers.svg"
     LAYERS_ADD = "layers-plus.svg"
+    LAYER_SOLO = "layer-one.svg"
     ADD_LAYER = "layer-plus.svg"
     START = "bolt.svg"
     BATCH = "stack-bolt.svg"

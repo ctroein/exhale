@@ -39,15 +39,23 @@ For StarDist (TensorFlow):
 uv tool install --python 3.12 'exhale-xrf[stardist]'
 ```
 
-For Cellpose (PyTorch and DINOv3):
+For Cellpose and MONAI U-Net (PyTorch; Cellpose also needs DINOv3):
 
 ```bash
-uv tool install --python 3.12 --with-requirements https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt 'exhale-xrf[cellpose]'
+uv tool install --python 3.12 --with-requirements https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt 'exhale-xrf[cellpose,monai]'
 ```
 
-To install both, use `'exhale-xrf[stardist,cellpose]'` with the same additional
+For MONAI U-Net alone:
+
+```bash
+uv tool install --python 3.12 'exhale-xrf[monai]'
+```
+
+MONAI U-Net's trained weights are bundled; no model download is needed.
+
+To also include StarDist, use `'exhale-xrf[stardist,cellpose,monai]'` with the same additional
 requirements argument. Plain `exhale-xrf` installs viewing, composition and
-analysis of existing results without either segmentation backend. Unavailable
+analysis of existing results without neural segmentation backends. Unavailable
 backends are disabled in the application.
 
 Run `exhale` to start the application. To add it to the current user's desktop
@@ -62,6 +70,14 @@ To update the application and its selected backends:
 ```bash
 uv tool upgrade exhale-xrf
 ```
+
+On Linux, Settings also offers daily update checks and a Check now button.
+Checks notify you of newer stable releases without installing anything. For a
+writable uv tool installation owned by your account, Update now closes Exhale,
+runs the upgrade, checks startup, and reopens it. Normal project saving applies
+before closing. Other Exhale instances must be closed first. Update results and
+the log location are shown after restarting. Automatic checks can be disabled
+in Settings.
 
 uv retains the installation settings, including extras and additional
 requirements. To change backend selection, rerun `uv tool install` with the
@@ -132,17 +148,18 @@ For StarDist:
 python -m pip install 'exhale-xrf[stardist]'
 ```
 
-For Cellpose (Apple Silicon required on macOS):
+For Cellpose and MONAI U-Net (Apple Silicon required on macOS):
 
 ```bash
-python -m pip install 'exhale-xrf[cellpose]' -r https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt
+python -m pip install 'exhale-xrf[cellpose,monai]' -r https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt
 ```
 
-Use `'exhale-xrf[stardist,cellpose]'` with the same requirements argument for
-both backends. For a Git checkout:
+For MONAI U-Net alone, use `python -m pip install 'exhale-xrf[monai]'`; no
+DINOv3 requirements file is needed. Use `'exhale-xrf[stardist,cellpose,monai]'` with
+the same requirements argument to include all three methods. For a Git checkout:
 
 ```bash
-python -m pip install -e '.[stardist,cellpose]' -r requirements-cellpose.txt
+python -m pip install -e '.[stardist,cellpose,monai]' -r requirements-cellpose.txt
 ./run_exhale.py
 ```
 

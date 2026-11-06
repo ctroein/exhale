@@ -1,10 +1,11 @@
 """Application settings dialog."""
 
+import sys
 from pathlib import Path
 
 from qtpy import QtCore, QtWidgets
 
-from . import appearance, icons
+from . import appearance, icons, updates
 from .analysis.model_store import MODEL_DIRECTORY_SETTING
 from .model_settings import default_model_directory, model_directory
 from .project.projectstatemanager import PROJECT_AUTOSAVE_KEY, PROJECT_SAVE_ON_EXIT_KEY
@@ -32,7 +33,23 @@ class SettingsDialog(QtWidgets.QDialog, Ui_SettingsDialog):
         self.modelDirectoryEdit.setText(str(model_directory(settings)))
         self.modelDirectoryBrowse.setIcon(icons.icon(icons.IconName.FOLDER))
         self.modelDirectoryBrowse.clicked.connect(self._choose_model_directory)
+        self.updatesGroupBox.setVisible(sys.platform.startswith("linux"))
+        self.automaticUpdatesCheckBox.setChecked(
+            settings.value(updates.AUTOMATIC_CHECKS_KEY, True, type=bool)
+        )
+        self.checkUpdatesButton.clicked.connect(self._check_updates)
+        controller = getattr(parent, "update_controller", None)
+        self.checkUpdatesButton.setEnabled(controller is not None and controller.worker is None)
+        if controller is not None:
+            controller.checkingChanged.connect(self._checking_changed)
         apply_tooltips(self, SETTINGS_DIALOG)
+
+    def _checking_changed(self, checking):
+        self.checkUpdatesButton.setEnabled(not checking)
+        self.checkUpdatesButton.setText("Checking…" if checking else "Check now")
+
+    def _check_updates(self):
+        self.parent().update_controller.check()
 
     def _choose_model_directory(self):
         directory = self.modelDirectoryEdit.text().strip() or str(default_model_directory())
@@ -51,6 +68,9 @@ class SettingsDialog(QtWidgets.QDialog, Ui_SettingsDialog):
             )
             return
         self.settings.setValue(MODEL_DIRECTORY_SETTING, str(directory))
+        self.settings.setValue(
+            updates.AUTOMATIC_CHECKS_KEY, self.automaticUpdatesCheckBox.isChecked()
+        )
         scheme = appearance.COLOR_SCHEMES[self.colourSchemeComboBox.currentIndex()]
         self.settings.setValue(appearance.COLOR_SCHEME_KEY, scheme)
         self.settings.setValue(PROJECT_AUTOSAVE_KEY, self.autosaveProjectCheckBox.isChecked())

@@ -46,7 +46,7 @@ class ModelDownloadError(RuntimeError):
 
 
 def model_for_method(method_id: str) -> TrainedModel | None:
-    """Return downloadable weights; StarDist continues using its bundled model."""
+    """Return downloadable weights; StarDist and MONAI U-Net use bundled models."""
     return CELLPOSE_MODEL if method_id == "cellpose" else None
 
 

@@ -4,8 +4,44 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from qtpy import QtWidgets
 
 from exhale.analysis.controller import AnalysisController
+
+
+@pytest.mark.parametrize("changed, already_active", [(True, False), (True, True), (False, False)])
+def test_entering_saved_edits_notifies_once_not_on_refresh(changed, already_active):
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    tabs = QtWidgets.QTabWidget()
+    page = QtWidgets.QWidget()
+    tabs.addTab(page, "Edit")
+    draft = SimpleNamespace(changed=changed, source=SimpleNamespace(sample_id="sample"))
+    control = SimpleNamespace(
+        window=SimpleNamespace(
+            project_data=SimpleNamespace(segmentation_edit_sessions={"sample": draft}),
+            analysisProcessingTabs=tabs,
+            analysisEditingPage=page,
+        ),
+        _edit_session=draft if already_active else None,
+        _result_sample_id=None,
+        current_sample=lambda: SimpleNamespace(sample_id="sample"),
+        current_candidate=lambda: SimpleNamespace(result=object()),
+        update_channels=Mock(),
+        _refresh_reference_choices=Mock(),
+        _refresh_masks=Mock(),
+        _load_method_parameters=Mock(),
+        _notify_resumed_edits=Mock(),
+    )
+
+    def resume(*args, **kwargs):
+        control._edit_session = draft
+
+    control.show_result = Mock(side_effect=resume)
+    AnalysisController.sample_changed(control)
+    AnalysisController.sample_changed(control)
+    assert control._notify_resumed_edits.call_count == int(changed and not already_active)
+    tabs.close()
+    app.processEvents()
 
 
 @pytest.mark.parametrize("additive, expected", [(False, {7, 42}), (True, {7, 42, 99})])

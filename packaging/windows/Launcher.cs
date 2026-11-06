@@ -99,8 +99,8 @@ internal sealed class RuntimeSetup
         {
             case "none": return new string[0];
             case "stardist": return new[] { "stardist" };
-            case "cellpose": return new[] { "cellpose" };
-            case "both": return new[] { "stardist", "cellpose" };
+            case "cellpose": return new[] { "cellpose", "monai" };
+            case "both": return new[] { "stardist", "cellpose", "monai" };
             default: throw new ArgumentException("Unknown segmentation selection: " + selection);
         }
     }
@@ -290,6 +290,7 @@ internal sealed class RuntimeSetup
                     setup.Prepare(selection);
                     if (File.Exists(Path.Combine(home, "runtime", "installed.json"))) throw new Exception("Premature activation.");
                     if (calls[1].Contains("-r") != Extras(selection).Contains("cellpose")) throw new Exception("Backend selection failed.");
+                    if (Extras(selection).Contains("monai") != Extras(selection).Contains("cellpose")) throw new Exception("PyTorch track must include MONAI U-Net.");
                     string expectedExtras = Extras(selection).Length == 0 ? "test.whl" : "test.whl[" + String.Join(",", Extras(selection)) + "]";
                     if (!calls[1][6].EndsWith(expectedExtras)) throw new Exception("Wrong wheel extras.");
                     setup.Activate();

@@ -23,6 +23,7 @@ _PACKAGE_DISTRIBUTIONS = (
     ("PyTorch", "torch"),
     ("TorchVision", "torchvision"),
     ("Cellpose", "cellpose"),
+    ("MONAI", "monai"),
     ("DINOv3", "dinov3"),
 )
 

@@ -34,6 +34,7 @@ from .segmentationio import publish_segmentation
 from .segmentationmethods import SEGMENTATION_METHODS, segmentation_method
 
 LOAD_NAPARI_EARLY = True
+EDIT_SETTINGS_PREFIX = "segmentation/editing/"
 
 
 def _scale_font(widget: QtWidgets.QWidget, scale: float) -> None:
@@ -87,6 +88,7 @@ class AnalysisController(QtCore.QObject):
         window.analysisPipelineComboBox.setCurrentIndex(available_index)
 
         self.settings_dialog = SegmentationOptionsDialog(window)
+        self.restore_project_method()
         for spinbox in (window.analysisExpansion, window.analysisMinimumArea):
             option = QtWidgets.QStyleOptionSpinBox()
             option.initFrom(spinbox)
@@ -101,14 +103,10 @@ class AnalysisController(QtCore.QObject):
                 .width()
             )
         window.analysisMaskCombo.currentIndexChanged.connect(self._mask_changed)
-        # Keep the wrapper for Qt's internally created editor alive with its slots.
-        self._mask_name_edit = window.analysisMaskCombo.lineEdit()
+        self._mask_name_edit = window.analysisMaskName
         self._mask_name_edit.editingFinished.connect(self._rename_mask)
-        for widget in (window.analysisMaskCombo, self._mask_name_edit):
-            widget.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-            widget.customContextMenuRequested.connect(
-                lambda position, widget=widget: self._mask_menu(widget, position)
-            )
+        window.analysisRemoveMask.clicked.connect(self._remove_mask)
+        window.analysisRestoreMask.clicked.connect(self._restore_mask)
         window.analysisKeepMask.toggled.connect(self._keep_mask)
         window.analysisReviewedForTraining.toggled.connect(self._review_mask)
         window.analysisAddComparison.clicked.connect(self._add_comparison)
@@ -135,6 +133,7 @@ class AnalysisController(QtCore.QObject):
         ):
             window.analysisDisconnectedParts.addItem(text, key)
         window.analysisDisconnectedParts.setCurrentIndex(2)
+        self._load_edit_preferences()
         window.analysisDeleteSegment.clicked.connect(self._delete_segments)
         window.analysisMergeSegments.clicked.connect(self._merge_segments)
         window.analysisProtectSegments.toggled.connect(self._update_edit_controls)
@@ -142,6 +141,14 @@ class AnalysisController(QtCore.QObject):
         window.analysisOutlineDistance.setEnabled(window.analysisFitOutline.isChecked())
         window.analysisFitOutline.toggled.connect(self._outline_options_changed)
         window.analysisOutlineDistance.valueChanged.connect(self._outline_options_changed)
+        for signal in (
+            window.analysisBrushSize.valueChanged,
+            window.analysisProtectSegments.toggled,
+            window.analysisFitOutline.toggled,
+            window.analysisOutlineDistance.valueChanged,
+            window.analysisDisconnectedParts.currentIndexChanged,
+        ):
+            signal.connect(self._save_edit_preferences)
         window.analysisEditingHelp.clicked.connect(self._show_editing_help)
         window.analysisUndo.clicked.connect(self._undo_edit)
         window.analysisRedo.clicked.connect(self._redo_edit)
@@ -161,6 +168,12 @@ class AnalysisController(QtCore.QObject):
         self._area_plot.setMouseEnabled(x=False, y=False)
         self._area_plot.setMenuEnabled(False)
         self._area_plot.getPlotItem().hideButtons()
+        plot_layout_item = self._area_plot.getPlotItem().layout
+        left, top, right, bottom = plot_layout_item.getContentsMargins()
+        tick_font = self._area_plot.getAxis("left").style["tickFont"] or self._area_plot.font()
+        plot_layout_item.setContentsMargins(
+            left, top + QtGui.QFontMetricsF(tick_font).height() / 2, right, bottom
+        )
         plot_layout = QtWidgets.QVBoxLayout(window.analysisAreaPlotContainer)
         plot_layout.setContentsMargins(0, 0, 0, 0)
         plot_layout.addWidget(self._area_plot)
@@ -207,22 +220,8 @@ class AnalysisController(QtCore.QObject):
         window = self.window
         history = self._history()
         selector = window.analysisMaskCombo
-        draft = None
         if rebuild:
             with QtCore.QSignalBlocker(selector):
-                editor = self._mask_name_edit
-                if (
-                    incremental
-                    and history is not None
-                    and selector.currentData() == history.active_id
-                    and editor.isModified()
-                ):
-                    draft = (
-                        editor.text(),
-                        editor.cursorPosition(),
-                        editor.selectionStart(),
-                        len(editor.selectedText()),
-                    )
                 if incremental and history is not None:
                     for row in reversed(range(selector.count())):
                         if selector.itemData(row) not in history.candidates:
@@ -238,20 +237,19 @@ class AnalysisController(QtCore.QObject):
                     if selector.currentIndex() != index:
                         selector.setCurrentIndex(index)
         self.refresh_mask_markers()
-        if draft is not None:
-            # Row removals and icon updates both make Qt replace uncommitted names.
-            text, cursor, start, length = draft
-            with QtCore.QSignalBlocker(editor):
-                editor.setText(text)
-                editor.setModified(True)
-                if start >= 0:
-                    if cursor == start:
-                        editor.setSelection(start + length, -length)
-                    else:
-                        editor.setSelection(start, length)
-                else:
-                    editor.setCursorPosition(cursor)
         candidate = self.current_candidate()
+        editor = self._mask_name_edit
+        identity = None if candidate is None else candidate.candidate_id
+        if editor.property("candidate_id") != identity or not editor.isModified():
+            with QtCore.QSignalBlocker(editor):
+                editor.setText("" if candidate is None else self._mask_name(candidate))
+                editor.setModified(False)
+                editor.setProperty("candidate_id", identity)
+        editor.setEnabled(candidate is not None and self.worker is None)
+        window.analysisRemoveMask.setEnabled(candidate is not None and self.worker is None)
+        window.analysisRestoreMask.setEnabled(
+            history is not None and history.can_restore_removed and self.worker is None
+        )
         for button, checked in (
             (window.analysisKeepMask, candidate is not None and candidate.keep),
         ):
@@ -348,9 +346,11 @@ class AnalysisController(QtCore.QObject):
         return True
 
     def _complete_editing(self, decision):
-        """Accept or discard changes while retaining the current editing page."""
+        """Accept or discard changes and return to mask review."""
         if not self._finish_editing(decision=decision):
             return
+        with QtCore.QSignalBlocker(self.window.analysisProcessingTabs):
+            self.window.analysisProcessingTabs.setCurrentWidget(self.window.analysisReviewPage)
         candidate = self.current_candidate()
         if candidate is not None and self.naparihelper is not None:
             self.show_result(candidate.result, fit=False)
@@ -451,6 +451,46 @@ class AnalysisController(QtCore.QObject):
             self._brush_sizes[self._edit_tool] = self.window.analysisBrushSize.value()
         if self.naparihelper is not None:
             self.naparihelper.set_brush_size(self.window.analysisBrushSize.value())
+
+    def _load_edit_preferences(self):
+        """Restore working preferences from application settings without selecting a tool."""
+        settings = self.window.settings
+        window = self.window
+
+        def size(key, default):
+            try:
+                return max(
+                    1, min(1000, settings.value(EDIT_SETTINGS_PREFIX + key, default, type=int))
+                )
+            except (TypeError, ValueError):
+                return default
+
+        self._brush_sizes = {"add": size("brush_size", 5), "remove": size("eraser_size", 5)}
+        window.analysisBrushSize.setValue(self._brush_sizes["add"])
+        window.analysisOutlineDistance.setValue(size("adjustment_distance", 8))
+        window.analysisFitOutline.setChecked(
+            settings.value(EDIT_SETTINGS_PREFIX + "fit_to_features", False, type=bool)
+        )
+        window.analysisProtectSegments.setChecked(
+            settings.value(EDIT_SETTINGS_PREFIX + "protect_other_segments", True, type=bool)
+        )
+        parts = settings.value(EDIT_SETTINGS_PREFIX + "disconnected_parts", "ask", type=str)
+        index = window.analysisDisconnectedParts.findData(parts)
+        window.analysisDisconnectedParts.setCurrentIndex(index if index >= 0 else 2)
+
+    def _save_edit_preferences(self):
+        """Remember checkbox/size preferences without changing the project dirty state."""
+        window = self.window
+        values = {
+            "brush_size": self._brush_sizes["add"],
+            "eraser_size": self._brush_sizes["remove"],
+            "adjustment_distance": window.analysisOutlineDistance.value(),
+            "fit_to_features": window.analysisFitOutline.isChecked(),
+            "protect_other_segments": window.analysisProtectSegments.isChecked(),
+            "disconnected_parts": window.analysisDisconnectedParts.currentData(),
+        }
+        for key, value in values.items():
+            window.settings.setValue(EDIT_SETTINGS_PREFIX + key, value)
 
     def _edit_tool_changed(self):
         if self._edit_tool in self._brush_sizes:
@@ -593,9 +633,10 @@ class AnalysisController(QtCore.QObject):
         ):
             self._choose_edit_tool("select")
         self.window.analysisToolSplit.setEnabled(enabled and session is not None)
-        self.window.analysisProcessingTabs.setEnabled(
-            enabled and self.current_candidate() is not None
-        )
+        tabs = self.window.analysisProcessingTabs
+        tabs.setEnabled(enabled)
+        for page in (self.window.analysisEditingPage, self.window.analysisPostprocessingPage):
+            tabs.setTabEnabled(tabs.indexOf(page), self.current_candidate() is not None)
         editing = enabled and session is not None and self._editing_mode()
         self.window.analysisAcceptEdits.setEnabled(editing)
         self.window.analysisRejectEdits.setEnabled(editing)
@@ -623,31 +664,13 @@ class AnalysisController(QtCore.QObject):
             self._edit_session.redo()
             self._editing_changed()
 
-    def _mask_menu(self, widget, position):
-        """Extend text editing's normal menu with deliberate saved-mask removal."""
-        if isinstance(widget, QtWidgets.QLineEdit):
-            menu = widget.createStandardContextMenu()
-            menu.addSeparator()
-        else:
-            menu = QtWidgets.QMenu(widget)
-        action = menu.addAction(icons.icon(icons.IconName.DELETE), "Remove mask…")
-        action.setEnabled(self.current_candidate() is not None and self.worker is None)
-        action.triggered.connect(self._remove_mask)
-        menu.exec(widget.mapToGlobal(position))
-
     def _remove_mask(self):
+        """Remove the selected mask without confirmation; its history retains restoration."""
         candidate = self.current_candidate()
         history = self._history()
         if candidate is None or history is None or self.worker is not None:
             return
-        dialog = QtWidgets.QMessageBox(self.window)
-        dialog.setWindowTitle("Remove mask")
-        dialog.setText(f"Remove {self._mask_name(candidate)}?")
-        dialog.setInformativeText("Corrected masks derived from it will be kept.")
-        remove = dialog.addButton("Remove", QtWidgets.QMessageBox.DestructiveRole)
-        dialog.addButton(QtWidgets.QMessageBox.Cancel)
-        dialog.exec()
-        if dialog.clickedButton() is not remove or not self._finish_editing():
+        if not self._finish_editing():
             return
         if candidate.candidate_id in history.candidates:
             history.remove(candidate.candidate_id)
@@ -660,9 +683,25 @@ class AnalysisController(QtCore.QObject):
         self.window.project_state_manager.project_changed()
         self.window.segmentationResultsChanged.emit()
 
+    def _restore_mask(self):
+        """Restore this sample's last deliberately removed mask, separate from edit undo."""
+        history = self._history()
+        if history is None or self.worker is not None or not self._finish_editing():
+            return
+        candidate = history.restore_removed()
+        if candidate is None:
+            return
+        self._refresh_masks()
+        if self.naparihelper is not None:
+            self.show_result(candidate.result, fit=False)
+        self.window.project_state_manager.project_changed()
+        self.window.segmentationResultsChanged.emit()
+
     def _rename_mask(self):
-        candidate = self.current_candidate()
-        name = self.window.analysisMaskCombo.currentText().strip()
+        history = self._history()
+        identity = self._mask_name_edit.property("candidate_id")
+        candidate = None if history is None else history.candidates.get(identity)
+        name = self._mask_name_edit.text().strip()
         if not name:
             self._refresh_masks()
             return
@@ -670,7 +709,9 @@ class AnalysisController(QtCore.QObject):
             candidate.name = name
             candidate.name_is_custom = True
             selector = self.window.analysisMaskCombo
-            selector.setItemText(selector.currentIndex(), name)
+            selector.setItemText(selector.findData(identity), name)
+            self._mask_name_edit.setModified(False)
+            self._refresh_comparison_choices()
             self.window.project_state_manager.project_changed()
 
     def _keep_mask(self, keep):
@@ -974,6 +1015,7 @@ class AnalysisController(QtCore.QObject):
                     selector.setCurrentIndex(selector.findData(previous_sample))
                 return
         draft = self.window.project_data.segmentation_edit_sessions.get(sample_id)
+        resuming_edits = draft is not None and draft.changed and draft is not self._edit_session
         if draft is not None and draft.changed:
             with QtCore.QSignalBlocker(self.window.analysisProcessingTabs):
                 self.window.analysisProcessingTabs.setCurrentWidget(self.window.analysisEditingPage)
@@ -994,16 +1036,52 @@ class AnalysisController(QtCore.QObject):
             self.clear_result_view()
         else:
             self.show_result(result, fit=self._result_sample_id != sample_id)
+        if resuming_edits and self._edit_session is draft:
+            self._notify_resumed_edits()
+
+    def _notify_resumed_edits(self):
+        """Explain restored edits once when the sample's working session is resumed."""
+        dialog = QtWidgets.QMessageBox(self.window)
+        dialog.setWindowTitle("Unfinished mask edits")
+        dialog.setText("This sample has unfinished mask edits.")
+        dialog.setInformativeText(
+            "The edits have been restored. Continue editing, or use Accept changes "
+            "or Reject changes."
+        )
+        dialog.setIconPixmap(
+            icons.icon_pixmap(icons.IconName.INFO, self.window.fontMetrics().height() * 2)
+        )
+        dialog.setStandardButtons(QtWidgets.QMessageBox.Ok)
+        dialog.exec()
 
     def method_changed(self) -> None:
         """Choose inference options without changing the sample's active mask."""
         method_id = self.current_method_id()
+        project = self.window.project_data
+        if method_id != project.segmentation_method:
+            project.segmentation_method = method_id
+            self.window.project_state_manager.project_changed()
         if method_id is not None:
             self.settings_dialog.set_method(method_id)
         self._load_method_parameters()
         self.set_busy(self.worker is not None)
         if self.current_candidate() is None:
             self.sample_changed()
+
+    def restore_project_method(self):
+        """Restore the next-run method without importing backends or dirtying the project."""
+        selector = self.window.analysisPipelineComboBox
+        index = selector.findData(self.window.project_data.segmentation_method)
+        if index < 0 or not selector.model().item(index).isEnabled():
+            index = next(
+                (i for i in range(selector.count()) if selector.model().item(i).isEnabled()), -1
+            )
+        with QtCore.QSignalBlocker(selector):
+            selector.setCurrentIndex(index)
+        if self.window.project_data.segmentation_method is None:
+            self.window.project_data.segmentation_method = self.current_method_id()
+        if self.current_method_id() is not None:
+            self.settings_dialog.set_method(self.current_method_id())
 
     def refresh_result_view(self) -> None:
         """Keep the current segmentation view unless its result changes."""
@@ -1402,6 +1480,9 @@ class AnalysisController(QtCore.QObject):
             window.analysisPipelineComboBox,
             window.analysisMaskCombo,
             window.analysisKeepMask,
+            window.analysisMaskName,
+            window.analysisRemoveMask,
+            window.analysisRestoreMask,
             window.analysisComparisonCombo,
             window.analysisAddComparison,
             window.analysisSampleComboBox,
@@ -1556,7 +1637,7 @@ class AnalysisController(QtCore.QObject):
 
         if self._finish_editing() is False:
             return
-        window.analysisProcessingTabs.setCurrentWidget(window.analysisPostprocessingPage)
+        window.analysisProcessingTabs.setCurrentWidget(window.analysisReviewPage)
         thread = QtCore.QThread(window)
         worker = method.create_worker(
             image,
@@ -1722,10 +1803,9 @@ class AnalysisController(QtCore.QObject):
         if self.naparihelper is not None:
             self.naparihelper.cancel_stroke()
         self._edit_session = None
+        self.restore_project_method()
         with QtCore.QSignalBlocker(self.window.analysisProcessingTabs):
-            self.window.analysisProcessingTabs.setCurrentWidget(
-                self.window.analysisPostprocessingPage
-            )
+            self.window.analysisProcessingTabs.setCurrentWidget(self.window.analysisReviewPage)
         self.window.analysisSampleComboBox.clear()
         if self.naparihelper is not None:
             self.naparihelper.reset_initial_fit()

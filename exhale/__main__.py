@@ -211,6 +211,10 @@ def _run_application():
         app = QtWidgets.QApplication(sys.argv)
     if sys.platform.startswith("linux"):
         app.setDesktopFileName(DESKTOP_ID)
+        if not args.startup_check:
+            from .updates import hold_application_lock
+
+            hold_application_lock()
 
     qt_splash = None
     if not args.startup_check:
@@ -283,8 +287,14 @@ def _run_application():
     if qt_splash is not None:
         qt_splash.finish(window)
 
+    QtCore.QTimer.singleShot(0, window.update_controller.start)
     app.lastWindowClosed.connect(app.quit)
-    return app.exec_()
+    result = app.exec_()
+    if window.update_controller.pending_job is not None:
+        from .updates import launch_update
+
+        launch_update(window.update_controller.pending_job)
+    return result
 
 
 def main():

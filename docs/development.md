@@ -234,6 +234,34 @@ behavior can be tested non-interactively.
 GUI changes also require interactive testing with representative data. A
 successful application startup does not validate the changed workflow.
 
+## Linux application updates
+
+Application updates are separate from dependency trials. A normal Linux GUI
+launch checks PyPI at most daily, with a persistent opt-out in Settings and a
+manual Check now button. Only a recognised `uv tool` environment owned and
+writable by the current user offers installation. Source checkouts and ordinary
+virtualenvs are not modified. The registered launcher and original uv receipt
+are rechecked before upgrading; uv retains extras, additional requirements and
+version constraints.
+
+The copied helper under `~/.local/share/Exhale/updates/update-*` (or the XDG data
+directory) waits for application process exit, acquires the exclusive installation
+lock, runs `uv tool upgrade exhale-xrf`, verifies the offered version was reached,
+and runs the installed startup check before reopening Exhale. Logs and result
+records stay in that directory; the next launch reports the result. A failed
+update is reported without claiming rollback: this uses uv's tool upgrade, not
+the native installers' staged environments. Shared locks protect other running
+instances using this update-aware launcher. Native Windows/macOS runtime updates
+and changing the selected extras are separate work.
+
+`tests/test_updates.py` exercises release filtering, installation identity,
+ownership, receipt changes, concurrent-instance exclusion and the copied helper
+using fake executables, without installing Exhale or accessing the network.
+`tests/test_update_controller.py` covers cadence, preferences and cancelled quits.
+Interactive testing still needs a real uv tool installation: update notification,
+project-save cancellation, confirmed update/restart, and inspecting a failed
+update's log.
+
 ## Trying dependency updates on Linux
 
 Run `python tools/try_dependency_updates.py` from the normal development
@@ -247,8 +275,9 @@ DINOv3 source in `requirements-cellpose.txt` is also retained.
 The tool records the requested requirements and exact installed versions in the
 trial directory, runs Ruff, the startup check and pytest, then launches the GUI
 for manual testing if all checks pass. Automated checks use Qt's offscreen
-platform; the GUI uses the normal display. Choose `--backends none|stardist|cellpose|both` for a new trial (default: both).
-Only Cellpose trials install the DINOv3 requirements file.
+platform; the GUI uses the normal display. Choose `--backends none|stardist|cellpose|monai|both` for a new trial (default: both).
+The Cellpose/PyTorch track and default include MONAI U-Net as well; `monai`
+selects only that backend. Only Cellpose trials install the DINOv3 requirements file.
 Use `--no-gui` for automated checks
 alone. The checkout is run directly, so source changes are available immediately.
 Use `--environment PATH` to rerun checks and launch an existing trial without
@@ -329,8 +358,12 @@ failures, cancellation and offline reuse without requiring public release assets
 
 ## Segmentation dependencies and installers
 
-`pyproject.toml` provides `stardist` (TensorFlow) and `cellpose` (PyTorch,
-TorchVision and Cellpose 4.2.1.1) extras. The base application needs neither. DINOv3 is supplied through `requirements-cellpose.txt`, pinned to an
+`pyproject.toml` provides `stardist` (TensorFlow), `cellpose` (PyTorch,
+TorchVision and Cellpose 4.2.1.1), and standalone `monai` (PyTorch and MONAI)
+extras. The base application needs no neural backend. Native installers'
+existing PyTorch/Cellpose selection installs both `cellpose` and `monai` extras;
+there is no additional installer choice. Recommend both extras together for
+source/pip users, while retaining their independent installation choices. DINOv3 is supplied through `requirements-cellpose.txt`, pinned to an
 upstream source commit and archive SHA-256 because it is not published on PyPI.
 For pip installation, pass that requirements file alongside `exhale-xrf`; for
 a source checkout, install the file into the existing development environment.
@@ -339,7 +372,13 @@ The URL in the README lets pip retrieve it directly from this repository.
 Native installers and Windows startup-check workflows use the same requirements
 file when Cellpose is selected. Dependency wheels supply their own resource data
 and metadata. Large trained weights stay in the model store and are not bundled
-with the executable.
+with the executable. MONAI U-Net's 1.6 MB weights and architecture/integrity metadata
+are bundled under `resources/models/monai_unet/`. Its adapter loads the residual
+U-Net lazily with strict weights-only loading and uses CUDA when available,
+otherwise CPU. Keep its inference preprocessing, tile blending and watershed
+consistent with the supplied training/prediction code; verify on original-size
+odd and small inputs and check cancellation between tiles. Saved results retain
+the model-content hash and exact inference options.
 The startup check validates installed backends, rejects partial installations,
 and skips absent backends. For Cellpose it verifies that its DINOv3 constructor
 is available without loading or downloading any trained model.

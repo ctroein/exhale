@@ -85,6 +85,8 @@ class NapariHelper:
         self._fixed_layers = {}
         self._element_layer_pool = []
         self._cluster_layer_pool = []
+        self._solo_layer = None
+        self._solo_visibility = {}
         self.viewer.mouse_move_callbacks.append(self._hover)
         self.viewer.mouse_drag_callbacks.append(self._click)
         self.info_widget = None
@@ -110,6 +112,7 @@ class NapariHelper:
     LAYER_ID_KEY = "exhale_layer_id"
     BLENDING_NORMAL = "translucent_no_depth"
     BLENDING_ADD = "additive"
+    BLENDING_SOLO = "solo"
 
     @staticmethod
     def _rgba(color):
@@ -224,14 +227,14 @@ class NapariHelper:
         layer.opacity = percent / 100
 
     def automatic_layer_color(self, *, exclude=None, include_labels=False):
-        """Choose the existing maximin RGB hue against visible layer colors.
+        """Choose a maximin RGB hue against enabled layers, including through Solo.
 
-        Image Auto keeps comparing image layers only. New comparison masks also
-        consider label layers, using palette samples for categorical displays.
+        Optionally consider label layers using their displayed monochrome colors
+        or palette samples, rather than treating them as grayscale image layers.
         """
         other_colors = []
         for layer in self.user_layers():
-            if layer is exclude or not layer.visible:
+            if layer is exclude or not self.layer_visible(layer):
                 continue
             if isinstance(layer, Image):
                 other_colors.append(self.image_color(layer)[:3])
@@ -275,9 +278,48 @@ class NapariHelper:
         self._image_colors[layer] = rgba
         return layer.colormap
 
-    @staticmethod
-    def set_layer_blending(layer, blending):
-        layer.blending = blending
+    def layer_blending(self, layer):
+        """Return the user-facing mode, including the exclusive Solo view."""
+        return (
+            self.BLENDING_SOLO
+            if getattr(self, "_solo_layer", None) is layer
+            else str(layer.blending)
+        )
+
+    def layer_visible(self, layer):
+        """Return the checkbox state, independently of temporary Solo isolation."""
+        return getattr(self, "_solo_visibility", {}).get(layer, bool(layer.visible))
+
+    def clear_solo(self):
+        """End Solo and restore the selected visibility of still-active layers."""
+        self._solo_layer = None
+        visibility = getattr(self, "_solo_visibility", {})
+        self._solo_visibility = {}
+        for layer in self.user_layers():
+            if layer in visibility:
+                layer.visible = visibility[layer]
+
+    def set_layer_visible(self, layer, visible):
+        """A visibility checkbox ends quick Solo viewing before changing its layer."""
+        self.clear_solo()
+        layer.visible = visible
+
+    def set_layer_blending(self, layer, blending):
+        """Set Normal/Add or exclusively show one layer without changing checkboxes."""
+        if blending == self.BLENDING_SOLO:
+            self.clear_solo()
+            self._solo_visibility = {
+                current: bool(current.visible) for current in self.user_layers()
+            }
+            self._solo_visibility[layer] = True
+            self._solo_layer = layer
+            layer.blending = self.BLENDING_NORMAL
+            for current in self.user_layers():
+                current.visible = current is layer
+        else:
+            if getattr(self, "_solo_layer", None) is layer:
+                self.clear_solo()
+            layer.blending = blending
 
     @classmethod
     def layer_has_gain(cls, layer):
@@ -342,9 +384,9 @@ class NapariHelper:
                 color = saved_color(label_color)
                 palette_index = self.label_palette_index(layer)
             layers[identity] = LayerPresentation(
-                visible=bool(layer.visible),
+                visible=self.layer_visible(layer),
                 opacity=float(layer.opacity),
-                blending=str(layer.blending),
+                blending=self.layer_blending(layer),
                 color=color,
                 label_mode=label_mode,
                 palette_index=palette_index,
@@ -354,6 +396,8 @@ class NapariHelper:
 
     def apply_layer_settings(self, settings: SegmentationLayerSettings) -> None:
         """Apply saved presentation to matching active layers, ignoring stale keys."""
+        solo = getattr(self, "_solo_layer", None)
+        self.clear_solo()
         by_identity = {
             self.layer_identity(layer): layer
             for layer in self.user_layers()
@@ -363,6 +407,8 @@ class NapariHelper:
             layer = by_identity.get(identity)
             if layer is None:
                 continue
+            if layer is solo:
+                solo = None
             if isinstance(layer, Image) and presentation.color is not None:
                 self.set_image_color(layer, presentation.color)
             elif (
@@ -379,12 +425,18 @@ class NapariHelper:
             if presentation.gain is not None and self.layer_has_gain(layer):
                 self.set_layer_gain(layer, presentation.gain)
             layer.opacity = presentation.opacity
-            layer.blending = presentation.blending
+            if presentation.blending == self.BLENDING_SOLO:
+                solo = layer
+                layer.blending = self.BLENDING_NORMAL
+            else:
+                layer.blending = presentation.blending
             layer.visible = presentation.visible
 
         ordered = [by_identity[key] for key in settings.order if key in by_identity]
         ordered.extend(layer for layer in self.user_layers() if layer not in ordered)
         self._set_active_layer_order(ordered)
+        if solo in self.user_layers():
+            self.set_layer_blending(solo, self.BLENDING_SOLO)
 
     def set_theme(self, theme):
         "Apply the viewer theme while retaining a predictable compositing background."
@@ -771,6 +823,7 @@ class NapariHelper:
 
     def set_sample(self, sample, element_maps=None, element_ids=None):
         "Set/update the XRFSample using reusable fixed and variable layer pools."
+        self.clear_solo()
         self._ensure_layer_pools()
         self.sample = sample
         if sample is None:

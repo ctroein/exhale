@@ -73,6 +73,8 @@ composed-image settings, project channel choices, shared defaults, and
 segmentation results and independent element-clustering results, each with saved
 viewer-layer presentation. Segmentation results retain reversible post-processing
 and reference-map selections, with preview state before the first successful run.
+The next-run segmentation method is a project preference; editing-tool preferences
+are kept in application settings by `AnalysisController`.
 `Sample`, `Channel`, `ChannelOverride`, and
 `ResolvedChannel` express local versus inherited channel state; the remaining
 data classes describe assets and analysis metadata.
@@ -323,12 +325,20 @@ split preserves foreground pixels and refuses ineffective cuts.
 ### `exhale/analysis/segmentation_backends.py`
 
 Owns non-mutating percentile preprocessing, safe lazy neural-library initialization,
-direct StarDist and Cellpose inference, model caching and model-content provenance.
+direct StarDist/Cellpose inference and MONAI dispatch, model caching and
+model-content provenance.
 Validates the labels against the input shape without downstream filtering or regions.
+
+### `exhale/analysis/segmentation_monai.py`
+
+Loads the bundled residual U-Net lazily, normalizes clipped raw maps and blends
+original-resolution tile logits before a single watershed conversion. Reuses
+models by file revision/device, checks cancellation at tile boundaries, and
+converts interior/boundary probabilities to instance labels with fallback seeds.
 
 ### `exhale/analysis/segmentation_options_dialog.py`
 
-Edits method-specific StarDist thresholds and Cellpose inference settings, retaining
+Edits method-specific StarDist, Cellpose and MONAI U-Net inference settings, retaining
 separate method controls and internal preprocessing parameters. StarDist defaults
 come from bundled model metadata without initializing a backend.
 
@@ -438,7 +448,8 @@ inference helpers are removed; clustering imports no neural backend.
 ### `exhale/analysis/naparihelper.py`
 
 Encapsulates the embedded Napari viewer, its Qt widget, map and analysis
-layers, layer-selection synchronization, and in-place element-map updates that
+layers, layer-selection synchronization, exclusive Solo viewing with preserved checkbox
+choices, and in-place element-map updates that
 preserve layer presentation state. Fits initial content to actual canvas sizes
 while startup layouts settle, stopping on user interaction or leaving the view.
 Owns the shared maximally separated hue picker used by image Auto colors and
@@ -447,7 +458,7 @@ new monochrome comparison masks.
 ### `exhale/analysis/layerwidgets.py`
 
 Implements the layer list shown beside Napari. Rows expose visibility, colour,
-opacity, blending, and reorder/remove operations while reflecting the actual
+opacity, Normal/Add/Solo cycling, and reorder/remove operations while reflecting the actual
 viewer layers.
 
 ### `exhale/analysis/correlationwidgets.py`
@@ -520,6 +531,20 @@ Presents handled and unhandled error details. `ExceptionDetailsDialog` is the
 modal widget; `ExceptionDialog` installs the top-level exception hook.
 
 ## Application information
+
+### `exhale/updates.py`
+
+Identifies writable Linux uv tool installations, filters PyPI releases for the
+current Python, and stages a detached standard-library update helper. Process
+lifetime and installation locks protect the running environment. The helper
+uses uv's recorded requirements, verifies the resulting version and startup,
+records a log and result, and reopens Exhale.
+
+### `exhale/update_controller.py`
+
+Owns the background release-check worker, daily scheduling, notifications,
+explicit update confirmation, cancelled-close handling and reporting the
+previous helper result. Settings exposes the preference and manual check.
 
 `exhale.__main__` also owns the Linux per-user desktop registration commands.
 The packaged desktop-entry template is filled with the current installation's

@@ -331,8 +331,7 @@ def test_incremental_mask_updates_keep_uncommitted_name_when_history_prunes(proj
     candidate_at(1, "Old")
     active = candidate_at(3, "Active")
     combo = QtWidgets.QComboBox()
-    combo.setEditable(True)
-    editor = combo.lineEdit()
+    editor = QtWidgets.QLineEdit()
 
     def refresh_icons():
         pixmap = QtGui.QPixmap(12, 12)
@@ -340,7 +339,12 @@ def test_incremental_mask_updates_keep_uncommitted_name_when_history_prunes(proj
         combo.setItemIcon(combo.currentIndex(), QtGui.QIcon(pixmap))
 
     control = SimpleNamespace(
-        window=SimpleNamespace(analysisMaskCombo=combo, analysisKeepMask=QtWidgets.QToolButton()),
+        window=SimpleNamespace(
+            analysisMaskCombo=combo,
+            analysisKeepMask=QtWidgets.QToolButton(),
+            analysisRemoveMask=QtWidgets.QToolButton(),
+            analysisRestoreMask=QtWidgets.QToolButton(),
+        ),
         _mask_name_edit=editor,
         _history=lambda: history,
         _mask_name=AnalysisController._mask_name,

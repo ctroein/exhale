@@ -359,7 +359,7 @@
             <number>8</number>
            </property>
            <widget class="QWidget" name="analysisControlsWidget">
-            <layout class="QVBoxLayout" name="verticalLayout_7" stretch="0,0,0,0,0,1">
+            <layout class="QVBoxLayout" name="verticalLayout_7" stretch="0,0,0,0,0,0,0,1">
              <property name="spacing">
               <number>5</number>
              </property>
@@ -375,20 +375,13 @@
                <item row="0" column="1">
                 <widget class="QComboBox" name="analysisSampleComboBox"/>
                </item>
-<item row="1" column="0"><widget class="QLabel" name="analysisMaskLabel"><property name="text"><string>Mask</string></property></widget></item>
-<item row="1" column="1"><layout class="QHBoxLayout" name="analysisMaskLayout" stretch="1,0">
- <item><widget class="QComboBox" name="analysisMaskCombo"><property name="editable"><bool>true</bool></property><property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToMinimumContentsLengthWithIcon</enum></property><property name="minimumContentsLength"><number>12</number></property></widget></item>
- <item><widget class="IconToolButton" name="analysisKeepMask"><property name="checkable"><bool>true</bool></property></widget></item>
-</layout></item>
-<item row="2" column="1"><layout class="QHBoxLayout" name="analysisReviewExportLayout" stretch="0,1,0"><item><widget class="QCheckBox" name="analysisReviewedForTraining"><property name="text"><string>Reviewed for training</string></property><property name="enabled"><bool>false</bool></property></widget></item><item><spacer name="analysisReviewSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item><item><widget class="QPushButton" name="analysisExport"><property name="text"><string>Export…</string></property></widget></item></layout></item>
 </layout>
              </item>
 <item><layout class="QGridLayout" name="analysisSegmentationInputsLayout" columnstretch="0,1">
 <item row="0" column="0"><widget class="QLabel" name="analysisPipelineLabel"><property name="text"><string>Method</string></property></widget></item>
-<item row="0" column="1"><layout class="QHBoxLayout" name="analysisMethodLayout" stretch="0,0,1">
-<item><widget class="QComboBox" name="analysisPipelineComboBox"><property name="sizePolicy"><sizepolicy hsizetype="Maximum" vsizetype="Fixed"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property></widget></item>
+<item row="0" column="1"><layout class="QHBoxLayout" name="analysisMethodLayout" stretch="2,1">
+<item><widget class="QComboBox" name="analysisPipelineComboBox"/></item>
 <item><widget class="QPushButton" name="analysisOptions"><property name="text"><string>Options…</string></property></widget></item>
-<item><spacer name="analysisMethodSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
 </layout></item>
 <item row="1" column="0"><widget class="QLabel" name="label_11"><property name="text"><string>Nuclei channel</string></property></widget></item>
 <item row="1" column="1"><layout class="QHBoxLayout" name="analysisNucleiLayout" stretch="1,1">
@@ -429,11 +422,35 @@
               </layout>
              </item>
 <item><widget class="QLabel" name="analysisBatchStatus"><property name="textFormat"><enum>Qt::PlainText</enum></property><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+<item><widget class="QFrame" name="analysisRunReviewSeparator"><property name="frameShape"><enum>QFrame::HLine</enum></property><property name="frameShadow"><enum>QFrame::Sunken</enum></property></widget></item>
+<item><layout class="QHBoxLayout" name="analysisMaskLayout" stretch="0,1,0">
+ <item><widget class="QLabel" name="analysisMaskLabel"><property name="text"><string>Mask</string></property></widget></item>
+ <item><widget class="QComboBox" name="analysisMaskCombo"><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToMinimumContentsLengthWithIcon</enum></property><property name="minimumContentsLength"><number>12</number></property></widget></item>
+ <item><widget class="QPushButton" name="analysisExport"><property name="text"><string>Export…</string></property></widget></item>
+</layout></item>
 <item>
  <widget class="QTabWidget" name="analysisProcessingTabs">
-  <property name="currentIndex"><number>1</number></property>
+  <property name="currentIndex"><number>0</number></property>
+  <widget class="QWidget" name="analysisReviewPage">
+   <attribute name="title"><string>Review</string></attribute>
+   <layout class="QVBoxLayout" name="analysisReviewLayout">
+    <item><layout class="QHBoxLayout" name="analysisNameLayout" stretch="0,1">
+     <item><widget class="QLabel" name="analysisMaskNameLabel"><property name="text"><string>Name</string></property></widget></item>
+     <item><widget class="QLineEdit" name="analysisMaskName"/></item>
+    </layout></item>
+    <item><layout class="QHBoxLayout" name="analysisMaskActionsLayout" stretch="0,0,0,0,1">
+     <item><widget class="IconToolButton" name="analysisKeepMask"><property name="checkable"><bool>true</bool></property></widget></item>
+     <item><widget class="QFrame" name="analysisMaskActionsSeparator"><property name="frameShape"><enum>QFrame::VLine</enum></property><property name="frameShadow"><enum>QFrame::Sunken</enum></property></widget></item>
+     <item><widget class="IconToolButton" name="analysisRemoveMask"/></item>
+     <item><widget class="IconToolButton" name="analysisRestoreMask"/></item>
+     <item><spacer name="analysisMaskActionsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+    </layout></item>
+    <item><widget class="QCheckBox" name="analysisReviewedForTraining"><property name="text"><string>Reviewed for training</string></property><property name="enabled"><bool>false</bool></property></widget></item>
+    <item><spacer name="analysisReviewSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+   </layout>
+  </widget>
   <widget class="QWidget" name="analysisEditingPage">
-   <attribute name="title"><string>Editing</string></attribute>
+   <attribute name="title"><string>Edit</string></attribute>
    <layout class="QVBoxLayout" name="analysisEditingLayout">
     <item><layout class="QHBoxLayout" name="analysisToolLayout" stretch="0,0,0,0,0,0,0,0,0,0,0,1">
      <item><widget class="IconToolButton" name="analysisToolSelect"><property name="checkable"><bool>true</bool></property><property name="checked"><bool>true</bool></property></widget></item>

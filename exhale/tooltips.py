@@ -65,7 +65,10 @@ MAIN_WINDOW = {
     "elementSDButton": "Set the display limits to the mean plus or minus three standard deviations.",
     "analysisSampleComboBox": "Select the sample to analyze or whose saved result is displayed.",
     "analysisChNuclei": "Element map used to detect nuclei (usually P).",
-    "analysisMaskCombo": "Choose the active mask; edit its name here. Method selects the next run.",
+    "analysisMaskCombo": "Choose the mask to view or edit. Method selects the next segmentation run.",
+    "analysisMaskName": "Name of the selected segmentation mask.",
+    "analysisRemoveMask": "Delete the selected mask. Restore can undo mask removals during this project session.",
+    "analysisRestoreMask": "Restore the last mask removed from this sample. Separate from label-edit Undo.",
     "analysisReviewedForTraining": "Use this complete mask revision as the sample’s training annotation. Accept or reject pending edits first.",
     "analysisKeepMask": "Keep this mask when older unprotected predictions leave the recent history.",
     "analysisAddComparison": "Add the selected segmentation as a comparison layer. Compared masks are retained.",
@@ -153,6 +156,8 @@ ANALYSIS_SETTINGS_DIALOG = {
 }
 
 SEGMENTATION_OPTIONS_DIALOG = {
+    "monaiSeedThreshold": "Minimum interior probability for watershed seeds. Higher values require greater confidence.",
+    "monaiMinSize": "Discard predicted MONAI U-Net nuclei smaller than this many pixels.",
     "probThreshold": "Lower values admit more candidate nuclei; higher values require greater confidence.",
     "nmsThreshold": "Higher values allow more overlap between accepted StarDist nuclei.",
     "cellposeMinSize": "Discard Cellpose nuclei smaller than this many pixels.",
@@ -161,6 +166,11 @@ SEGMENTATION_OPTIONS_DIALOG = {
 }
 
 SETTINGS_DIALOG = {
+    "automaticUpdatesCheckBox": (
+        "Check for stable Exhale releases while the application is running, at most once "
+        "every 24 hours. Updates are installed only when you request them."
+    ),
+    "checkUpdatesButton": "Check PyPI for a newer stable release compatible with this Python.",
     "modelDirectoryEdit": "Models are downloaded here when first needed for segmentation.",
     "modelDirectoryBrowse": "Choose the directory for downloaded trained models.",
     "saveProjectOnExitCheckBox": (
@@ -181,7 +191,11 @@ IMAGE_ELEMENT_COLOR = "Choose color for this element in the composed image."
 LAYER_DRAG = "Drag to reorder"
 LAYER_VISIBLE = "Show layer"
 LAYER_OPACITY = "Opacity"
-LAYER_ADDITIVE = "Add this layer's RGB values to the layers below it."
+LAYER_BLENDING = {
+    "normal": "Normal alpha blending. Click for Add mode.",
+    "add": "Add this layer's RGB values to the layers below it. Click for Solo mode.",
+    "solo": "Solo: show only this layer. Click for Normal mode; toggling a visibility checkbox also ends Solo.",
+}
 LAYER_GAIN = "Increase the display brightness of the raw nuclei or tissue layer."
 LAYER_CATEGORICAL = "Cycle categorical palette"
 LAYER_COLOR = "Choose color"
