@@ -958,6 +958,38 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertEqual(candidate.name, "Renamed mask")
         self.assertTrue(candidate.name_is_custom)
 
+    def test_manual_annotation_can_precede_segmentation_and_survives_reload(self):
+        self.win.source_manager.open_files([self.h5])
+        sample_id = self.win.project_data.assets[self.h5].sample_id
+        sample = self.win.project_data.samples[sample_id]
+        control = self.win.analysis_controller
+        control.refresh_samples([(sample.name, sample_id)])
+        self.win.analysisChNuclei.addItem("Fe", sample.channels["Fe"].ref)
+        self.win.analysisChNuclei.setCurrentIndex(self.win.analysisChNuclei.count() - 1)
+        control._create_mask()
+        candidate = control.current_candidate()
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.result.method_id, "manual")
+        self.assertIs(self.win.analysisProcessingTabs.currentWidget(), self.win.analysisEditingPage)
+        control._start_editing()
+        self.assertTrue(control._edit_session.brush_stroke([("add", [(1, 1)])], size=1))
+        self.assertTrue(control._finish_editing(decision="accept"))
+        corrected = control.current_candidate()
+        self.assertTrue(corrected.result.output.labels.any())
+        self.assertEqual(corrected.parent_id, candidate.candidate_id)
+        directory = Path(self.temp.name) / "manual-project"
+        projectio.save_project(self.win.project_data, directory / "project.xhp")
+        restored = type(self.win.project_data)()
+        self.addCleanup(restored.clear)
+        issues = projectio.load_project(restored, directory / "project.xhp")
+        self.assertEqual(issues, [])
+        restored_mask = restored.segmentation_histories[sample_id].active
+        self.assertEqual(restored_mask.candidate_id, corrected.candidate_id)
+        self.assertEqual(restored_mask.provenance[0].method_id, "manual")
+        np.testing.assert_array_equal(
+            restored_mask.result.output.labels, corrected.result.output.labels
+        )
+
     def test_mask_layer_choices_include_restored_comparisons(self):
         self.win.source_manager.open_files([self.h5])
         sample_id = self.win.project_data.assets[self.h5].sample_id

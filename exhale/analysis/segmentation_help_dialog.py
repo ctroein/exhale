@@ -19,6 +19,9 @@ class SegmentationHelpDialog(QtWidgets.QDialog):
 <h3>Getting started</h3>
 <p>Choose a mask and open Edit to add missing segments, correct their
  boundaries, or separate segments that were joined.</p>
+<p>To annotate without running a segmentation method, select the nuclei channel
+ and use <b>Create empty mask</b> beside the Segmentation mask heading.
+ This opens an empty mask in Edit with the element map underneath.</p>
 <p>Use <b>Select (S)</b> to click the segment you want to change. Ctrl+click adds or
  removes a segment from the selection; clicking the background clears it.
  Shift+drag selects all segments touched by a rectangle. Hold Ctrl as well to
@@ -57,7 +60,7 @@ class SegmentationHelpDialog(QtWidgets.QDialog):
  The letters beside the tool names are keyboard shortcuts.</p>
 <p><b>Accept changes</b> keeps your corrections as a new mask; the original
  remains available. <b>Reject changes</b> discards your current edits.
- Both return to Review, where you can name, keep or mark the mask as reviewed
+ Both return to Overview, where you can name or mark the mask as reviewed
  for training.</p>
 
 """)

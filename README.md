@@ -101,8 +101,10 @@ downloads a private Python environment and the selected packages; internet
 access is required, but an existing Python or uv installation is not.
 Use the Start menu or optional desktop shortcut to launch EXHALE.
 
-To update, download and run the installer for the newer release. Rerun the
-installer to change the selected backends or repair the installation.
+Settings offers daily update checks, Check now, and Update now. Application
+updates preserve the selected backends and validate a new runtime before
+switching to it. You can also download and run a newer installer; use that to
+update the launcher/setup tools, change backends, or repair the installation.
 Uninstall through Windows Settings; the private runtime and shortcuts are
 removed while projects, trained models and application settings are retained.
 
@@ -121,8 +123,10 @@ launch; see [Apple's explanation and opening options](https://support.apple.com/
 
 Subsequent launches open the installed application. Hold Option while opening
 EXHALE.app to change backends, repair the installation, or remove the private
-runtime. To update, quit EXHALE and replace the app with a newer release; setup
-will install that release with your previous backend choices. For removal, use
+runtime. Settings offers daily update checks and Update now, which preserves
+the backends and validates a new runtime before switching to it. To update the
+launcher/setup tools, quit EXHALE and replace the app with a newer release; setup
+will install its bundled release with your previous backend choices. For removal, use
 **Remove Runtime** in setup, then move EXHALE.app to Trash. Projects, model files,
 and application settings are retained.
 

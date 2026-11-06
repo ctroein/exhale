@@ -144,6 +144,15 @@ jobs:
           trap 'hdiutil detach "$mountpoint"' EXIT
           "$mountpoint/EXHALE.app/Contents/MacOS/EXHALE" --setup-check none
           "$mountpoint/EXHALE.app/Contents/MacOS/EXHALE" --setup-check ${{ matrix.backends }}
+          python packaging/test_runtime_updates.py --launcher "$mountpoint/EXHALE.app/Contents/MacOS/EXHALE" --home "$EXHALE_SETUP_HOME" --logs dist/macos-test-logs
+
+      - name: Upload macOS runtime update logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exhale-macos-${{ matrix.architecture }}-test-logs
+          path: dist/macos-test-logs/**
+          if-no-files-found: ignore
 
       - name: Upload macOS workflow artifacts
         uses: actions/upload-artifact@v4

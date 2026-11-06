@@ -17,6 +17,7 @@ from tifffile import imwrite
 from .. import appearance, icons
 from ..data.constants import DISPLAY_UNITS
 from ..data.projectdata import (
+    LayerPresentation,
     SegmentationLayerSettings,
     SegmentationParameters,
     SegmentationPreview,
@@ -105,6 +106,7 @@ class AnalysisController(QtCore.QObject):
         window.analysisMaskCombo.currentIndexChanged.connect(self._mask_changed)
         self._mask_name_edit = window.analysisMaskName
         self._mask_name_edit.editingFinished.connect(self._rename_mask)
+        window.analysisCreateMask.clicked.connect(self._create_mask)
         window.analysisRemoveMask.clicked.connect(self._remove_mask)
         window.analysisRestoreMask.clicked.connect(self._restore_mask)
         window.analysisKeepMask.toggled.connect(self._keep_mask)
@@ -238,6 +240,15 @@ class AnalysisController(QtCore.QObject):
                         selector.setCurrentIndex(index)
         self.refresh_mask_markers()
         candidate = self.current_candidate()
+        ref = window.analysisChNuclei.currentData()
+        sample = self.current_sample()
+        window.analysisCreateMask.setEnabled(
+            self.worker is None
+            and not self.batch.active
+            and sample is not None
+            and ref is not None
+            and ref in {channel.ref for channel in sample.channels.values()}
+        )
         editor = self._mask_name_edit
         identity = None if candidate is None else candidate.candidate_id
         if editor.property("candidate_id") != identity or not editor.isModified():
@@ -346,7 +357,7 @@ class AnalysisController(QtCore.QObject):
         return True
 
     def _complete_editing(self, decision):
-        """Accept or discard changes and return to mask review."""
+        """Accept or discard changes and return to the mask overview."""
         if not self._finish_editing(decision=decision):
             return
         with QtCore.QSignalBlocker(self.window.analysisProcessingTabs):
@@ -663,6 +674,30 @@ class AnalysisController(QtCore.QObject):
         if self._edit_session is not None and self._edit_session.can_redo:
             self._edit_session.redo()
             self._editing_changed()
+
+    def _create_mask(self):
+        """Open an empty sample-sized mask for manual annotation."""
+        window = self.window
+        sample = self.current_sample()
+        ref = window.analysisChNuclei.currentData()
+        if sample is None or ref is None or self.worker is not None or self.batch.active:
+            return
+        try:
+            data = window.element_controller.ensure_settings(ref).data
+        except (SourceUnavailableError, KeyError, RuntimeError, ValueError) as exc:
+            window.show_error("Cannot create mask", str(exc))
+            return
+        if not self._finish_editing():
+            return
+        candidate = window.project_data.create_empty_segmentation(sample.sample_id, ref, data.shape)
+        self._refresh_masks()
+        with QtCore.QSignalBlocker(window.analysisProcessingTabs):
+            window.analysisProcessingTabs.setCurrentWidget(window.analysisEditingPage)
+        if self.naparihelper is not None:
+            self.show_result(candidate.result, fit=False)
+        self._update_edit_controls()
+        window.project_state_manager.project_changed()
+        window.segmentationResultsChanged.emit()
 
     def _remove_mask(self):
         """Remove the selected mask without confirmation; its history retains restoration."""
@@ -1192,6 +1227,7 @@ class AnalysisController(QtCore.QObject):
                 self.window.project_state_manager.project_changed()
             self.clear_result_view()
         self._refresh_reference_choices()
+        self._refresh_masks(rebuild=False)
 
     def _reference_refs(self):
         if self._display_result is not None:
@@ -1250,9 +1286,19 @@ class AnalysisController(QtCore.QObject):
 
     def _set_reference_refs(self, refs):
         result = self._display_result
+        added = set(refs) - set(self._reference_refs())
         self._layer_settings_changed()
         presentation = self.naparihelper.layer_settings()
+        for ref in added:
+            color = self.naparihelper.automatic_layer_color(include_labels=True)
+            presentation.layers[f"element-map:{ref}"] = LayerPresentation(
+                visible=True,
+                opacity=1.0,
+                blending=self.naparihelper.BLENDING_ADD,
+                color=color.getRgbF(),
+            )
         if result is not None:
+            result.layer_settings = presentation
             result.reference_refs = tuple(refs)
             self.show_result(result, fit=False)
             self._layer_settings_changed()
@@ -1477,6 +1523,7 @@ class AnalysisController(QtCore.QObject):
         window = self.window
         for widget in (
             window.analysisRun,
+            window.analysisCreateMask,
             window.analysisPipelineComboBox,
             window.analysisMaskCombo,
             window.analysisKeepMask,

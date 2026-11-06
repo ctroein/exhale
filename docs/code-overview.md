@@ -6,6 +6,14 @@ Designer file, not the generated Python.
 
 ## Dependency trials
 
+### `tools/try_application_update.py`
+
+Builds a source snapshot with two temporary versions and serves a localhost
+package index and release-check endpoint. It installs and launches the older
+version in an isolated uv tool environment, then offers the newer one for manual
+testing of notification, quit cancellation, upgrade and restart. Application
+settings are isolated; normal dependency downloads use the shared uv cache.
+
 ### `tools/try_dependency_updates.py`
 
 Creates a fresh Linux environment with selectable backend extras and current stable dependencies, preserves
@@ -75,6 +83,8 @@ viewer-layer presentation. Segmentation results retain reversible post-processin
 and reference-map selections, with preview state before the first successful run.
 The next-run segmentation method is a project preference; editing-tool preferences
 are kept in application settings by `AnalysisController`.
+Empty manual segmentation candidates can be created from a sample map without a
+neural method, then edited and persisted through the ordinary mask history.
 `Sample`, `Channel`, `ChannelOverride`, and
 `ResolvedChannel` express local versus inherited channel state; the remaining
 data classes describe assets and analysis metadata.
@@ -453,13 +463,22 @@ choices, and in-place element-map updates that
 preserve layer presentation state. Fits initial content to actual canvas sizes
 while startup layouts settle, stopping on user interaction or leaving the view.
 Owns the shared maximally separated hue picker used by image Auto colors and
-new monochrome comparison masks.
+new element layers and monochrome comparison masks. It considers enabled image
+colors and monochrome label colors, ignoring categorical palettes.
 
 ### `exhale/analysis/layerwidgets.py`
 
 Implements the layer list shown beside Napari. Rows expose visibility, colour,
 opacity, Normal/Add/Solo cycling, and reorder/remove operations while reflecting the actual
 viewer layers.
+For label layers, the main color-button click cycles categorical, monochrome mask
+and monochrome scale. The dropdown selects one of five categorical palettes or
+uses the shared image-color menu for either monochrome mode. Mode changes retain
+the selected palette and base color. Each categorical palette uses its own fixed
+seed to shuffle the original colors, retaining that assignment across refreshes.
+Palette 1 is unchanged; palettes 2–3 progressively reduce saturation and raise
+brightness. Palette 4 raises only saturation, and palette 5 only brightness,
+each halfway from the original HSV component to its maximum.
 
 ### `exhale/analysis/correlationwidgets.py`
 
@@ -534,15 +553,17 @@ modal widget; `ExceptionDialog` installs the top-level exception hook.
 
 ### `exhale/updates.py`
 
-Identifies writable Linux uv tool installations, filters PyPI releases for the
-current Python, and stages a detached standard-library update helper. Process
+Identifies native-managed runtimes and writable Linux uv tool installations,
+filters PyPI releases for the current Python, and stages update requests. Native
+requests go to the parent launcher with an instance token after GUI shutdown;
+Linux uv tools use a detached standard-library helper. Process
 lifetime and installation locks protect the running environment. The helper
 uses uv's recorded requirements, verifies the resulting version and startup,
 records a log and result, and reopens Exhale.
 
 ### `exhale/update_controller.py`
 
-Owns the background release-check worker, daily scheduling, notifications,
+Owns the cross-platform background release-check worker, daily scheduling, notifications,
 explicit update confirmation, cancelled-close handling and reporting the
 previous helper result. Settings exposes the preference and manual check.
 
@@ -606,15 +627,26 @@ and produces an ad-hoc-signed app and DMG for the build machine's architecture.
 AppKit setup interface and launcher. Offers supported backend choices, streams
 setup output, starts the private Python driver, and exposes runtime removal.
 Its `--setup-check` entry point exercises the setup driver on GitHub runners.
+Headless `--update-runtime` and `--startup-check` entry points exercise updates
+and subsequent launches through that same driver.
 
 ### `packaging/macos/runtime.py`
 
 Owns EXHALE's private Python environments and installation record. Installs selected
 extras from the bundled wheel, checks startup before activation, preserves a
 previous environment on failure, and locks setup against a running application.
+Consumes application update requests after process exit, installs the requested
+PyPI version with the existing backends, records the result, and reopens Exhale.
 
 
 ## Native Windows distribution
+
+### `packaging/test_runtime_updates.py`
+
+Builds temporary local test wheels and exercises the installed native launcher's
+update operation, selected backend preservation, startup of both versions and
+recovery after a deliberately rejected version. It retains diagnostic logs for
+Windows and both Mac architectures in the build workflow.
 
 ### `packaging/win_build.py`
 
@@ -627,6 +659,9 @@ and invokes Inno Setup.
 Native launcher and private runtime manager. Prepares selected backends with uv,
 checks startup, activates pending environments, rolls back unfinished setup and
 forwards application arguments. Supplies runtime locking and installation logs.
+Passes native runtime identity to the application and consumes update requests
+after it exits. Validates new runtimes before activation and reopens the working
+application after either success or rejected preparation.
 
 ### `packaging/windows/test-installer.ps1`
 

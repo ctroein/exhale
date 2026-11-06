@@ -33,7 +33,9 @@ class SettingsDialog(QtWidgets.QDialog, Ui_SettingsDialog):
         self.modelDirectoryEdit.setText(str(model_directory(settings)))
         self.modelDirectoryBrowse.setIcon(icons.icon(icons.IconName.FOLDER))
         self.modelDirectoryBrowse.clicked.connect(self._choose_model_directory)
-        self.updatesGroupBox.setVisible(sys.platform.startswith("linux"))
+        self.updatesGroupBox.setVisible(
+            sys.platform.startswith("linux") or sys.platform in ("win32", "darwin")
+        )
         self.automaticUpdatesCheckBox.setChecked(
             settings.value(updates.AUTOMATIC_CHECKS_KEY, True, type=bool)
         )

@@ -153,19 +153,79 @@ def test_clearing_a_pooled_view_drops_solo_and_does_not_revive_its_layers(layers
 
 @pytest.mark.parametrize("mode", ["categorical", "mask", "monochrome"])
 @pytest.mark.parametrize("solo", [False, True])
-def test_image_auto_avoids_red_and_blue_labels_including_layers_hidden_by_solo(layers, mode, solo):
+def test_image_auto_considers_only_monochrome_labels_including_through_solo(layers, mode, solo):
     helper, items, widget, _ = layers
     for layer in items:
         layer.visible = False
     labels = np.ones((8, 8), np.uint32)
     for name, rgba in (("Red masks", (1, 0, 0, 1)), ("Blue masks", (0, 0, 1, 1))):
         layer = helper.viewer.add_labels(labels, name=name)
-        if mode == helper.LABEL_CATEGORICAL:
-            layer.colormap = {0: (0, 0, 0, 0), None: rgba, 1: rgba}
-        else:
-            helper.set_label_display(layer, mode, rgba)
+        helper.set_label_display(layer, mode, rgba)
     if solo:
         helper.set_layer_blending(items[2], helper.BLENDING_SOLO)
     widget.rebuild()
     row_for(widget, items[2])._set_image_color_option("auto")
-    np.testing.assert_allclose(helper.image_color(items[2]), (0, 1, 0, 1), atol=1e-4)
+    expected = (1, 0, 0, 1) if mode == helper.LABEL_CATEGORICAL else (0, 1, 0, 1)
+    np.testing.assert_allclose(helper.image_color(items[2]), expected, atol=1e-4)
+
+
+def test_label_button_cycles_modes_and_retains_palette_and_base_color(layers):
+    helper, _items, widget, _ = layers
+    label = helper.viewer.add_labels(np.ones((8, 8), np.uint32), name="Mask")
+    helper.set_label_presentation(label, helper.LABEL_CATEGORICAL, "#ff8000", palette_index=4)
+    widget.rebuild()
+    row = row_for(widget, label)
+    initial_color = helper.label_display_mode(label)[1].copy()
+    for expected in (helper.LABEL_MASK, helper.LABEL_MONOCHROME, helper.LABEL_CATEGORICAL):
+        row.color_button.click()
+        mode, color = helper.label_display_mode(label)
+        assert mode == expected
+        np.testing.assert_allclose(color, initial_color)
+        assert helper.label_palette_index(label) == 4
+        assert not row._color_dialog.isVisible()
+
+
+def test_categorical_menu_selects_all_five_palettes_and_marks_current_one(layers):
+    helper, _items, widget, _ = layers
+    label = helper.viewer.add_labels(
+        np.ones((8, 8), np.uint32),
+        name="Mask",
+        visible=False,
+        metadata={helper.LAYER_ID_KEY: "mask"},
+    )
+    widget.rebuild()
+    row = row_for(widget, label)
+    for chosen in (4, 0, 2, 1, 3):
+        actions = row.color_button.menu().actions()
+        assert [action.text() for action in actions] == [f"Palette {i}" for i in range(1, 6)]
+        assert all(not action.icon().isNull() for action in actions)
+        actions[chosen].trigger()
+        assert helper.label_palette_index(label) == chosen
+        assert helper.label_display_mode(label)[0] == helper.LABEL_CATEGORICAL
+        assert label.visible
+        assert [action.isChecked() for action in row.color_button.menu().actions()] == [
+            i == chosen for i in range(5)
+        ]
+        saved = helper.layer_settings()
+        identity = helper.layer_identity(label)
+        assert saved.layers[identity].palette_index == chosen
+
+
+@pytest.mark.parametrize("mode", ["mask", "monochrome"])
+def test_monochrome_label_menu_matches_images_and_preserves_mode(layers, mode):
+    helper, items, widget, _ = layers
+    label = helper.viewer.add_labels(np.ones((8, 8), np.uint32), name="Mask")
+    helper.set_label_display(label, mode, "#ffffff")
+    widget.rebuild()
+    row = row_for(widget, label)
+    image_row = row_for(widget, items[0])
+    assert [action.text() for action in row.color_button.menu().actions()] == [
+        action.text() for action in image_row.color_button.menu().actions()
+    ]
+    for chosen, rgb in (("Red", (1, 0, 0, 1)), ("Green", (0, 1, 0, 1)), ("Blue", (0, 0, 1, 1))):
+        next(
+            action for action in row.color_button.menu().actions() if action.text() == chosen
+        ).trigger()
+        current, color = helper.label_display_mode(label)
+        assert current == mode
+        np.testing.assert_allclose(color, rgb)

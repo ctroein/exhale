@@ -344,6 +344,8 @@ def test_incremental_mask_updates_keep_uncommitted_name_when_history_prunes(proj
             analysisKeepMask=QtWidgets.QToolButton(),
             analysisRemoveMask=QtWidgets.QToolButton(),
             analysisRestoreMask=QtWidgets.QToolButton(),
+            analysisCreateMask=QtWidgets.QToolButton(),
+            analysisChNuclei=QtWidgets.QComboBox(),
         ),
         _mask_name_edit=editor,
         _history=lambda: history,
@@ -353,6 +355,8 @@ def test_incremental_mask_updates_keep_uncommitted_name_when_history_prunes(proj
         _refresh_comparison_choices=Mock(),
         _update_review_control=Mock(),
         worker=None,
+        batch=SimpleNamespace(active=False),
+        current_sample=lambda: project.samples[job.sample_id],
     )
     AnalysisController._refresh_masks(control)
     editor.setText("Typing a new name")

@@ -53,6 +53,9 @@ assert (importlib.util.find_spec('dinov3') is not None) == (selection in ('cellp
     if ($check.ExitCode -ne 0) { throw "Installed launcher startup failed for $selection" }
 }
 
+& python "$repository/packaging/test_runtime_updates.py" --launcher "$destination/exhale.exe" --home "$destination" --logs "$logs"
+if ($LASTEXITCODE -ne 0) { throw 'Native application update checks failed' }
+
 # The uninstall entry removes the private runtime as well as installed shortcuts.
 $uninstall = Start-Process "$destination/unins000.exe" -ArgumentList @(
     '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$logs/uninstall.log`""

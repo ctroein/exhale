@@ -1,6 +1,7 @@
-"""Own background release checks and the Linux update confirmation workflow."""
+"""Own background release checks and application update confirmation."""
 
 import json
+import os
 import shutil
 import sys
 import time
@@ -19,11 +20,11 @@ class ReleaseCheck(QtCore.QThread):
     def run(self):
         result = {"installation": None, "reason": "", "version": None, "error": ""}
         try:
-            result["installation"] = updates.tool_installation()
+            result["installation"] = updates.installation()
         except (ValueError, OSError, KeyError, TypeError) as error:
             result["reason"] = str(error)
         except Exception as error:
-            result["reason"] = f"Could not identify the uv installation: {error}"
+            result["reason"] = f"Could not identify this installation: {error}"
         try:
             # Source versions such as 1.4.4-dev do not describe a published installation.
             if not result["installation"] and "dev" in exhale_version:
@@ -53,6 +54,19 @@ class UpdateController(QtCore.QObject):
 
     @property
     def state_directory(self):
+        if sys.platform == "win32":
+            return (
+                Path(
+                    os.environ.get(
+                        "LOCALAPPDATA",
+                        QtCore.QStandardPaths.writableLocation(
+                            QtCore.QStandardPaths.AppLocalDataLocation
+                        ),
+                    )
+                )
+                / "Exhale"
+                / "updates"
+            )
         return (
             Path(QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.GenericDataLocation))
             / "Exhale"
@@ -60,8 +74,8 @@ class UpdateController(QtCore.QObject):
         )
 
     def start(self):
-        """Enable periodic checks only for normal Linux GUI launches."""
-        if sys.platform.startswith("linux"):
+        """Enable periodic checks for normal supported desktop GUI launches."""
+        if sys.platform.startswith("linux") or sys.platform in ("win32", "darwin"):
             self._show_previous_result()
             self.timer.start()
             self.check_if_due()
@@ -113,13 +127,20 @@ class UpdateController(QtCore.QObject):
         message = QtWidgets.QMessageBox(self.window)
         message.setWindowTitle("Exhale update available")
         message.setText(f"Exhale {version} is available. You are running {exhale_version}.")
-        details = f"To update a uv tool installation, run:\n\n{updates.UPDATE_COMMAND}"
         installation = result["installation"]
+        native = installation and installation.get("kind")
+        details = (
+            "You can also update by downloading a newer installer from "
+            "https://github.com/ctroein/exhale/releases."
+            if native or sys.platform in ("win32", "darwin")
+            else f"To update a uv tool installation, run:\n\n{updates.UPDATE_COMMAND}"
+        )
         update_button = None
         if installation:
-            details += (
-                "\n\nUpdate now closes Exhale, updates it, then reopens it. "
-                "Your selected extras and installation constraints are retained."
+            details += "\n\nUpdate now closes Exhale, updates it, then reopens it. " + (
+                "Your selected segmentation backends are retained."
+                if native
+                else "Your selected extras and installation constraints are retained."
             )
             update_button = message.addButton("Update now", QtWidgets.QMessageBox.AcceptRole)
         else:

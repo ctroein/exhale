@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
@@ -18,6 +19,7 @@ internal sealed class RuntimeSetup
     readonly Action<string> log;
     readonly JavaScriptSerializer json = new JavaScriptSerializer();
     internal Action<string, string[], bool> Execute;
+    string launchToken;
 
     internal RuntimeSetup(string root, string payload, Action<string> log)
     {
@@ -122,7 +124,7 @@ internal sealed class RuntimeSetup
         info.RedirectStandardInput = true;
         foreach (string key in info.EnvironmentVariables.Keys.Cast<string>().ToArray())
             if (key.StartsWith("UV_") || key.StartsWith("PIP_") || key.StartsWith("PYTHON") ||
-                key == "VIRTUAL_ENV" || key == "QT_API" || key == "QT_PLUGIN_PATH" || key == "QT_QPA_PLATFORM_PLUGIN_PATH")
+                key == "EXHALE_NATIVE_INSTALLATION" || key == "VIRTUAL_ENV" || key == "QT_API" || key == "QT_PLUGIN_PATH" || key == "QT_QPA_PLATFORM_PLUGIN_PATH")
                 info.EnvironmentVariables.Remove(key);
         info.EnvironmentVariables["UV_PYTHON_INSTALL_DIR"] = Path.Combine(runtime, "python");
         info.EnvironmentVariables["UV_PYTHON_BIN_DIR"] = Path.Combine(runtime, "bin");
@@ -132,6 +134,9 @@ internal sealed class RuntimeSetup
         info.EnvironmentVariables["UV_NO_PROGRESS"] = "1";
         info.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
         info.EnvironmentVariables["QT_API"] = "pyqt6";
+        if (!startupCheck && launchToken != null && arguments.Contains("exhale"))
+            info.EnvironmentVariables["EXHALE_NATIVE_INSTALLATION"] = json.Serialize(new {
+                protocol = "1", kind = "windows", root = root, token = launchToken });
         if (startupCheck) info.EnvironmentVariables["QT_QPA_PLATFORM"] = "offscreen";
         using (var process = new Process())
         {
@@ -168,26 +173,34 @@ internal sealed class RuntimeSetup
         if (Directory.Exists(runtime)) DeleteTree(runtime);
         log("Private runtime removed. Projects, trained models and application settings were retained.");
     }
-    internal void Prepare(string selection)
+    internal void Prepare(string selection, string version = null, string updateWheel = null)
     {
         string[] extras = Extras(selection);
         Directory.CreateDirectory(runtime);
         Discard();
         string environment = Path.Combine(runtime, "env-" + Guid.NewGuid().ToString("N"));
         var config = Read(Path.Combine(payload, "setup.json"));
-        string wheel = Path.Combine(payload, config["wheel"]);
-        if (!File.Exists(wheel)) throw new FileNotFoundException("Bundled EXHALE wheel is missing.", wheel);
+        string wheel = version == null ? Path.Combine(payload, config["wheel"]) : updateWheel;
+        if (wheel != null && !File.Exists(wheel)) throw new FileNotFoundException("EXHALE wheel is missing.", wheel);
+        string suffix = extras.Length == 0 ? "" : "[" + String.Join(",", extras) + "]";
+        string requirement = wheel != null ? wheel + suffix : "exhale-xrf" + suffix + "==" + version;
         string uv = Path.Combine(payload, "uv.exe");
         try
         {
             Execute(uv, new[] { "venv", "--python", "3.11", environment }, false);
             var command = new List<string> { "pip", "install", "--python", Path.Combine(environment, "Scripts", "python.exe"),
-                "--prerelease", "disallow", wheel + (extras.Length == 0 ? "" : "[" + String.Join(",", extras) + "]") };
+                "--prerelease", "disallow", requirement };
             if (extras.Contains("cellpose")) command.AddRange(new[] { "-r", Path.Combine(payload, "requirements-cellpose.txt") });
             Execute(uv, command.ToArray(), false);
+            if (version != null)
+                Execute(Path.Combine(environment, "Scripts", "python.exe"), new[] {
+                    "-c", "import sys; from importlib.metadata import version; from packaging.version import Version; " +
+                    "assert Version(version('exhale-xrf')) == Version(sys.argv[1]), 'Installed version does not match requested update'", version }, true);
             Execute(Path.Combine(environment, "Scripts", "python.exe"), new[] { "-m", "exhale", "--startup-check" }, true);
-            Write(Path.Combine(runtime, "pending.json"), new Dictionary<string, string> {
-                { "environment", Path.GetFileName(environment) }, { "wheel", config["wheel"] }, { "backends", selection } });
+            var pending = new Dictionary<string, string> {
+                { "environment", Path.GetFileName(environment) }, { "wheel", config["wheel"] }, { "backends", selection } };
+            if (version != null) pending["version"] = version;
+            Write(Path.Combine(runtime, "pending.json"), pending);
             log("Runtime validated. Ready to finish installation.");
         }
         catch
@@ -219,10 +232,38 @@ internal sealed class RuntimeSetup
     {
         if (File.Exists(Path.Combine(runtime, "pending.json")))
             throw new InvalidOperationException("EXHALE setup is in progress. Finish or close setup first.");
+        string requestPath = Path.Combine(root, "update-request.json");
+        // A request is valid only for the application instance just launched below.
+        if (File.Exists(requestPath)) File.Delete(requestPath);
+        while (true)
+        {
+            var state = Read(Path.Combine(runtime, "installed.json"));
+            if (state == null) throw new InvalidOperationException("Please run the EXHALE installer first.");
+            launchToken = Guid.NewGuid().ToString("N");
+            Execute(Path.Combine(EnvironmentPath(state), "Scripts", "python.exe"),
+                new[] { "-m", "exhale" }.Concat(arguments).ToArray(), arguments.Contains("--startup-check"));
+            var request = Read(requestPath);
+            if (request == null) return;
+            File.Delete(requestPath);
+            if (request["token"] != launchToken || request["environment"] != state["environment"])
+                throw new InvalidDataException("Update request does not belong to the application that just exited.");
+            bool success = false;
+            try { Update(request["version"]); success = true; }
+            catch (Exception error) { log("Application update failed: " + error); }
+            string resultPath = Path.Combine(request["job"], "result.json");
+            File.WriteAllText(resultPath, json.Serialize(new { success = success, log = Path.Combine(root, "runtime.log") }));
+            // Reopen via this same launcher and its still-held runtime lock.
+            arguments = new string[0];
+        }
+    }
+    internal void Update(string version, string wheel = null)
+    {
+        if (!Regex.IsMatch(version, @"\A[0-9][A-Za-z0-9.!+_-]*\z"))
+            throw new ArgumentException("Invalid update version.");
         var state = Read(Path.Combine(runtime, "installed.json"));
-        if (state == null) throw new InvalidOperationException("Please run the EXHALE installer first.");
-        Execute(Path.Combine(EnvironmentPath(state), "Scripts", "python.exe"),
-            new[] { "-m", "exhale" }.Concat(arguments).ToArray(), arguments.Contains("--startup-check"));
+        if (state == null) throw new InvalidOperationException("No installed runtime to update.");
+        Prepare(state["backends"], version, wheel);
+        Activate();
     }
     internal static void SelfTest()
     {
@@ -310,6 +351,43 @@ internal sealed class RuntimeSetup
                     setup.Activate();
                     if (Directory.GetDirectories(Path.Combine(home, "runtime"), "env-*").Length != 1)
                         throw new Exception("Successful update did not retire the old environment.");
+                    before = File.ReadAllText(Path.Combine(home, "runtime", "installed.json"));
+                    setup.Execute = (exe, args, check) => {
+                        if (args[0] == "venv") Directory.CreateDirectory(args[3]);
+                        if (check) throw new InvalidOperationException("simulated update validation failure");
+                    };
+                    try { setup.Update("2.0"); throw new Exception("Invalid application update was accepted."); }
+                    catch (InvalidOperationException) { }
+                    if (before != File.ReadAllText(Path.Combine(home, "runtime", "installed.json")))
+                        throw new Exception("Failed application update changed the active environment.");
+                    setup.Execute = (exe, args, check) => { if (args[0] == "venv") Directory.CreateDirectory(args[3]); };
+                    setup.Update("2.0");
+                    var updated = setup.Read(Path.Combine(home, "runtime", "installed.json"));
+                    if (updated["version"] != "2.0" || updated["backends"] != selection || updated["wheel"] != "test.whl")
+                        throw new Exception("Application update lost the version, backends or installer identity.");
+                    foreach (bool failUpdate in new[] { false, true })
+                    {
+                        int launches = 0;
+                        string priorState = File.ReadAllText(Path.Combine(home, "runtime", "installed.json"));
+                        setup.Execute = (exe, args, check) => {
+                            if (args[0] == "venv") Directory.CreateDirectory(args[3]);
+                            if (check && failUpdate) throw new InvalidOperationException("simulated update failure");
+                            if (args.Length >= 2 && args[0] == "-m" && args[1] == "exhale" && !check)
+                            {
+                                launches++;
+                                if (launches == 1)
+                                    setup.Write(Path.Combine(home, "update-request.json"), new Dictionary<string, string> {
+                                        { "version", "2.1" }, { "token", setup.launchToken }, { "job", home },
+                                        { "environment", setup.Read(Path.Combine(home, "runtime", "installed.json"))["environment"] } });
+                            }
+                        };
+                        setup.Launch(new string[0]);
+                        var result = setup.json.Deserialize<Dictionary<string, object>>(File.ReadAllText(Path.Combine(home, "result.json")));
+                        if (launches != 2 || (bool)result["success"] == failUpdate)
+                            throw new Exception("Native update request did not report and reopen correctly.");
+                        if (failUpdate && priorState != File.ReadAllText(Path.Combine(home, "runtime", "installed.json")))
+                            throw new Exception("Failed requested update replaced the working runtime.");
+                    }
                     string userFile = Path.Combine(home, "user-project.h5");
                     File.WriteAllText(userFile, "user data");
                     string deepCache = Path.Combine(home, "runtime", "cache", new string('c', 120), new string('d', 120));
@@ -337,7 +415,7 @@ internal static class Launcher
         string root = payload;
         int rootIndex = Array.IndexOf(args, "--install-root");
         if (rootIndex >= 0 && rootIndex + 1 < args.Length) root = args[rootIndex + 1];
-        bool quiet = args.Contains("--quiet") || args.Contains("--startup-check") || args.Contains("--self-test");
+        bool quiet = args.Contains("--quiet") || args.Contains("--startup-check") || args.Contains("--self-test") || args.Contains("--update-runtime");
         string logPath = Path.Combine(root, "runtime.log");
         try
         {
@@ -356,6 +434,9 @@ internal static class Launcher
                         else if (args.Contains("--activate-install")) setup.Activate();
                         else if (args.Contains("--discard-install")) setup.Discard(true);
                         else if (args.Contains("--remove-runtime")) setup.Remove();
+                        else if (args.Contains("--update-runtime")) setup.Update(
+                            args[Array.IndexOf(args, "--update-runtime") + 1],
+                            args.Contains("--update-wheel") ? args[Array.IndexOf(args, "--update-wheel") + 1] : null);
                         else setup.Launch(args);
                     }
                     return 0;

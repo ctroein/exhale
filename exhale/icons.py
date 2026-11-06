@@ -25,7 +25,7 @@ class IconName(str, Enum):
     ADJUSTMENTS = "adjustments.svg"
     LOCK = "lock.svg"
     REVIEWED = "checkmark.svg"
-    HELP = "help-circle.svg"
+    HELP = "help.svg"
     INFO = "info-circle.svg"
     QUIT = "x-mark.svg"
     MAXIMIZE = "arrows-maximize.svg"

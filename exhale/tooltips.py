@@ -67,8 +67,9 @@ MAIN_WINDOW = {
     "analysisChNuclei": "Element map used to detect nuclei (usually P).",
     "analysisMaskCombo": "Choose the mask to view or edit. Method selects the next segmentation run.",
     "analysisMaskName": "Name of the selected segmentation mask.",
-    "analysisRemoveMask": "Delete the selected mask. Restore can undo mask removals during this project session.",
-    "analysisRestoreMask": "Restore the last mask removed from this sample. Separate from label-edit Undo.",
+    "analysisCreateMask": "Create an empty mask for manual annotation using the selected nuclei channel.",
+    "analysisRemoveMask": "Delete the selected mask.",
+    "analysisRestoreMask": "Restore the last mask removed from this sample.",
     "analysisReviewedForTraining": "Use this complete mask revision as the sample’s training annotation. Accept or reject pending edits first.",
     "analysisKeepMask": "Keep this mask when older unprotected predictions leave the recent history.",
     "analysisAddComparison": "Add the selected segmentation as a comparison layer. Compared masks are retained.",
@@ -197,7 +198,11 @@ LAYER_BLENDING = {
     "solo": "Solo: show only this layer. Click for Normal mode; toggling a visibility checkbox also ends Solo.",
 }
 LAYER_GAIN = "Increase the display brightness of the raw nuclei or tissue layer."
-LAYER_CATEGORICAL = "Cycle categorical palette"
+LAYER_LABEL_COLOR = {
+    "categorical": "Categorical colors. Click for a monochrome mask; use the menu to choose a palette.",
+    "mask": "Monochrome mask. Click for a monochrome scale; use the menu to choose a color.",
+    "monochrome": "Monochrome scale. Click for categorical colors; use the menu to choose a color.",
+}
 LAYER_COLOR = "Choose color"
 
 

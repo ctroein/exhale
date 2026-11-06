@@ -75,7 +75,7 @@ class SegmentationParameters:
 
 @dataclass(frozen=True, eq=False)
 class SegmentationOutput:
-    """Instance labels and the identity of the trained model that produced them.
+    """Instance labels and their model or manual-creation identity.
 
     Zero denotes background; positive integers identify instances. Copy labels
     so a backend or a later run cannot modify an existing result through an alias.

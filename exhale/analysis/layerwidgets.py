@@ -5,10 +5,10 @@ from qtpy import QtCore, QtGui, QtWidgets
 from .. import icons
 from ..tooltips import (
     LAYER_BLENDING,
-    LAYER_CATEGORICAL,
     LAYER_COLOR,
     LAYER_DRAG,
     LAYER_GAIN,
+    LAYER_LABEL_COLOR,
     LAYER_OPACITY,
     LAYER_VISIBLE,
 )
@@ -81,13 +81,22 @@ class LayerColorButton(QtWidgets.QToolButton):
         painter.end()
         return QtGui.QIcon(pixmap)
 
-    def set_mode_options(self, options):
-        "Set label display modes as previewed dropdown actions."
+    def set_mode_options(self, options, *, selected=None):
+        """Set dropdown choices with optional previews and an exclusive selection."""
         old_menu = self.menu()
         menu = QtWidgets.QMenu(self)
+        group = QtWidgets.QActionGroup(menu) if selected is not None else None
         for mode, text, colors in options:
-            action = menu.addAction(self._preview_icon(colors), text)
+            action = (
+                menu.addAction(text)
+                if colors is None
+                else menu.addAction(self._preview_icon(colors), text)
+            )
             action.setData(mode)
+            if group is not None:
+                action.setCheckable(True)
+                action.setChecked(mode == selected)
+                group.addAction(action)
         menu.triggered.connect(lambda action: self.modeSelected.emit(action.data()))
         self.setMenu(menu)
         self.setPopupMode(QtWidgets.QToolButton.MenuButtonPopup)
@@ -197,7 +206,7 @@ class LayerRowWidget(QtWidgets.QWidget):
             layout.addWidget(remove_cell)
 
         self.color_button = LayerColorButton()
-        self.color_button.clicked.connect(self._pick_color)
+        self.color_button.clicked.connect(self._color_button_clicked)
         self.color_button.modeSelected.connect(self._color_menu_selected)
         color_cell = QtWidgets.QWidget()
         color_layout = QtWidgets.QHBoxLayout(color_cell)
@@ -317,19 +326,31 @@ class LayerRowWidget(QtWidgets.QWidget):
     def _set_label_mode(self, mode):
         self._activate()
         self.visible.setChecked(True)
-        current_mode, _color = self.helper.label_display_mode(self.layer)
-        if mode == current_mode == self.helper.LABEL_CATEGORICAL:
-            self.helper.reseed_label_colormap(self.layer)
-        else:
-            self.helper.set_label_display(self.layer, mode)
+        self.helper.set_label_display(self.layer, mode)
         self._refresh_previews()
         self.layer_list.presentationChanged.emit()
 
     def _color_menu_selected(self, choice):
-        if self.is_labels:
-            self._set_label_mode(choice)
+        if self.is_labels and choice.startswith("palette:"):
+            self._activate()
+            self.visible.setChecked(True)
+            mode, color = self.helper.label_display_mode(self.layer)
+            self.helper.set_label_presentation(
+                self.layer, mode, color, palette_index=int(choice.removeprefix("palette:"))
+            )
+            self._refresh_previews()
+            self.layer_list.presentationChanged.emit()
         else:
             self._set_image_color_option(choice)
+
+    def _color_button_clicked(self):
+        """Cycle label modes; image buttons continue to open the color chooser."""
+        if self.is_labels:
+            mode, _color = self.helper.label_display_mode(self.layer)
+            modes = self.helper.LABEL_MODES
+            self._set_label_mode(modes[(modes.index(mode) + 1) % len(modes)])
+        else:
+            self._pick_color()
 
     def _set_image_color_option(self, choice):
         if choice == "custom":
@@ -338,7 +359,11 @@ class LayerRowWidget(QtWidgets.QWidget):
         self._activate()
         self.visible.setChecked(True)
         color = self._automatic_image_color() if choice == "auto" else QtGui.QColor(choice)
-        self.helper.set_image_color(self.layer, color.getRgbF())
+        if self.is_labels:
+            mode, _old_color = self.helper.label_display_mode(self.layer)
+            self.helper.set_label_display(self.layer, mode, color.getRgbF())
+        else:
+            self.helper.set_image_color(self.layer, color.getRgbF())
         self._refresh_previews()
         self.layer_list.presentationChanged.emit()
 
@@ -352,9 +377,6 @@ class LayerRowWidget(QtWidgets.QWidget):
         if self.is_labels:
             mode, color = self.helper.label_display_mode(self.layer)
             if mode == self.helper.LABEL_CATEGORICAL:
-                self.helper.reseed_label_colormap(self.layer)
-                self._refresh_previews()
-                self.layer_list.presentationChanged.emit()
                 return
         else:
             color = self.helper.image_color(self.layer)
@@ -378,30 +400,7 @@ class LayerRowWidget(QtWidgets.QWidget):
             current = QtGui.QColor.fromRgbF(*self.helper.image_color(self.layer))
             self.color_button.set_colors([current])
             self.color_button.setToolTip(LAYER_COLOR)
-            presets = (
-                ("#ff0000", "Red"),
-                ("#00ff00", "Green"),
-                ("#0000ff", "Blue"),
-                ("#00ffff", "Cyan"),
-                ("#ff00ff", "Magenta"),
-                ("#ffff00", "Yellow"),
-            )
-            self.color_button.set_mode_options(
-                tuple((value, name, [QtGui.QColor(value)]) for value, name in presets)
-                + (
-                    (
-                        "auto",
-                        "Auto",
-                        [
-                            QtGui.QColor("#ff0000"),
-                            QtGui.QColor("#00ff00"),
-                            QtGui.QColor("#0000ff"),
-                            QtGui.QColor("#ffff00"),
-                        ],
-                    ),
-                    ("custom", "Custom…", [current]),
-                )
-            )
+            self._set_color_menu(current)
             return
 
         mode, rgba = self.helper.label_display_mode(self.layer)
@@ -416,26 +415,49 @@ class LayerRowWidget(QtWidgets.QWidget):
             self.helper.LABEL_MONOCHROME: monochrome,
         }
         self.color_button.set_colors(previews[mode])
-        self.color_button.setToolTip(
-            LAYER_CATEGORICAL if mode == self.helper.LABEL_CATEGORICAL else LAYER_COLOR
+        self.color_button.setToolTip(LAYER_LABEL_COLOR[mode])
+        if mode == self.helper.LABEL_CATEGORICAL:
+            self.color_button.set_mode_options(
+                tuple(
+                    (
+                        f"palette:{i}",
+                        f"Palette {i + 1}",
+                        [
+                            QtGui.QColor.fromRgbF(*map(float, rgba))
+                            for rgba in self.helper.categorical_colors(self.layer, palette_index=i)
+                        ],
+                    )
+                    for i in range(5)
+                ),
+                selected=f"palette:{self.helper.label_palette_index(self.layer)}",
+            )
+        else:
+            self._set_color_menu(color)
+
+    def _set_color_menu(self, current):
+        """Share color presets and chooser actions between images and monochrome labels."""
+        presets = (
+            ("#ff0000", "Red"),
+            ("#00ff00", "Green"),
+            ("#0000ff", "Blue"),
+            ("#00ffff", "Cyan"),
+            ("#ff00ff", "Magenta"),
+            ("#ffff00", "Yellow"),
         )
         self.color_button.set_mode_options(
-            (
+            tuple((value, name, [QtGui.QColor(value)]) for value, name in presets)
+            + (
                 (
-                    self.helper.LABEL_CATEGORICAL,
-                    "Categorical colors",
-                    previews[self.helper.LABEL_CATEGORICAL],
+                    "auto",
+                    "Auto",
+                    [
+                        QtGui.QColor("#ff0000"),
+                        QtGui.QColor("#00ff00"),
+                        QtGui.QColor("#0000ff"),
+                        QtGui.QColor("#ffff00"),
+                    ],
                 ),
-                (
-                    self.helper.LABEL_MASK,
-                    "Monochrome mask",
-                    previews[self.helper.LABEL_MASK],
-                ),
-                (
-                    self.helper.LABEL_MONOCHROME,
-                    "Monochrome scale",
-                    previews[self.helper.LABEL_MONOCHROME],
-                ),
+                ("custom", "Custom…", [current]),
             )
         )
 

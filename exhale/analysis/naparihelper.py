@@ -7,10 +7,12 @@ import napari
 import numpy as np
 from napari.components import ViewerModel
 from napari.layers import Image, Labels
-from napari.utils.colormaps import Colormap
+from napari.utils.colormaps import Colormap, CyclicLabelColormap
+from napari.utils.colormaps.colormap_utils import shuffle_and_extend_colormap
 from napari.utils.colormaps.standardize_color import transform_color
 from qtpy import QtCore, QtGui, QtWidgets
 from skimage import morphology
+from skimage.color import hsv2rgb, rgb2hsv
 
 from ..data.constants import CONCENTRATION_UNITS
 from ..data.projectdata import LayerPresentation, SegmentationLayerSettings
@@ -159,23 +161,48 @@ class NapariHelper:
         return presentation["mode"], presentation["color"]
 
     def label_palette_index(self, layer):
-        """Return the selected deterministic categorical palette index."""
+        """Return the selected categorical palette index."""
         return self._label_presentation(layer)["palette_index"]
 
-    def categorical_colors(self, layer, count=4):
+    def categorical_colors(self, layer, count=4, *, palette_index=None):
         "Return representative colors from a labels layer's categorical palette."
         if not isinstance(layer, Labels):
             raise TypeError("Categorical colors apply only to Napari Labels layers")
-        presentation = self._label_presentations.get(layer)
-        colormap = (
-            layer.colormap
-            if presentation is None
-            else presentation["categorical_colormaps"][presentation["palette_index"]]
-        )
+        presentation = self._label_presentation(layer)
+        index = presentation["palette_index"] if palette_index is None else palette_index
+        colormap = self._categorical_colormap(layer, index)
         return colormap.map(np.arange(1, count + 1))
 
+    def _categorical_colormap(self, layer, index):
+        """Cache palette choices without changing the displayed colormap for previews."""
+        palettes = self._label_presentation(layer)["categorical_colormaps"]
+        while len(palettes) <= index:
+            choice = len(palettes)
+            base = shuffle_and_extend_colormap(palettes[0], seed=choice)
+            colors = base.colors.copy()
+            hsv = rgb2hsv(colors[:, :3])
+            if choice <= 2:
+                pastel = choice / 4
+                hsv[:, 1] *= 1 - 0.75 * pastel
+                hsv[:, 2] += (1 - hsv[:, 2]) * pastel
+            elif choice == 3:
+                hsv[:, 1] += (1 - hsv[:, 1]) * 0.5
+            else:
+                hsv[:, 2] += (1 - hsv[:, 2]) * 0.5
+            colors[:, :3] = hsv2rgb(hsv)
+            palettes.append(
+                CyclicLabelColormap(
+                    colors=colors,
+                    controls=base.controls,
+                    name=f"Exhale palette {len(palettes) + 1}",
+                    background_value=base.background_value,
+                    seed=base.seed,
+                )
+            )
+        return palettes[index]
+
     def reseed_label_colormap(self, layer):
-        "Choose another permutation of Napari's categorical label colors."
+        """Cycle through five categorical palette variations."""
         if not isinstance(layer, Labels):
             raise TypeError("Categorical colors apply only to Napari Labels layers")
         mode, color = self.label_display_mode(layer)
@@ -185,11 +212,7 @@ class NapariHelper:
         if color is not None:
             presentation["color"] = color
         palette_index = (presentation["palette_index"] + 1) % 5
-        if palette_index >= len(presentation["categorical_colormaps"]):
-            layer.new_colormap(seed=palette_index)
-            presentation["categorical_colormaps"].append(layer.colormap)
-        else:
-            layer.colormap = presentation["categorical_colormaps"][palette_index]
+        layer.colormap = self._categorical_colormap(layer, palette_index)
         presentation["palette_index"] = palette_index
         return layer.colormap
 
@@ -214,9 +237,7 @@ class NapariHelper:
     def set_label_presentation(self, layer, mode, color, palette_index=0):
         """Restore a labels layer's mode, base color, and categorical palette."""
         presentation = self._label_presentation(layer)
-        while len(presentation["categorical_colormaps"]) <= palette_index:
-            layer.new_colormap(seed=len(presentation["categorical_colormaps"]))
-            presentation["categorical_colormaps"].append(layer.colormap)
+        self._categorical_colormap(layer, palette_index)
         presentation["palette_index"] = palette_index
         return self.set_label_display(layer, mode, color)
 
@@ -229,8 +250,9 @@ class NapariHelper:
     def automatic_layer_color(self, *, exclude=None, include_labels=False):
         """Choose a maximin RGB hue against enabled layers, including through Solo.
 
-        Optionally consider label layers using their displayed monochrome colors
-        or palette samples, rather than treating them as grayscale image layers.
+        Optionally consider monochrome label layers. Categorical palettes do not
+        have a single representative color and are ignored. With one other
+        color, restrict the choice to the RGB primaries.
         """
         other_colors = []
         for layer in self.user_layers():
@@ -240,13 +262,13 @@ class NapariHelper:
                 other_colors.append(self.image_color(layer)[:3])
             elif include_labels and isinstance(layer, Labels):
                 mode, color = self.label_display_mode(layer)
-                if mode == self.LABEL_CATEGORICAL:
-                    other_colors.extend(color[:3] for color in self.categorical_colors(layer))
-                else:
+                if mode != self.LABEL_CATEGORICAL:
                     other_colors.append(color[:3])
         candidates = [QtGui.QColor.fromHsvF(index / 24, 1.0, 1.0) for index in range(24)]
         if not other_colors:
             return candidates[0]
+        if len(other_colors) == 1:
+            candidates = [QtGui.QColor(value) for value in ("#ff0000", "#00ff00", "#0000ff")]
 
         def separation(candidate):
             red, green, blue, _alpha = candidate.getRgbF()

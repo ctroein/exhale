@@ -9,6 +9,7 @@ import pytest
 from napari.components import ViewerModel
 from qtpy import QtWidgets
 
+from exhale.analysis.controller import AnalysisController
 from exhale.analysis.segmentation_viewer import SegmentationViewer
 from exhale.data.projectdata import LayerPresentation, SegmentationResult
 from exhale.data.segmentation import (
@@ -396,6 +397,48 @@ def test_new_comparison_uses_distinct_monochrome_and_keeps_color_on_refresh(view
     viewer.set_result(active, np.ones((2, 2)), comparisons=[(other, "Other")], fit=False)
     assert other.comparison_presentation == presentation
     np.testing.assert_allclose(viewer.label_display_mode(layer)[1], expected)
+
+
+@pytest.mark.parametrize("has_mask", [False, True])
+def test_added_element_uses_auto_color_and_keeps_it_on_refresh(viewer, has_mask):
+    active = result([[0, 1], [0, 0]]) if has_mask else None
+    source = np.ones((2, 2), np.float32)
+    ref = ElementRef("data.h5", "/Fe")
+    viewer.set_result(active, source)
+    expected = viewer.automatic_layer_color(include_labels=True).getRgbF()
+    preview = SimpleNamespace(reference_refs=(), layer_settings=viewer.layer_settings())
+    control = SimpleNamespace(
+        _display_result=active,
+        naparihelper=viewer,
+        _reference_refs=lambda: active.reference_refs if has_mask else preview.reference_refs,
+        _refresh_reference_choices=Mock(),
+        _preview=lambda **kwargs: preview,
+        window=SimpleNamespace(
+            project_state_manager=Mock(),
+            analysisChNuclei=Mock(currentData=Mock(return_value=ElementRef("data.h5", "/P"))),
+        ),
+    )
+
+    def remember():
+        owner = active if has_mask else preview
+        owner.layer_settings = viewer.layer_settings()
+
+    def refresh(*args, **kwargs):
+        owner = active if has_mask else preview
+        viewer.set_result(active, source, [(key, "Fe", source) for key in owner.reference_refs])
+        viewer.apply_layer_settings(owner.layer_settings)
+
+    control._layer_settings_changed = remember
+    control.show_result = refresh
+    control.clear_result_view = refresh
+    AnalysisController._set_reference_refs(control, (ref,))
+    layer = next(
+        layer for layer in viewer.user_layers() if "exhale_reference_ref" in layer.metadata
+    )
+    np.testing.assert_allclose(viewer.image_color(layer), expected)
+    assert layer.blending == viewer.BLENDING_ADD
+    refresh()
+    np.testing.assert_allclose(viewer.image_color(layer), expected)
 
 
 def test_edit_commit_can_process_nested_mouse_events_after_drag_is_forgotten(viewer):

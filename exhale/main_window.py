@@ -239,6 +239,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.analysisOptions.setIcon(icons.icon(icons.IconName.ADJUSTMENTS))
         self.analysisKeepMask.set_icon_name(icons.IconName.LOCK)
         self.analysisRemoveMask.set_icon_name(icons.IconName.DELETE)
+        self.analysisCreateMask.set_icon_name(icons.IconName.ADD_LAYER)
         self.analysisRestoreMask.set_icon_name(icons.IconName.UNDO)
         self.analysisRun.setIcon(icons.icon(icons.IconName.START))
         self.analysisBatch.setIcon(icons.icon(icons.IconName.BATCH))

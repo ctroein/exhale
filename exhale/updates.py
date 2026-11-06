@@ -1,4 +1,4 @@
-"""Linux uv-tool identification, release checks, and detached update execution.
+"""Installation identification, release checks and native or uv-tool update handoff.
 
 The copied helper runs with the base Python and only needs the standard library.
 It waits for the application process to exit before asking uv to replace packages.
@@ -13,6 +13,7 @@ import tempfile
 import traceback
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import tomllib
 
@@ -25,6 +26,53 @@ UPDATE_COMMAND = f"uv tool upgrade {PACKAGE}"
 # Keep pipe writers open until process exit, including while Python tears down Qt.
 _exit_pipes = []
 _application_locks = []
+
+
+def native_installation():
+    """Validate the runtime identity supplied by a supporting native parent launcher."""
+    descriptor = json.loads(os.environ["EXHALE_NATIVE_INSTALLATION"])
+    kind = descriptor["kind"]
+    if descriptor.get("protocol") != "1" or kind not in ("windows", "macos"):
+        raise ValueError("This installer needs updating before it supports application updates.")
+    if (kind == "windows" and sys.platform != "win32") or (
+        kind == "macos" and sys.platform != "darwin"
+    ):
+        raise ValueError("The native installation does not match this platform.")
+    root = Path(descriptor["root"]).resolve()
+    state_path = root / "runtime/installed.json"
+    state_text = state_path.read_text(encoding="utf-8-sig")
+    state = json.loads(state_text)
+    name = state["environment"]
+    if not name.startswith("env-") or Path(name).name != name:
+        raise ValueError("Invalid installed runtime record.")
+    prefix = root / "runtime" / name
+    if Path(sys.prefix).resolve() != prefix or not Path(__file__).resolve().is_relative_to(prefix):
+        raise ValueError("The native launcher does not own this running environment.")
+    if not os.access(root, os.W_OK) or not os.access(state_path, os.W_OK):
+        raise ValueError("The native installation is not writable by the current user.")
+    if kind == "macos" and root.stat().st_uid != os.getuid():
+        raise ValueError("The native runtime belongs to another user.")
+    return {
+        "kind": kind,
+        "root": str(root),
+        "prefix": str(prefix),
+        "request": str(root / "update-request.json"),
+        "token": descriptor["token"],
+        "environment": name,
+        "state": state_text,
+    }
+
+
+def installation():
+    """Recognise native-managed runtimes or a Linux uv tool installation."""
+    if os.environ.get("EXHALE_NATIVE_INSTALLATION"):
+        return native_installation()
+    if not sys.platform.startswith("linux"):
+        raise ValueError(
+            "Start Exhale through an update-capable native launcher, "
+            "or update it using your installation method."
+        )
+    return tool_installation()
 
 
 def hold_application_lock():
@@ -130,8 +178,13 @@ def latest_release(data, current, python_version=None):
 
 def check_release(current):
     """Fetch public PyPI release metadata with a bounded timeout and response size."""
+    url = os.environ.get("EXHALE_UPDATE_TEST_URL", f"https://pypi.org/pypi/{PACKAGE}/json")
+    if "EXHALE_UPDATE_TEST_URL" in os.environ:
+        address = urlsplit(url)
+        if address.scheme != "http" or address.hostname != "127.0.0.1":
+            raise ValueError("The update test endpoint must be an HTTP server on 127.0.0.1.")
     request = urllib.request.Request(
-        f"https://pypi.org/pypi/{PACKAGE}/json",
+        url,
         headers={"User-Agent": f"Exhale/{current} update-check", "Accept": "application/json"},
     )
     with urllib.request.urlopen(request, timeout=15) as response:
@@ -146,13 +199,34 @@ def prepare_update(installation, state_directory):
     directory = Path(state_directory)
     directory.mkdir(parents=True, exist_ok=True)
     job = Path(tempfile.mkdtemp(prefix="update-", dir=directory))
-    shutil.copyfile(__file__, job / "helper.py")
+    if not installation.get("kind"):
+        shutil.copyfile(__file__, job / "helper.py")
     (job / "plan.json").write_text(json.dumps(installation), encoding="utf-8")
     return job
 
 
 def launch_update(job):
     """Start an isolated helper; the pipe gates mutation on this process exiting."""
+    plan = json.loads((job / "plan.json").read_text(encoding="utf-8"))
+    if plan.get("kind"):
+        current = native_installation()
+        if any(plan.get(key) != value for key, value in current.items()):
+            raise ValueError("The native installation changed after the update was requested.")
+        request = Path(plan["request"])
+        temporary = request.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(
+                {
+                    "version": plan["version"],
+                    "environment": plan["environment"],
+                    "token": plan["token"],
+                    "job": str(job),
+                }
+            ),
+            encoding="utf-8",
+        )
+        temporary.replace(request)
+        return
     read_fd, write_fd = os.pipe()
     try:
         with (job / "update.log").open("ab") as log:

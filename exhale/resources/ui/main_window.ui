@@ -359,7 +359,7 @@
             <number>8</number>
            </property>
            <widget class="QWidget" name="analysisControlsWidget">
-            <layout class="QVBoxLayout" name="verticalLayout_7" stretch="0,0,0,0,0,0,0,1">
+            <layout class="QVBoxLayout" name="verticalLayout_7" stretch="0,0,1,0,0,0,1">
              <property name="spacing">
               <number>5</number>
              </property>
@@ -377,6 +377,9 @@
                </item>
 </layout>
              </item>
+<item><widget class="QGroupBox" name="analysisRunGroup">
+<property name="title"><string>Run segmentation</string></property>
+<layout class="QVBoxLayout" name="analysisRunLayout">
 <item><layout class="QGridLayout" name="analysisSegmentationInputsLayout" columnstretch="0,1">
 <item row="0" column="0"><widget class="QLabel" name="analysisPipelineLabel"><property name="text"><string>Method</string></property></widget></item>
 <item row="0" column="1"><layout class="QHBoxLayout" name="analysisMethodLayout" stretch="2,1">
@@ -422,31 +425,32 @@
               </layout>
              </item>
 <item><widget class="QLabel" name="analysisBatchStatus"><property name="textFormat"><enum>Qt::PlainText</enum></property><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-<item><widget class="QFrame" name="analysisRunReviewSeparator"><property name="frameShape"><enum>QFrame::HLine</enum></property><property name="frameShadow"><enum>QFrame::Sunken</enum></property></widget></item>
-<item><layout class="QHBoxLayout" name="analysisMaskLayout" stretch="0,1,0">
- <item><widget class="QLabel" name="analysisMaskLabel"><property name="text"><string>Mask</string></property></widget></item>
+</layout></widget></item>
+<item><spacer name="analysisRunReviewSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>8</height></size></property></spacer></item>
+<item><layout class="QHBoxLayout" name="analysisMaskHeadingLayout" stretch="0,1,0,0,0">
+ <item><widget class="QLabel" name="analysisMaskLabel"><property name="text"><string>Segmentation mask</string></property></widget></item>
+ <item><spacer name="analysisMaskActionsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+ <item><widget class="IconToolButton" name="analysisCreateMask"/></item>
+ <item><widget class="IconToolButton" name="analysisRemoveMask"/></item>
+ <item><widget class="IconToolButton" name="analysisRestoreMask"/></item>
+</layout></item>
+<item><layout class="QHBoxLayout" name="analysisMaskActionsLayout" stretch="1,0">
  <item><widget class="QComboBox" name="analysisMaskCombo"><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToMinimumContentsLengthWithIcon</enum></property><property name="minimumContentsLength"><number>12</number></property></widget></item>
- <item><widget class="QPushButton" name="analysisExport"><property name="text"><string>Export…</string></property></widget></item>
+ <item><widget class="IconToolButton" name="analysisKeepMask"><property name="checkable"><bool>true</bool></property></widget></item>
 </layout></item>
 <item>
  <widget class="QTabWidget" name="analysisProcessingTabs">
   <property name="currentIndex"><number>0</number></property>
   <widget class="QWidget" name="analysisReviewPage">
-   <attribute name="title"><string>Review</string></attribute>
+   <attribute name="title"><string>Overview</string></attribute>
    <layout class="QVBoxLayout" name="analysisReviewLayout">
     <item><layout class="QHBoxLayout" name="analysisNameLayout" stretch="0,1">
      <item><widget class="QLabel" name="analysisMaskNameLabel"><property name="text"><string>Name</string></property></widget></item>
      <item><widget class="QLineEdit" name="analysisMaskName"/></item>
     </layout></item>
-    <item><layout class="QHBoxLayout" name="analysisMaskActionsLayout" stretch="0,0,0,0,1">
-     <item><widget class="IconToolButton" name="analysisKeepMask"><property name="checkable"><bool>true</bool></property></widget></item>
-     <item><widget class="QFrame" name="analysisMaskActionsSeparator"><property name="frameShape"><enum>QFrame::VLine</enum></property><property name="frameShadow"><enum>QFrame::Sunken</enum></property></widget></item>
-     <item><widget class="IconToolButton" name="analysisRemoveMask"/></item>
-     <item><widget class="IconToolButton" name="analysisRestoreMask"/></item>
-     <item><spacer name="analysisMaskActionsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
-    </layout></item>
-    <item><widget class="QCheckBox" name="analysisReviewedForTraining"><property name="text"><string>Reviewed for training</string></property><property name="enabled"><bool>false</bool></property></widget></item>
+    <item><widget class="QCheckBox" name="analysisReviewedForTraining"><property name="text"><string>Reviewed and selected for training</string></property><property name="enabled"><bool>false</bool></property></widget></item>
     <item><spacer name="analysisReviewSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+    <item alignment="Qt::AlignRight"><widget class="QPushButton" name="analysisExport"><property name="text"><string>Export…</string></property></widget></item>
    </layout>
   </widget>
   <widget class="QWidget" name="analysisEditingPage">
@@ -481,7 +485,7 @@
 </layout></widget>
 </widget></item>
     <item><widget class="QCheckBox" name="analysisProtectSegments"><property name="text"><string>Protect other segments</string></property><property name="checked"><bool>true</bool></property></widget></item>
-</layout></item><item alignment="Qt::AlignVCenter"><widget class="QPushButton" name="analysisEditingHelp"><property name="text"><string>Editing help</string></property></widget></item></layout></item>
+</layout></item><item alignment="Qt::AlignVCenter"><widget class="QPushButton" name="analysisEditingHelp"><property name="text"><string>Help</string></property></widget></item></layout></item>
     <item><layout class="QHBoxLayout" name="analysisDisconnectedLayout" stretch="0,0,1">
      <item><widget class="QLabel" name="analysisDisconnectedLabel"><property name="text"><string>Disconnected parts</string></property></widget></item>
      <item><widget class="QComboBox" name="analysisDisconnectedParts"/></item>
@@ -513,7 +517,8 @@
   </widget>
  </widget>
 </item>
-<item><spacer name="segmentationControlsSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item></layout>
+<item><spacer name="segmentationControlsSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+</layout>
            </widget>
            <widget class="QWidget" name="analysisLayersWidget">
             <layout class="QVBoxLayout" name="analysisLayersLayout" stretch="0,0,1">

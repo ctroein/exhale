@@ -16,7 +16,7 @@ Qt is accessed through `qtpy`. Layouts are authored in Qt Designer `.ui`
 files. The corresponding `*_ui.py` modules are generated build products and
 contain no application policy.
 
-`UpdateController` owns Linux release-check scheduling, its worker and update
+`UpdateController` owns desktop release-check scheduling, its worker and update
 confirmation. Application preferences store the daily-check setting and last
 attempt. `updates` identifies the running uv tool using its environment path and
 receipt, checks PyPI, and provides a copied standard-library helper outside the
@@ -24,6 +24,17 @@ environment being updated. A pipe delays mutation until the application process
 exits. Shared application locks and an exclusive helper lock prevent replacement
 while another recognised Exhale instance is running. uv retains the original
 extras and constraints; this workflow does not rewrite dependency selections.
+For native Windows/macOS installations, the parent launcher supplies a runtime
+identity and a token for the launched application. Exhale writes a request when
+quitting; the parent consumes it after process exit while retaining its runtime
+lock. The parent stages a fresh environment with the selected backends, checks
+its version and startup, publishes it atomically, and reopens Exhale with a saved
+result. Failed preparation retains the working environment. The installed record's
+`wheel` identifies the installer baseline; `version` records an application update
+without making the existing launcher demand its bundled application again.
+The local update trial uses a loopback-only release-check override and a local
+package index, with isolated uv tools and application preferences, to exercise
+that workflow without publishing test releases.
 
 Large workflows should have a coherent owner rather than accumulating in the
 window. `ProjectTab` coordinates project and sample controls,
@@ -293,10 +304,15 @@ The mask area is preserved; the largest part keeps its ID. Explicit splitting
 creates separate IDs regardless of the incidental-disconnection setting. A failed
 cut makes no changes. Both operations are single undoable commands.
 
-The Segmentation panel separates running a method from Review, Edit and
-Post-processing pages. Mask selection and export remain above those pages;
-the Review page holds the name, Keep, Delete, Restore and training-review controls.
-Accepting or rejecting edits returns to Review. The selected inference method
+The Segmentation panel separates running a method from Overview, Edit and
+Post-processing pages. A Run segmentation group contains inference inputs and
+execution controls. Create, Delete and Restore sit beside the mask heading;
+Keep sits beside the chooser. Overview holds naming, training-review and export.
+Accepting or rejecting edits returns to Overview. Create opens Edit on an empty
+mask sized from the selected nuclei map, with manual provenance and no inference.
+Manual masks are retained like accepted corrections and use the same immutable
+snapshots and training-export path. Identical empty masks reuse existing history.
+The selected inference method
 belongs to the project. Brush and eraser sizes, feature fitting and its distance,
 segment protection and disconnected-parts preferences belong to application
 settings; changing them does not dirty the project or remember the active tool.

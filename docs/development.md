@@ -234,13 +234,14 @@ behavior can be tested non-interactively.
 GUI changes also require interactive testing with representative data. A
 successful application startup does not validate the changed workflow.
 
-## Linux application updates
+## Application updates
 
-Application updates are separate from dependency trials. A normal Linux GUI
+Application updates are separate from dependency trials. A normal desktop GUI
 launch checks PyPI at most daily, with a persistent opt-out in Settings and a
-manual Check now button. Only a recognised `uv tool` environment owned and
-writable by the current user offers installation. Source checkouts and ordinary
-virtualenvs are not modified. The registered launcher and original uv receipt
+manual Check now button. Supported native launchers and recognised Linux
+`uv tool` environments offer installation where writable by the current user.
+Source checkouts and ordinary virtualenvs are not modified. For Linux uv tools,
+the registered launcher and original uv receipt
 are rechecked before upgrading; uv retains extras, additional requirements and
 version constraints.
 
@@ -251,16 +252,70 @@ and runs the installed startup check before reopening Exhale. Logs and result
 records stay in that directory; the next launch reports the result. A failed
 update is reported without claiming rollback: this uses uv's tool upgrade, not
 the native installers' staged environments. Shared locks protect other running
-instances using this update-aware launcher. Native Windows/macOS runtime updates
-and changing the selected extras are separate work.
+instances using this update-aware launcher.
+
+Native Windows/macOS launchers pass `EXHALE_NATIVE_INSTALLATION` with protocol
+version 1, their private runtime root and a per-launch token. Exhale validates it
+against its interpreter and installed record. After normal save/quit, it writes
+an update request. The waiting parent consumes it after process exit, retains
+its setup lock, and installs the requested PyPI version in a new environment with
+the current backend selection. Exact version and startup checks precede activation.
+A failed preparation leaves the old environment active. The parent saves the
+result and log path before reopening Exhale. Windows result records are under
+`%LOCALAPPDATA%/Exhale/updates`; Mac uses its normal per-user data directory.
+
+The installed record's `wheel` remains the bundled installer baseline; `version`
+records the package version installed by application update. This allows the
+existing Mac bundle to launch a newer runtime. Replacing the Mac app with a new
+bundle still triggers its normal setup, and rerunning an installer installs its
+bundled release. Updating the native launcher, bundled uv or setup resources
+requires a new installer/app. Changing selected extras remains separate work.
+
+`packaging/test_runtime_updates.py` runs from both native build jobs. It builds
+two temporary versions, calls `--update-runtime VERSION --update-wheel WHEEL`,
+checks actual backend package presence and startup, then deliberately requests
+a mismatched version and checks that the installed record and working runtime
+survive. `--update-wheel` is the local-wheel test path; normal GUI requests obtain
+the exact version from PyPI. macOS also exposes `--startup-check` through the
+native launcher. Workflow artifacts retain update diagnostics on failure.
 
 `tests/test_updates.py` exercises release filtering, installation identity,
 ownership, receipt changes, concurrent-instance exclusion and the copied helper
 using fake executables, without installing Exhale or accessing the network.
 `tests/test_update_controller.py` covers cadence, preferences and cancelled quits.
-Interactive testing still needs a real uv tool installation: update notification,
-project-save cancellation, confirmed update/restart, and inspecting a failed
-update's log.
+`tests/test_native_updates.py` covers native identity and request handoff. Mac
+runtime tests and Windows launcher self-tests cover parent-side request handling,
+restart and failed-update recovery. Actual C#/Swift compilation and native uv
+integration require the GitHub runners. Interactive notification, project-save
+cancellation, confirmed update/restart and inspection of a failed update's log
+still need testing with real data on each platform.
+
+To exercise the full update locally without publishing or tagging:
+
+```bash
+python tools/try_application_update.py
+```
+
+This builds a copy of the current source as `9999.0.0+local1` and
+`9999.0.1+local2`, installs the first through a localhost package index, and
+offers the second through the real update workflow. It creates a fresh directory
+under `.update-trials/`, with separate uv tools, launchers and application
+preferences. Normal uv installations and development environments are unchanged;
+uv's dependency cache is shared. No segmentation extra is installed by default.
+Use repeatable options such as `--extra stardist --extra monai` to include them.
+Cellpose also receives the pinned DINOv3 requirements.
+
+Use the notification, or Settings → Check now, to test cancelling and applying
+the update. Keep the terminal open until the upgraded application has restarted.
+Then close the trial application and press Ctrl+C to stop the server. The trial
+directory, application log and helper logs under its `data/Exhale/updates/`
+are retained; remove that directory when finished. Test versions are deliberately
+conspicuous and are not written to the checkout or published.
+
+The trial sets `EXHALE_UPDATE_TEST_URL` to a loopback HTTP release-metadata
+endpoint. Normal launches continue using PyPI. The local package index serves
+only Exhale; uv obtains normal dependencies from its usual package index. The
+second wheel becomes visible only after installation of the first finishes.
 
 ## Trying dependency updates on Linux
 

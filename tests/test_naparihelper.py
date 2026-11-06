@@ -7,7 +7,9 @@ import numpy as np
 from napari.components import ViewerModel
 from napari.layers import Image, Labels
 from napari.utils.colormaps import Colormap
+from napari.utils.colormaps.colormap_utils import shuffle_and_extend_colormap
 from qtpy import QtCore, QtWidgets
+from skimage.color import rgb2hsv
 
 from exhale.analysis.naparihelper import NapariHelper
 
@@ -22,6 +24,17 @@ class NapariPresentationTest(unittest.TestCase):
         self.labels = self.helper.viewer.add_labels(
             np.array([[0, 1, 2], [3, 4, 5]], dtype=np.uint8), name="Labels"
         )
+
+    def test_palette_previews_match_choices_without_changing_the_display(self):
+        original = self.labels.colormap
+        previews = [self.helper.categorical_colors(self.labels, palette_index=i) for i in range(5)]
+        self.assertIs(self.labels.colormap, original)
+        self.assertEqual(self.helper.label_palette_index(self.labels), 0)
+        for index, expected in enumerate(previews):
+            self.helper.set_label_presentation(
+                self.labels, self.helper.LABEL_CATEGORICAL, "#ff0000", palette_index=index
+            )
+            np.testing.assert_allclose(self.labels.colormap.map(np.arange(1, 5)), expected)
 
     def test_mask_and_categorical_modes(self):
         original_colormap = self.labels.colormap
@@ -63,7 +76,7 @@ class NapariPresentationTest(unittest.TestCase):
             np.testing.assert_allclose(self.labels.get_color(label), (brightness, 0, 0, 1))
         np.testing.assert_allclose(self.labels.get_color(5), self.labels.get_color(1))
 
-    def test_categorical_palette_can_be_reseeded(self):
+    def test_categorical_palette_cycles_through_variations(self):
         original_colormap = self.labels.colormap
 
         self.helper.reseed_label_colormap(self.labels)
@@ -80,6 +93,54 @@ class NapariPresentationTest(unittest.TestCase):
         for _index in range(4):
             self.helper.reseed_label_colormap(self.labels)
         self.assertIs(self.labels.colormap, original_colormap)
+
+    def test_palette_variations_have_separate_seeds_and_keep_requested_color_treatments(self):
+        ids = np.arange(1, 129)
+        palettes = []
+        bases = []
+        original = self.labels.colormap
+        for index in range(5):
+            base = original if index == 0 else shuffle_and_extend_colormap(original, seed=index)
+            bases.append(rgb2hsv(base.map(ids)[:, :3]))
+            self.helper.set_label_presentation(
+                self.labels, self.helper.LABEL_CATEGORICAL, "#ff0000", palette_index=index
+            )
+            rgba = self.labels.colormap.map(ids)
+            palettes.append(rgb2hsv(rgba[:, :3]))
+            self.assertIsNone(self.labels.get_color(0))
+            np.testing.assert_allclose(rgba[:, 3], 1)
+        for index, current in enumerate(palettes):
+            np.testing.assert_allclose(current[:, 0], bases[index][:, 0], atol=1e-6)
+            if index:
+                self.assertFalse(np.allclose(current[:, 0], palettes[0][:, 0]))
+        for index in (1, 2):
+            base = bases[index]
+            np.testing.assert_allclose(
+                palettes[index][:, 1], base[:, 1] * (1 - 0.75 * index / 4), atol=1e-6
+            )
+            np.testing.assert_allclose(
+                palettes[index][:, 2], base[:, 2] + (1 - base[:, 2]) * index / 4, atol=1e-6
+            )
+        np.testing.assert_allclose(
+            palettes[3][:, 1], bases[3][:, 1] + (1 - bases[3][:, 1]) * 0.5, atol=1e-6
+        )
+        np.testing.assert_allclose(palettes[3][:, 2], bases[3][:, 2], atol=1e-6)
+        np.testing.assert_allclose(palettes[4][:, 1], bases[4][:, 1], atol=1e-6)
+        np.testing.assert_allclose(
+            palettes[4][:, 2], bases[4][:, 2] + (1 - bases[4][:, 2]) * 0.5, atol=1e-6
+        )
+
+    def test_auto_with_one_other_color_chooses_the_farthest_rgb_primary(self):
+        other = self.helper.viewer.add_image(np.ones((2, 2)), name="Other map")
+        for existing, expected in (
+            ("#00ff00", "#ff0000"),
+            ("#00aaff", "#ff0000"),
+            ("#ff00aa", "#00ff00"),
+            ("#ffaa00", "#0000ff"),
+        ):
+            with self.subTest(existing=existing):
+                self.helper.set_image_color(other, existing)
+                self.assertEqual(self.helper.automatic_layer_color().name(), expected)
 
     def test_layer_presentation_and_reordering(self):
         first = self.helper.viewer.add_image(np.zeros((2, 2)), name="First")

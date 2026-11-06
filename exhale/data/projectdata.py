@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import numpy as np
+
 from .constants import CONCENTRATION_UNITS
 from .elementsettings import ElementSettingsDefaults
 from .imagesettings import ImageSettings
@@ -434,6 +436,25 @@ class ProjectData:
             result.sample_id, SegmentationHistory(result.sample_id)
         )
         return history.add_result(result)
+
+    def create_empty_segmentation(self, sample_id, input_ref, shape) -> SegmentationCandidate:
+        """Start manual annotation on a sample map, without running an inference method."""
+        sample = self.samples[sample_id]
+        if input_ref not in {channel.ref for channel in sample.channels.values()}:
+            raise ValueError("The input map does not belong to this sample")
+        result = SegmentationResult(
+            sample_id,
+            "manual",
+            input_ref,
+            SegmentationParameters(),
+            SegmentationOutput(np.zeros(shape, dtype=np.uint32), "manual", "1"),
+        )
+        candidate = SegmentationCandidate.from_result(result)
+        candidate.name = "Manual mask"
+        candidate.name_is_custom = True
+        candidate.edited = True
+        history = self.segmentation_histories.setdefault(sample_id, SegmentationHistory(sample_id))
+        return history.add_candidate(candidate)
 
     def segmentation_reference(
         self, sample_id: str, candidate_id: str | None = None

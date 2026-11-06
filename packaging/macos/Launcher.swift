@@ -41,6 +41,24 @@ if let index = CommandLine.arguments.firstIndex(of: "--setup-check") {
     }
 }
 
+// Headless update/launch checks use the same driver and lock as normal launches.
+if let index = CommandLine.arguments.firstIndex(of: "--update-runtime") {
+    do {
+        let process = makeProcess("update", Array(CommandLine.arguments[(index + 1)...]))
+        try process.run()
+        process.waitUntilExit()
+        exit(process.terminationStatus)
+    } catch { fputs("\(error)\n", stderr); exit(1) }
+}
+if CommandLine.arguments.contains("--startup-check") {
+    do {
+        let process = makeProcess("launch", ["--startup-check"])
+        try process.run()
+        process.waitUntilExit()
+        exit(process.terminationStatus)
+    } catch { fputs("\(error)\n", stderr); exit(1) }
+}
+
 class SetupDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow!
     let starDist = NSButton(checkboxWithTitle: "StarDist — TensorFlow", target: nil, action: nil)

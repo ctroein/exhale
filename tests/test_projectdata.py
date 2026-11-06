@@ -42,6 +42,29 @@ class ProjectDataTests(unittest.TestCase):
         self.assertEqual(effective["Fe"].settings, "fe-map")
         self.assertFalse(effective["Fe"].overridden)
 
+    def test_empty_manual_mask_is_retained_and_records_its_source(self):
+        project = ProjectData()
+        project.samples[self.sample.sample_id] = self.sample
+        candidate = project.create_empty_segmentation("scan", self.fe_ref, (3, 4))
+        self.assertEqual(candidate.result.output.labels.shape, (3, 4))
+        self.assertEqual(candidate.result.output.labels.dtype, np.uint32)
+        self.assertFalse(candidate.result.output.labels.any())
+        self.assertFalse(candidate.result.output.labels.flags.writeable)
+        self.assertEqual(candidate.result.input_ref, self.fe_ref)
+        self.assertEqual(candidate.result.method_id, "manual")
+        self.assertEqual(candidate.provenance[0].method_id, "manual")
+        self.assertTrue(candidate.protected)
+        self.assertFalse(candidate.keep or candidate.reviewed)
+        self.assertIs(project.create_empty_segmentation("scan", self.fe_ref, (3, 4)), candidate)
+        self.assertEqual(len(project.segmentation_histories["scan"].candidates), 1)
+
+    def test_manual_mask_cannot_refer_to_another_samples_map(self):
+        project = ProjectData()
+        project.samples[self.sample.sample_id] = self.sample
+        with self.assertRaises(ValueError):
+            project.create_empty_segmentation("scan", ElementRef("other.h5", "/P"), (3, 4))
+        self.assertFalse(project.segmentation_histories)
+
     def test_sample_can_skip_override_and_add_channels(self):
         self.sample.channel_overrides["Fe"] = None
         self.sample.channel_overrides["Zn"] = ChannelOverride(

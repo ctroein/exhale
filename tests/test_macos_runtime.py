@@ -163,3 +163,101 @@ def test_builder_bundles_local_release_and_private_setup(tmp_path, monkeypatch):
     assert info["CFBundleShortVersionString"] == "1.2.3"
     assert (output / "dmg-arm64/Applications").is_symlink()
     assert any(command[:2] == ["codesign", "--verify"] for command in commands)
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_application_update_preserves_backends_and_bundle_and_rolls_back(runtime, fail):
+    runtime.root.mkdir(parents=True)
+    previous = runtime.root / "env-old"
+    previous.mkdir()
+    state = {"environment": previous.name, "wheel": runtime.config["wheel"], "backends": "both"}
+    runtime.state_path.write_text(json.dumps(state))
+    commands = []
+
+    def run(command):
+        commands.append(list(map(str, command)))
+        if command[1] == "venv":
+            Path(command[-1]).mkdir()
+        if "--startup-check" in command and fail:
+            raise subprocess.CalledProcessError(1, command)
+
+    runtime.run = run
+    with runtime.locked():
+        if fail:
+            with pytest.raises(subprocess.CalledProcessError):
+                runtime.update("2.0")
+            assert runtime.state() == state
+            assert previous.exists()
+        else:
+            runtime.update("2.0")
+            assert runtime.state()["version"] == "2.0"
+            assert runtime.state()["wheel"] == state["wheel"]
+            assert runtime.state()["backends"] == "both"
+            assert not previous.exists()
+    assert commands[1][7] == "exhale-xrf[stardist,cellpose,monai]==2.0"
+    assert "-r" in commands[1]
+    assert len(list(runtime.root.glob("env-*"))) == 1
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_native_parent_consumes_request_and_reopens_after_update(runtime, tmp_path, fail):
+    runtime.root.mkdir(parents=True)
+    previous = runtime.root / "env-old"
+    previous.mkdir()
+    runtime.state_path.write_text(
+        json.dumps(
+            {
+                "environment": previous.name,
+                "wheel": runtime.config["wheel"],
+                "backends": "none",
+            }
+        )
+    )
+    job = tmp_path / "job"
+    job.mkdir()
+    launches = []
+
+    def run(command):
+        if command[1] == "venv":
+            Path(command[-1]).mkdir()
+        if "--startup-check" in command:
+            if fail:
+                raise subprocess.CalledProcessError(1, command)
+        elif command[1:3] == ["-m", "exhale"]:
+            launches.append(command[0])
+            if len(launches) == 1:
+                (runtime.home / "update-request.json").write_text(
+                    json.dumps(
+                        {
+                            "version": "2.0",
+                            "environment": previous.name,
+                            "token": runtime.launch_token,
+                            "job": str(job),
+                        }
+                    )
+                )
+
+    runtime.run = run
+    with runtime.locked():
+        runtime.launch([])
+    assert len(launches) == 2
+    assert (launches[1] == launches[0]) == fail
+    assert json.loads((job / "result.json").read_text())["success"] is not fail
+    assert not (runtime.home / "update-request.json").exists()
+
+
+@pytest.mark.parametrize("action", ["startup", "update"])
+def test_driver_parses_native_headless_arguments(runtime, monkeypatch, action):
+    calls = []
+    runtime.launch = lambda arguments: calls.append(arguments)
+    runtime.update = lambda version, wheel: calls.append((version, wheel))
+    monkeypatch.setattr(runtime_module, "Runtime", lambda *_args: runtime)
+    arguments = ["runtime", "--resources", str(runtime.resources), "--home", str(runtime.home)]
+    arguments += (
+        ["launch", "--startup-check"]
+        if action == "startup"
+        else ["update", "2.0", "--update-wheel", "/test.whl"]
+    )
+    monkeypatch.setattr(runtime_module.sys, "argv", arguments)
+    runtime_module.main()
+    assert calls == ([["--startup-check"]] if action == "startup" else [("2.0", Path("/test.whl"))])
