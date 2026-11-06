@@ -602,7 +602,7 @@ at runtime.
 ## Packaging and tests
 
 `packaging/` contains the native macOS setup app, Windows Inno Setup definition,
-Conda recipe, generated platform icon containers, and the utility which rebuilds
+generated platform icon containers, and the utility which rebuilds
 those containers from a selected artwork source. `requirements-cellpose.txt`
 pins DINOv3 for source/pip installations and the native installers.
 
