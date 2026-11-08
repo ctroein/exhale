@@ -263,7 +263,10 @@ newly materialized source caches.
 
 Pruning removes only live history entries. Sidecar files remain available to
 older saved-project and recovery JSON, including after a run is discarded.
-Automatic cleanup of unreferenced files is not performed.
+After successful publication, obsolete label files are removed only when neither
+live state nor any readable project/autosave manifest in the directory needs them.
+An unreadable manifest prevents cleanup. Downstream references retain old IDs,
+not old pixels, and therefore do not keep obsolete label files alive.
 
 `SegmentationEditSession` owns the mutable working copy for a sample's active
 candidate. Editing/Post-processing tabs choose between that unprocessed mask and
@@ -311,7 +314,8 @@ Keep sits beside the chooser. Overview holds naming, training-review and export.
 Accepting or rejecting edits returns to Overview. Create opens Edit on an empty
 mask sized from the selected nuclei map, with manual provenance and no inference.
 Manual masks are retained like accepted corrections and use the same immutable
-snapshots and training-export path. Identical empty masks reuse existing history.
+snapshots and training-export path. Create is disabled while a blank mask already
+exists for the selected source map.
 The selected inference method
 belongs to the project. Brush and eraser sizes, feature fitting and its distance,
 segment protection and disconnected-parts preferences belong to application
@@ -336,10 +340,14 @@ without altering the source candidate. Undo stacks and selection are not saved.
 Recovery resumes the draft in Editing. Entering, selecting, and leaving without
 label changes creates neither a candidate nor dirty project state. Switching
 mask/sample or returning to Post-processing finishes a changed session as a
-protected corrected child; net-unchanged or merely renumbered labels do not add
-history. Starting inference finishes editing first. Reviewed source snapshots
-stay intact; corrected revisions start unreviewed. Drawing/brush tools follow in
-the next editing stage.
+protected corrected child on the first edit of a prediction. Later acceptances
+advance that working mask's revision under the same candidate ID, name and list
+position. Manual masks advance in place from their first acceptance, leaving no
+blank ancestor. Keep and comparison presentation persist; training review is
+cleared. Net-unchanged or merely renumbered labels do not add history. Starting
+inference finishes editing first. Older working pixels are not archived; existing
+downstream references retain their own exact IDs and become outdated. Resolution
+of an unavailable old revision fails rather than substituting current pixels.
 
 `ClusteringWorker` retains the independent element-clustering path using the
 imported numerical code and its own sample-level persistence. Both workers share

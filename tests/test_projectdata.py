@@ -65,6 +65,16 @@ class ProjectDataTests(unittest.TestCase):
             project.create_empty_segmentation("scan", ElementRef("other.h5", "/P"), (3, 4))
         self.assertFalse(project.segmentation_histories)
 
+    def test_empty_masks_for_different_source_maps_do_not_replace_each_others_identity(self):
+        project = ProjectData()
+        project.samples[self.sample.sample_id] = self.sample
+        first = project.create_empty_segmentation("scan", self.fe_ref, (3, 4))
+        second = project.create_empty_segmentation("scan", self.zn_ref, (3, 4))
+        self.assertNotEqual(first.candidate_id, second.candidate_id)
+        history = project.segmentation_histories["scan"]
+        self.assertIs(history.empty_mask(self.fe_ref), first)
+        self.assertIs(history.empty_mask(self.zn_ref), second)
+
     def test_sample_can_skip_override_and_add_channels(self):
         self.sample.channel_overrides["Fe"] = None
         self.sample.channel_overrides["Zn"] = ChannelOverride(

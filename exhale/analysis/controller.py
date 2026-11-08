@@ -183,6 +183,12 @@ class AnalysisController(QtCore.QObject):
         self._reload_plot_appearance()
         window.analysisPostprocessing.setEnabled(False)
         self._update_edit_controls()
+        # Controls populated on hidden pages leave nested layout measurements stale.
+        for index in range(window.analysisProcessingTabs.count()):
+            page = window.analysisProcessingTabs.widget(index)
+            for layout in reversed(page.findChildren(QtWidgets.QLayout)):
+                layout.invalidate()
+            page.updateGeometry()
 
     def current_method_id(self) -> str | None:
         return self.window.analysisPipelineComboBox.currentData()
@@ -248,6 +254,7 @@ class AnalysisController(QtCore.QObject):
             and sample is not None
             and ref is not None
             and ref in {channel.ref for channel in sample.channels.values()}
+            and (history is None or history.empty_mask(ref) is None)
         )
         editor = self._mask_name_edit
         identity = None if candidate is None else candidate.candidate_id
@@ -349,9 +356,10 @@ class AnalysisController(QtCore.QObject):
         history = project.segmentation_histories.get(sample_id)
         candidate = None if decision == "reject" else session.completed_candidate()
         if history is not None and candidate is not None:
-            history.add_candidate(candidate, active_id=next_mask)
+            history.accept_edit(session.source.candidate_id, candidate, active_id=next_mask)
             self.window.project_state_manager.project_changed()
             self._refresh_masks()
+            self.window.segmentationResultsChanged.emit()
         elif session.changed:
             self.window.project_state_manager.project_changed()
         return True
@@ -681,6 +689,9 @@ class AnalysisController(QtCore.QObject):
         sample = self.current_sample()
         ref = window.analysisChNuclei.currentData()
         if sample is None or ref is None or self.worker is not None or self.batch.active:
+            return
+        history = self._history()
+        if history is not None and history.empty_mask(ref) is not None:
             return
         try:
             data = window.element_controller.ensure_settings(ref).data

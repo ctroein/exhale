@@ -261,6 +261,63 @@ def test_removing_a_missing_candidate_does_not_mutate_history():
     assert history.active is candidate and tuple(history.candidates) == (candidate.candidate_id,)
 
 
+def test_prediction_forks_once_and_further_acceptances_update_the_same_named_mask():
+    from exhale.data.segmentationediting import SegmentationEditSession
+
+    history = SegmentationHistory("sample")
+    original = history.add_result(result(1))
+    session = SegmentationEditSession(original)
+    labels = session.labels.copy()
+    labels.flat[1] = 1
+    session.apply_labels(labels)
+    working = history.accept_edit(original.candidate_id, session.completed_candidate())
+    assert working.parent_id == original.candidate_id and working is not original
+    working.name = "My correction"
+    working.name_is_custom = True
+    working.keep = True
+    working.compare = True
+    history.set_reviewed(working.candidate_id)
+    order = tuple(history.candidates)
+    for index in (2, 3, 4):
+        previous_revision = working.revision_id
+        session = SegmentationEditSession(working)
+        labels = session.labels.copy()
+        labels.flat[index] = 1
+        session.apply_labels(labels)
+        working = history.accept_edit(working.candidate_id, session.completed_candidate())
+        assert tuple(history.candidates) == order
+        assert working.name == "My correction" and working.name_is_custom
+        assert working.revision_id != previous_revision
+        assert working.keep and working.compare and not working.reviewed
+        assert working.parent_id == original.candidate_id
+    np.testing.assert_array_equal(original.result.output.labels, result(1).output.labels)
+
+
+def test_working_identity_survives_becoming_equal_to_a_prediction_and_restoration():
+    from exhale.data.segmentationediting import SegmentationEditSession
+
+    history = SegmentationHistory("sample")
+    original = history.add_result(result(1))
+    session = SegmentationEditSession(original)
+    labels = session.labels.copy()
+    labels.flat[1] = 1
+    session.apply_labels(labels)
+    working = history.accept_edit(original.candidate_id, session.completed_candidate())
+    identity = working.candidate_id
+    session = SegmentationEditSession(working)
+    session.apply_labels(original.result.output.labels)
+    working = history.accept_edit(identity, session.completed_candidate())
+    assert working.candidate_id == identity and len(history.candidates) == 2
+    restored, issues = SegmentationHistory.restore(
+        "sample", reversed(list(history.candidates.values())), active_id=identity
+    )
+    assert not issues and len(restored.candidates) == 2
+    assert restored.active.candidate_id == identity
+    history.remove(working.candidate_id)
+    assert history.equivalent(working) is original
+    assert history.restore_removed().candidate_id == identity
+
+
 def test_restore_recovers_identity_children_presentation_and_order():
     from exhale.data.projectdata import LayerPresentation
 

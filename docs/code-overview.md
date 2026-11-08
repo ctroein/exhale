@@ -85,6 +85,8 @@ The next-run segmentation method is a project preference; editing-tool preferenc
 are kept in application settings by `AnalysisController`.
 Empty manual segmentation candidates can be created from a sample map without a
 neural method, then edited and persisted through the ordinary mask history.
+Working masks advance revisions without creating chooser entries for each edit;
+the first correction of a prediction retains the original as a separate mask.
 `Sample`, `Channel`, `ChannelOverride`, and
 `ResolvedChannel` express local versus inherited channel state; the remaining
 data classes describe assets and analysis metadata.
@@ -112,6 +114,8 @@ Infers conservative sample and channel-name suggestions from TIFF filenames.
 Serializes and restores `ProjectData` without accessing windows or widgets. It
 owns path relocation, model and image settings encoding, project-header
 validation, tolerant object loading, and atomic writes.
+It checks live state and saved project/autosave manifests before asking the
+segmentation storage layer to remove obsolete label snapshots.
 
 ### `exhale/project/projectmanager.py`
 

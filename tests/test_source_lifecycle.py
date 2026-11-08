@@ -86,6 +86,27 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertTrue(np.isfinite(settings.trfRange).all())
         self.assertTrue(self.win.project_state_manager.compare_now())
 
+    def test_segmentation_pages_reserve_their_full_height_before_first_visit(self):
+        tabs = self.win.analysisProcessingTabs
+        with QtCore.QSignalBlocker(tabs):
+            for index in range(tabs.count()):
+                tabs.setTabEnabled(index, True)
+            self.win.resize(1400, 950)
+            self.win.tabWidget.setCurrentWidget(self.win.analysisTab)
+            self.win.show()
+            self.app.processEvents()
+            self.app.processEvents()
+            initial_height = tabs.height()
+            initial_split = self.win.analysisLeftSplitter.sizes()
+            initial_hints = [tabs.widget(i).sizeHint().height() for i in range(tabs.count())]
+            for index in (1, 2, 0, 1):
+                tabs.setCurrentIndex(index)
+                self.app.processEvents()
+                self.app.processEvents()
+                self.assertEqual(tabs.height(), initial_height)
+                self.assertEqual(self.win.analysisLeftSplitter.sizes(), initial_split)
+                self.assertEqual(tabs.widget(index).sizeHint().height(), initial_hints[index])
+
     def test_tabs_and_file_actions(self):
         tabs = self.win.tabWidget
         self.assertEqual(
@@ -970,13 +991,30 @@ class SourceLifecycleTests(unittest.TestCase):
         candidate = control.current_candidate()
         self.assertIsNotNone(candidate)
         self.assertEqual(candidate.result.method_id, "manual")
+        self.assertFalse(self.win.analysisCreateMask.isEnabled())
+        control._create_mask()
+        self.assertIs(control.current_candidate(), candidate)
         self.assertIs(self.win.analysisProcessingTabs.currentWidget(), self.win.analysisEditingPage)
         control._start_editing()
         self.assertTrue(control._edit_session.brush_stroke([("add", [(1, 1)])], size=1))
         self.assertTrue(control._finish_editing(decision="accept"))
         corrected = control.current_candidate()
         self.assertTrue(corrected.result.output.labels.any())
-        self.assertEqual(corrected.parent_id, candidate.candidate_id)
+        self.assertEqual(corrected.candidate_id, candidate.candidate_id)
+        self.assertNotEqual(corrected.revision_id, candidate.revision_id)
+        self.assertEqual(corrected.name, "Manual mask")
+        self.assertIsNone(corrected.parent_id)
+        self.assertEqual(len(control._history().candidates), 1)
+        self.assertTrue(self.win.analysisCreateMask.isEnabled())
+        control._start_editing()
+        self.assertTrue(control._edit_session.brush_stroke([("add", [(2, 2)])], size=1))
+        self.assertTrue(control._finish_editing(decision="accept"))
+        latest = control.current_candidate()
+        self.assertEqual(latest.candidate_id, corrected.candidate_id)
+        self.assertNotEqual(latest.revision_id, corrected.revision_id)
+        self.assertEqual(latest.name, "Manual mask")
+        self.assertEqual(len(control._history().candidates), 1)
+        corrected = latest
         directory = Path(self.temp.name) / "manual-project"
         projectio.save_project(self.win.project_data, directory / "project.xhp")
         restored = type(self.win.project_data)()

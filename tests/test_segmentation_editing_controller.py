@@ -30,7 +30,9 @@ def editing_control():
     session.edit("remove", [(0, 4), (6, 4)], size=3)
     project.segmentation_edit_sessions["sample"] = session
     control = SimpleNamespace(
-        window=SimpleNamespace(project_data=project, project_state_manager=Mock()),
+        window=SimpleNamespace(
+            project_data=project, project_state_manager=Mock(), segmentationResultsChanged=Mock()
+        ),
         naparihelper=Mock(),
         _edit_session=session,
         _resolve_disconnections=Mock(return_value=True),

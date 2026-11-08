@@ -12,6 +12,7 @@ from ..analysis.segmentationio import (
     clustering_relative_path,
     load_segmentation,
     load_xrf_sample,
+    remove_unreferenced_snapshots,
     save_candidate,
 )
 from ..data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
@@ -517,6 +518,57 @@ def save_project(project_data: ProjectData, filename: str | Path) -> None:
     filename = Path(filename)
     save_segmentation_snapshots(project_data, filename.parent)
     save_project_state(export_project_state(project_data, filename.parent), filename)
+    cleanup_segmentation_snapshots(project_data, filename.parent)
+
+
+def cleanup_segmentation_snapshots(project_data: ProjectData, project_dir: str | Path) -> None:
+    """Release obsolete pixels only after checking live state and saved project manifests.
+
+    Downstream revision IDs do not require old pixels. Saved projects and autosaves
+    still do; unreadable manifests prevent cleanup rather than risking recovery.
+    """
+    directory = Path(project_dir)
+    retained = set()
+
+    def collect(value):
+        if isinstance(value, dict):
+            sidecar = value.get("sidecar")
+            if isinstance(sidecar, str):
+                retained.add((directory / sidecar).resolve())
+            for item in value.values():
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    candidates = [
+        candidate
+        for history in project_data.segmentation_histories.values()
+        for candidate in history.candidates.values()
+    ]
+    candidates.extend(
+        session.snapshot()
+        for session in project_data.segmentation_edit_sessions.values()
+        if session.changed
+    )
+    for candidate in candidates:
+        retained.add(
+            (
+                directory
+                / candidate_relative_path(
+                    candidate.sample_id, candidate.candidate_id, candidate.revision_id
+                )
+            ).resolve()
+        )
+    try:
+        for path in directory.glob("*.xhp"):
+            with path.open(encoding="utf-8") as stream:
+                state = json.load(stream)
+            validate_project_state(state)
+            collect(state)
+    except (OSError, ValueError, TypeError, KeyError):
+        return
+    remove_unreferenced_snapshots(directory, retained)
 
 
 def save_project_state(state: dict[str, Any], filename: str | Path) -> None:

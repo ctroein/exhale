@@ -219,6 +219,10 @@ class ProjectStateManager(QtCore.QObject):
         projectio.save_project_state(
             projectio.export_project_state(self.window.project_data, self.window.project_dir), path
         )
+        if self.window.project_dir is not None:
+            projectio.cleanup_segmentation_snapshots(
+                self.window.project_data, self.window.project_dir
+            )
         return path
 
     def discard_autosave(self, project_dir=None) -> None:
@@ -226,6 +230,9 @@ class ProjectStateManager(QtCore.QObject):
             self.autosave_path().unlink(missing_ok=True)
         else:
             self.autosave_path(project_dir).unlink(missing_ok=True)
+        directory = self.window.project_dir if project_dir is None else project_dir
+        if directory is not None:
+            projectio.cleanup_segmentation_snapshots(self.window.project_data, directory)
 
     def discard_unsaved_autosave(self) -> None:
         self.autosave_path(None).unlink(missing_ok=True)

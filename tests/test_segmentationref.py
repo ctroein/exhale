@@ -53,6 +53,26 @@ def test_reference_is_an_immutable_json_roundtrip(project):
         reference.postprocessing.minimum_area = 50
 
 
+def test_working_revision_replacement_retains_old_reference_ids_not_old_pixels(project):
+    history = project.segmentation_histories["sample"]
+    source = history.active
+    source.edited = True
+    old_reference = project.segmentation_reference("sample")
+    old_json = old_reference.to_json()
+    session = SegmentationEditSession(source)
+    session.select(42)
+    session.edit("remove", [(1, 1)], size=1)
+    current = history.accept_edit(source.candidate_id, session.completed_candidate())
+    assert current.candidate_id == source.candidate_id
+    assert current.revision_id != source.revision_id
+    assert len(history.candidates) == 1
+    assert SegmentationReference.from_json(old_json) == old_reference
+    assert not project.segmentation_reference_is_current(old_reference, current.candidate_id)
+    with pytest.raises(ValueError, match="unavailable"):
+        project.resolve_segmentation_reference(old_reference)
+    assert project.segmentation_reference("sample").matches(current)
+
+
 def test_processing_changes_mark_outdated_but_original_input_still_resolves(project):
     candidate = project.segmentation_histories["sample"].active
     candidate.result.postprocessing = SegmentationPostprocessing(minimum_area=3, expansion=1)

@@ -58,8 +58,11 @@ class SegmentationHelpDialog(QtWidgets.QDialog):
 <p>Use <b>Undo ({undo})</b> and <b>Redo ({redo})</b> to revisit your edits.
  Escape cancels an unfinished stroke or selection rectangle.
  The letters beside the tool names are keyboard shortcuts.</p>
-<p><b>Accept changes</b> keeps your corrections as a new mask; the original
- remains available. <b>Reject changes</b> discards your current edits.
+<p><b>Accept changes</b> saves your corrections. The first correction of a
+ generated mask creates an edited mask and leaves the prediction available.
+ Further corrections update that edited mask; manual masks are updated from
+ their first acceptance. The name is retained.
+ <b>Reject changes</b> discards your current edits.
  Both return to Overview, where you can name or mark the mask as reviewed
  for training.</p>
 

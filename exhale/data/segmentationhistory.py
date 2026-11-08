@@ -203,7 +203,20 @@ class SegmentationHistory:
         return tuple(self._recency)
 
     def equivalent(self, candidate: SegmentationCandidate) -> SegmentationCandidate | None:
-        key = self._digests.get(partition_digest(candidate.result.output.labels))
+        digest = partition_digest(candidate.result.output.labels)
+        key = self._digests.get(digest)
+        if key is None:
+            # Edited masks may intentionally coincide with a retained prediction.
+            key = next(
+                (
+                    key
+                    for key, value in self.candidates.items()
+                    if partition_digest(value.result.output.labels) == digest
+                ),
+                None,
+            )
+            if key is not None:
+                self._digests[digest] = key
         return self.candidates.get(key)
 
     @classmethod
@@ -217,7 +230,7 @@ class SegmentationHistory:
                 issues.append("One segmentation candidate has a conflicting identity")
                 continue
             existing = history.equivalent(candidate)
-            if existing is not None:
+            if existing is not None and not candidate.edited and not existing.edited:
                 aliases[candidate.candidate_id] = existing.candidate_id
                 runs = {run.run_id: run for run in existing.provenance}
                 runs.update(
@@ -276,7 +289,7 @@ class SegmentationHistory:
         return self.add_candidate(SegmentationCandidate.from_result(result))
 
     def add_candidate(
-        self, candidate: SegmentationCandidate, *, active_id=None
+        self, candidate: SegmentationCandidate, *, active_id=None, deduplicate=True
     ) -> SegmentationCandidate:
         """Retain or merge a mask, activate it, then prune unprotected predictions."""
         if candidate.sample_id != self.sample_id:
@@ -286,9 +299,15 @@ class SegmentationHistory:
         if candidate.parent_id is not None and candidate.parent_id not in self.candidates:
             raise ValueError("The parent segmentation candidate is missing")
         digest = partition_digest(candidate.result.output.labels)
-        existing_id = self._digests.get(digest)
-        if candidate.candidate_id in self.candidates and existing_id != candidate.candidate_id:
-            raise ValueError("Segmentation candidate identity already exists with different labels")
+        existing = self.candidates.get(candidate.candidate_id)
+        if existing is not None:
+            if partition_digest(existing.result.output.labels) != digest:
+                raise ValueError(
+                    "Segmentation candidate identity already exists with different labels"
+                )
+        elif deduplicate:
+            existing = self.equivalent(candidate)
+        existing_id = None if existing is None else existing.candidate_id
         if existing_id is not None:
             existing = self.candidates[existing_id]
             runs = {run.run_id: run for run in existing.provenance}
@@ -313,8 +332,50 @@ class SegmentationHistory:
         self.prune()
         return candidate
 
+    def empty_mask(self, input_ref: ElementRef) -> SegmentationCandidate | None:
+        """Find an existing blank mask for the selected source map."""
+        return next(
+            (
+                candidate
+                for candidate in self.candidates.values()
+                if candidate.result.input_ref == input_ref
+                and not candidate.result.output.labels.any()
+            ),
+            None,
+        )
+
+    def accept_edit(self, source_id, draft: SegmentationCandidate, *, active_id=None):
+        """Fork a prediction once, then advance revisions of the same working mask.
+
+        Replaced pixels are not archived. Downstream references retain their own
+        old identity and become outdated when the current revision changes.
+        """
+        source = self.candidates[source_id]
+        if draft.sample_id != self.sample_id or draft.parent_id != source_id:
+            raise ValueError("The editing draft does not belong to this mask")
+        if active_id is not None and active_id not in self.candidates:
+            raise KeyError(active_id)
+        if not source.edited:
+            return self.add_candidate(draft, active_id=active_id)
+        candidate = replace(
+            draft,
+            candidate_id=source.candidate_id,
+            name=source.name,
+            name_is_custom=source.name_is_custom,
+            parent_id=source.parent_id,
+            created_at=source.created_at,
+            keep=source.keep,
+            compare=source.compare,
+            comparison_presentation=source.comparison_presentation,
+        )
+        self.candidates[source_id] = candidate
+        self._digests = {digest: key for digest, key in self._digests.items() if key != source_id}
+        self._digests.setdefault(partition_digest(candidate.result.output.labels), source_id)
+        self.active_id = source_id if active_id is None else active_id
+        return candidate
+
     def remove(self, candidate_id: str) -> SegmentationCandidate:
-        """Deliberately remove one mask, retaining descendants and immutable files.
+        """Deliberately remove one mask, retaining descendants and removal undo.
 
         Direct children lose their parent link, not their labels or run provenance.
         Other candidates retain their order; the newest retained mask is the fallback.
@@ -369,7 +430,7 @@ class SegmentationHistory:
             candidate.set_reviewed(False)
         if candidate.parent_id not in self.candidates:
             candidate.parent_id = None
-        restored = self.add_candidate(candidate)
+        restored = self.add_candidate(candidate, deduplicate=False)
         self._removed.pop()
         items = [
             (key, value) for key, value in self.candidates.items() if key != restored.candidate_id

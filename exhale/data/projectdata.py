@@ -442,6 +442,9 @@ class ProjectData:
         sample = self.samples[sample_id]
         if input_ref not in {channel.ref for channel in sample.channels.values()}:
             raise ValueError("The input map does not belong to this sample")
+        history = self.segmentation_histories.get(sample_id)
+        if history is not None and (existing := history.empty_mask(input_ref)) is not None:
+            return existing
         result = SegmentationResult(
             sample_id,
             "manual",
@@ -454,7 +457,7 @@ class ProjectData:
         candidate.name_is_custom = True
         candidate.edited = True
         history = self.segmentation_histories.setdefault(sample_id, SegmentationHistory(sample_id))
-        return history.add_candidate(candidate)
+        return history.add_candidate(candidate, deduplicate=False)
 
     def segmentation_reference(
         self, sample_id: str, candidate_id: str | None = None

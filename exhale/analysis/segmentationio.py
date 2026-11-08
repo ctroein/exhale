@@ -71,6 +71,26 @@ def save_candidate(candidate: SegmentationCandidate, project_dir: str | Path) ->
     return path
 
 
+def remove_unreferenced_snapshots(project_dir: Path, retained: set[Path]) -> None:
+    """Best-effort removal of owned label files no live or saved state needs."""
+    root = project_dir / SEGMENTATION_DIRECTORY / "candidates"
+    for path in root.glob("*/*/*.h5"):
+        if path.resolve() in retained:
+            continue
+        try:
+            with h5py.File(path, "r") as handle:
+                owned = (
+                    handle.attrs.get("format") == SEGMENTATION_FORMAT
+                    and handle.attrs.get("candidate_id") == path.parent.name
+                    and handle.attrs.get("revision_id") == path.stem
+                )
+            if owned:
+                path.unlink(missing_ok=True)
+        except (OSError, ValueError):
+            # Unreadable or unrelated files are not safe garbage-collection targets.
+            continue
+
+
 def publish_segmentation(
     project_data: ProjectData, result: SegmentationResult, project_dir: str | Path, *, activate=True
 ) -> SegmentationCandidate:

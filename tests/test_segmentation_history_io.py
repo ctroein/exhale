@@ -216,6 +216,78 @@ def test_failed_json_write_preserves_saved_metadata_and_referenced_arrays(projec
     assert sidecar(first, tmp_path).read_bytes() == snapshot
 
 
+def test_replaced_pixels_are_released_only_after_saved_and_autosaved_states_release_them(
+    project, tmp_path
+):
+    first = publish_segmentation(project, result(project), tmp_path)
+    first.edited = True
+    first.name = "Working mask"
+    first.name_is_custom = True
+    history = project.segmentation_histories[first.sample_id]
+    saved = tmp_path / "project.xhp"
+    autosave = tmp_path / "project.autosave.xhp"
+    projectio.save_project(project, saved)
+    before = saved.read_bytes()
+    autosave.write_bytes(before)
+    old_path = sidecar(first, tmp_path)
+    session = SegmentationEditSession(first)
+    labels = session.labels.copy()
+    labels.flat[1] = 42
+    session.apply_labels(labels)
+    draft = session.completed_candidate()
+    draft_path = save_candidate(draft, tmp_path)
+    current = history.accept_edit(first.candidate_id, draft)
+    with patch("exhale.project.projectio.save_project_state", side_effect=OSError("disk full")):
+        with pytest.raises(OSError):
+            projectio.save_project(project, saved)
+    assert old_path.exists() and saved.read_bytes() == before
+    projectio.save_project(project, saved)
+    assert old_path.exists()  # The older autosave must still be loadable.
+    recovered, issues = read(autosave)
+    assert not issues
+    assert recovered.segmentation_histories[first.sample_id].active.revision_id == first.revision_id
+    assert not draft_path.exists()
+    autosave.unlink()
+    projectio.cleanup_segmentation_snapshots(project, tmp_path)
+    assert not old_path.exists() and sidecar(current, tmp_path).exists()
+    loaded, issues = read(saved)
+    assert not issues
+    restored = loaded.segmentation_histories[first.sample_id].active
+    assert (
+        restored.candidate_id == first.candidate_id and restored.revision_id == current.revision_id
+    )
+    assert (
+        restored.name == "Working mask"
+        and len(loaded.segmentation_histories[first.sample_id].candidates) == 1
+    )
+
+
+def test_cleanup_keeps_pixels_if_saved_references_are_unknown_and_ignores_unowned_files(
+    project, tmp_path
+):
+    first = publish_segmentation(project, result(project), tmp_path)
+    first.edited = True
+    projectio.save_project(project, tmp_path / "project.xhp")
+    unknown = tmp_path / "unreadable.xhp"
+    unknown.write_text("incomplete JSON", encoding="utf-8")
+    session = SegmentationEditSession(first)
+    labels = session.labels.copy()
+    labels.flat[1] = 42
+    session.apply_labels(labels)
+    project.segmentation_histories[first.sample_id].accept_edit(
+        first.candidate_id, session.completed_candidate()
+    )
+    projectio.save_project(project, tmp_path / "project.xhp")
+    old_path = sidecar(first, tmp_path)
+    assert old_path.exists()
+    unrelated = old_path.with_name("unrelated.h5")
+    with h5py.File(unrelated, "w") as handle:
+        handle.create_dataset("data", data=np.zeros(1))
+    unknown.unlink()
+    projectio.cleanup_segmentation_snapshots(project, tmp_path)
+    assert not old_path.exists() and unrelated.exists()
+
+
 def test_unfinished_edit_autosave_recovers_without_mutating_saved_candidate(project, tmp_path):
     parent = publish_segmentation(project, result(project), tmp_path)
     saved = tmp_path / "project.xhp"

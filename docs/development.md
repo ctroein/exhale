@@ -191,6 +191,13 @@ input from whichever mask is currently displayed. Resolve the recorded revision
 without substituting another mask, and never silently recompute stored output.
 The current element clustering does not consume segmentation.
 
+Manual and corrected masks keep a stable candidate ID across accepted edits;
+their revision ID changes. Only the first correction of a prediction creates a
+separate chooser entry. Old references retain their own IDs without archiving
+old pixel arrays. Snapshot cleanup must preserve files required by live state,
+saved projects and recovery manifests, and must stop if those references cannot
+be read reliably.
+
 ## Output permissions and atomic publication
 
 Create permanent output files and directories with normal creation permissions
