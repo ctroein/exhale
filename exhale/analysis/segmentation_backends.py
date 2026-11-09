@@ -116,37 +116,50 @@ def stardist_thresholds() -> dict:
     return {"prob_thresh": float(values["prob"]), "nms_thresh": float(values["nms"])}
 
 
-def _stardist_version(directory: Path) -> str:
+def _stardist_version(weights: Path) -> str:
     """Include inference thresholds and architecture as well as network weights."""
     digest = hashlib.sha256()
     for name in ("config.json", "thresholds.json", "weights_best.h5"):
         digest.update(name.encode())
-        digest.update(_digest(directory / name).encode())
+        path = weights if name == "weights_best.h5" else _stardist_directory() / name
+        digest.update(_digest(path).encode())
     return "sha256:" + digest.hexdigest()
 
 
 @lru_cache(maxsize=1)
-def _stardist_model(directory: str, version: str):
-    """Reuse the bundled model until its weights or inference configuration change."""
-    from stardist.models import StarDist2D
+def _stardist_model(filename: str, version: str):
+    """Restore downloaded weights and bundled configuration without creating model files."""
+    from stardist.models import Config2D, StarDist2D
 
-    path = Path(directory)
-    return StarDist2D(None, path.name, basedir=path.parent)
+    directory = _stardist_directory()
+    config = Config2D(**json.loads((directory / "config.json").read_text()))
+    model = StarDist2D(config, name=None, basedir=None)
+    # CSBDeep's load_weights wrapper silently skips loading when basedir=None.
+    model.keras_model.load_weights(filename)
+    model.thresholds = json.loads((directory / "thresholds.json").read_text())
+    return model
 
 
 def segment_stardist(
-    image: np.ndarray, *, prob_thresh=None, nms_thresh=None, callback=lambda _message: None
+    image: np.ndarray,
+    *,
+    model_path,
+    prob_thresh=None,
+    nms_thresh=None,
+    callback=lambda _message: None,
 ) -> np.ndarray:
     """Call StarDist directly, retaining every returned instance and its pixels."""
     for value in (prob_thresh, nms_thresh):
         if value is not None and (not np.isfinite(value) or not 0 <= value <= 1):
             raise ValueError("StarDist thresholds must be between 0 and 1")
+    path = Path(model_path).expanduser()
+    if not model_path or not path.is_file():
+        raise ValueError("The StarDist trained model is unavailable")
     callback("Loading StarDist model")
     prepare_segmentation_runtime()
     from csbdeep.utils import normalize
 
-    directory = _stardist_directory()
-    model = _stardist_model(str(directory), _stardist_version(directory))
+    model = _stardist_model(str(path.resolve()), _stardist_version(path))
     callback("Segmenting with StarDist")
     labels, _details = model.predict_instances(
         normalize(image), prob_thresh=prob_thresh, nms_thresh=nms_thresh
@@ -167,9 +180,11 @@ def run_segmentation(
     callback("Preparing segmentation input")
     data = preprocess_map(image, parameters.clip_percentile)
     if method_id == "stardist":
-        labels = segment_stardist(data, callback=callback, **parameters.method_options)
+        labels = segment_stardist(
+            data, model_path=model_path or "", callback=callback, **parameters.method_options
+        )
         model_id = "stardist-2d-versatile-fluo"
-        version = _stardist_version(_stardist_directory())
+        version = _stardist_version(Path(model_path or ""))
     elif method_id == "cellpose":
         labels = segment_cellpose(
             data, model_path=model_path or "", callback=callback, **parameters.method_options
@@ -177,12 +192,13 @@ def run_segmentation(
         model_id = "cellpose-dino-xrf"
         version = "sha256:" + _digest(Path(model_path).expanduser().resolve())
     elif method_id == "monai":
-        from .segmentation_monai import model_path as monai_model_path
         from .segmentation_monai import segment_monai
 
-        labels = segment_monai(data, callback=callback, **parameters.method_options)
+        labels = segment_monai(
+            data, model_path=model_path or "", callback=callback, **parameters.method_options
+        )
         model_id = "monai-unet-xrf"
-        version = "sha256:" + _digest(monai_model_path())
+        version = "sha256:" + _digest(Path(model_path).expanduser().resolve())
     elif method_id == "smp":
         from .model_store import SMP_MODEL
         from .segmentation_smp import segment_smp

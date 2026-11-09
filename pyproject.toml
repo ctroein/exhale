@@ -76,8 +76,14 @@ describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--match",
   "resources/linux/*.desktop",
   "resources/*.jpg",
   "resources/licenses/*",
-  "resources/models/2D_versatile_fluo_copy/*",
-  "resources/models/monai_unet/*",
+  "resources/models/2D_versatile_fluo_copy/*.json",
+  "resources/models/monai_unet/*.json",
+]
+
+[tool.setuptools.exclude-package-data]
+"exhale" = [
+  "resources/models/2D_versatile_fluo_copy/*.h5",
+  "resources/models/monai_unet/*.pt",
 ]
 
 [project.urls]

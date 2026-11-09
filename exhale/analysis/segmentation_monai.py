@@ -1,17 +1,11 @@
 """MONAI U-Net and shared tiled U-Net inference and nucleus-instance conversion."""
 
 from functools import lru_cache
-from importlib.resources import files
 from pathlib import Path
 
 import numpy as np
 from scipy import ndimage as ndi
 from skimage.segmentation import relabel_sequential, watershed
-
-
-def model_path() -> Path:
-    """Locate the bundled trained model without importing a neural runtime."""
-    return Path(str(files("exhale").joinpath("resources/models/monai_unet/model.pt")))
 
 
 def _remove_small_labels(labels, min_size):
@@ -87,11 +81,13 @@ def _model(filename: str, modified_ns: int, device: str):
     return model.to(device).eval()
 
 
-def segment_monai(image, *, seed_threshold=0.5, min_size=20, callback=lambda _message: None):
-    """Segment with the bundled MONAI residual U-Net."""
-    path = model_path()
-    if not path.is_file():
-        raise ValueError("The bundled MONAI U-Net trained model is unavailable")
+def segment_monai(
+    image, *, model_path, seed_threshold=0.5, min_size=20, callback=lambda _message: None
+):
+    """Segment with the supplied MONAI residual U-Net checkpoint."""
+    path = Path(model_path).expanduser()
+    if not model_path or not path.is_file():
+        raise ValueError("The MONAI U-Net trained model is unavailable")
     return segment_unet(
         image,
         model_loader=lambda device: (

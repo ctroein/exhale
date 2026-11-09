@@ -21,7 +21,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="supplied trained checkpoint")
     parser.add_argument("destination", type=Path, help="directory for prepared release assets")
-    parser.add_argument("--method", choices=("cellpose", "smp"), default="cellpose")
+    parser.add_argument(
+        "--method", choices=("cellpose", "smp", "stardist", "monai"), default="cellpose"
+    )
     args = parser.parse_args()
     model = model_for_method(args.method)
     if not args.source.is_file():

@@ -44,6 +44,24 @@ SMP_MODEL = TrainedModel(
     sha256="2a38f86815109cd84ed9fe86b64bf7bd18b762907fea067212338eaf12963a55",
 )
 
+STARDIST_MODEL = TrainedModel(
+    model_id="stardist-2d-versatile-fluo",
+    version="1",
+    filename="stardist-2d-versatile-fluo-v1.h5",
+    url="https://github.com/ctroein/exhale/releases/download/models-v1/stardist-2d-versatile-fluo-v1.h5",
+    size=5771480,
+    sha256="42202bd269c8106782316f1a2c75afb3f5ffa65e525c2e155ee0ced3a95da349",
+)
+
+MONAI_MODEL = TrainedModel(
+    model_id="monai-unet-xrf",
+    version="1",
+    filename="monai-unet-xrf-v1.pt",
+    url="https://github.com/ctroein/exhale/releases/download/models-v1/monai-unet-xrf-v1.pt",
+    size=1631368,
+    sha256="b93d729ffc70fa1c0600d04f63f2f38af529348584ba5acae3d781943ec0bb71",
+)
+
 MODEL_DIRECTORY_SETTING = "segmentation/model_directory"
 _CHUNK_SIZE = 256 * 1024
 # Trust verification only while the file's identity, size and modification time match.
@@ -55,8 +73,13 @@ class ModelDownloadError(RuntimeError):
 
 
 def model_for_method(method_id: str) -> TrainedModel | None:
-    """Return downloadable weights; StarDist and MONAI U-Net use bundled models."""
-    return {"cellpose": CELLPOSE_MODEL, "smp": SMP_MODEL}.get(method_id)
+    """Return the versioned weights required by a segmentation method."""
+    return {
+        "cellpose": CELLPOSE_MODEL,
+        "smp": SMP_MODEL,
+        "stardist": STARDIST_MODEL,
+        "monai": MONAI_MODEL,
+    }.get(method_id)
 
 
 def _file_identity(path):

@@ -173,7 +173,10 @@ def test_transfer_progress_is_throttled(server, tmp_path, monkeypatch):
     assert messages == [("Downloading", 0, model.size), ("Downloading", model.size, model.size)]
 
 
-def test_worker_acquires_the_model_before_calling_inference(server, tmp_path, monkeypatch):
+@pytest.mark.parametrize("method_id", ("cellpose", "smp", "stardist", "monai"))
+def test_worker_acquires_the_model_before_calling_inference(
+    server, tmp_path, monkeypatch, method_id
+):
     model, _ = server
     monkeypatch.setattr(model_store, "model_for_method", lambda _method: model)
     from exhale.analysis import segmentation_backends
@@ -187,7 +190,7 @@ def test_worker_acquires_the_model_before_calling_inference(server, tmp_path, mo
         return SegmentationOutput(np.ones_like(image, dtype=np.uint32), "test", "1")
 
     monkeypatch.setattr(segmentation_backends, "run_segmentation", infer)
-    worker = AnalysisWorker(np.ones((2, 3)), method_id="cellpose", model_directory=tmp_path)
+    worker = AnalysisWorker(np.ones((2, 3)), method_id=method_id, model_directory=tmp_path)
     worker.execute()
     assert seen == [str(model.local_path(tmp_path))]
 

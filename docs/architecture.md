@@ -623,7 +623,7 @@ history, editing and snapshot persistence. `segmentation_monai` owns only infere
 and model-specific conversion to instance labels. Neural imports occur when a
 run starts; registry/Options setup and loading saved masks require no model runtime.
 
-The bundled model has one input and background/interior/boundary outputs, using
+The versioned model has one input and background/interior/boundary outputs, using
 MONAI's residual 2-D U-Net (channels 16/32/64/128, strides 2/2/2, two residual units).
 After shared percentile clipping (default 99.9), normalize input over its full
 minimum/maximum range. Infer 256×256 overlapping tiles with Gaussian blending of
@@ -638,9 +638,10 @@ to foreground components and final instances. This inference conversion remains
 separate from the later editable expansion and minimum-area filter.
 
 Strict weights-only loading and file/device caching prevent accidental random
-initialization or repeat loading in a batch. Results record the bundled model's
+initialization or repeat loading in a batch. Results record the downloaded model's
 SHA-256 and inference parameters through the existing model/provenance contract.
-The package includes the small weights; larger Cellpose weights remain on-demand.
+All four segmentation methods acquire their pinned weights through the common
+verified model store. Only small configuration and metadata files remain bundled.
 
 ## Quick Solo layer viewing
 
@@ -689,3 +690,15 @@ model-content SHA-256 and inference options. The optional `smp` extra supplies
 SMP, TorchVision, PyTorch and MONAI. Native installers include it in the existing
 PyTorch selection. The segmentation queue, candidates, editing, exports and
 project persistence use the same contracts as the other segmentation methods.
+
+## Shared segmentation model storage
+
+All segmentation weights use `model_store` and the configured application model
+directory. Workers acquire and verify the method checkpoint before inference,
+using the same progress, cancellation and error flow for every method. Model
+preparation supports `stardist`, `monai`, `cellpose` and `smp` release assets.
+No binary weights are packaged in Exhale. StarDist's config and default thresholds
+remain bundled so method options work without downloading or importing a backend;
+its model-content identity still includes those files and the downloaded weights.
+MONAI's architecture/integrity metadata remain bundled as documentation of the
+expected checkpoint. Source and installed applications use the same model paths.

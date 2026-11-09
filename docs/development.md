@@ -397,11 +397,11 @@ artifacts. It is the final step when intentionally creating a release.
 
 ## Trained-model distribution
 
-Large segmentation weights are GitHub release assets, independently versioned
+All segmentation weights are GitHub release assets, independently versioned
 from Exhale releases. Software version lookup matches only `v[0-9]*` tags, so
 model-release tags cannot become application versions. `exhale/analysis/model_store.py` records the exact URL,
 expected byte size and SHA-256. Models are fetched only when needed for a run;
-StarDist continues using its bundled model. User-selected model storage belongs
+Only small architecture/default metadata remain bundled. User-selected model storage belongs
 to application settings, never project state.
 
 The first Cellpose asset is prepared for release tag `models-v1` in the existing
@@ -434,6 +434,17 @@ percentile clipping. Keep its three-channel repetition, ImageNet mean/std,
 256-pixel tiles, Gaussian logit blending and instance conversion consistent
 with `test_smp.py` and `train_smp.py` in the supplied training code.
 
+StarDist (5,771,480 bytes) and MONAI U-Net (1,631,368 bytes) use the same flow.
+Prepare their source weights with `--method stardist` and `--method monai`,
+respectively. Upload each checkpoint, checksum and JSON sidecar to the same
+`models-v1` release. Their asset basenames are
+`stardist-2d-versatile-fluo-v1.h5` and `monai-unet-xrf-v1.pt`.
+StarDist config/default-threshold JSON and MONAI metadata remain in the application;
+no neural weights are included in the wheel. StarDist restores its architecture
+from config and loads the cached weights directly into its Keras model, because
+CSBDeep suppresses its model-folder load wrapper when `basedir=None`.
+Its provenance digest still covers config, default thresholds and weights.
+
 Source and installed applications share the same cache layout and validation.
 Transfer tests use a local HTTP server to cover truncated responses, checksum
 failures, cancellation and offline reuse without requiring public release assets.
@@ -454,9 +465,9 @@ The URL in the README lets pip retrieve it directly from this repository.
 
 Native installers and Windows startup-check workflows use the same requirements
 file when Cellpose is selected. Dependency wheels supply their own resource data
-and metadata. Large trained weights stay in the model store and are not bundled
-with the executable. MONAI U-Net's 1.6 MB weights and architecture/integrity metadata
-are bundled under `resources/models/monai_unet/`. Its adapter loads the residual
+and metadata. All trained weights stay in the model store and are not bundled
+with the executable. MONAI U-Net's architecture/integrity metadata remain
+under `resources/models/monai_unet/`. Its adapter loads the residual
 U-Net lazily with strict weights-only loading and uses CUDA when available,
 otherwise CPU. Keep its inference preprocessing, tile blending and watershed
 consistent with the supplied training/prediction code; verify on original-size

@@ -393,7 +393,7 @@ Validates the labels against the input shape without downstream filtering or reg
 
 ### `exhale/analysis/segmentation_monai.py`
 
-Loads the bundled residual U-Net lazily, normalizes clipped raw maps and blends
+Loads the cached residual U-Net checkpoint lazily, normalizes clipped raw maps and blends
 original-resolution tile logits before a single watershed conversion. Reuses
 models by file revision/device, shares tiled inference with SMP U-Net, checks cancellation at tile boundaries, and
 converts interior/boundary probabilities to instance labels with fallback seeds.
@@ -659,7 +659,8 @@ dialog's runtime-information table.
 document generated modules directly.
 
 `exhale/resources/icons/` contains packaged SVG and raster artwork.
-`exhale/resources/models/` contains the bundled StarDist model data.
+`exhale/resources/models/` contains small architecture, default-threshold and integrity
+metadata. Trained weights are downloaded to the configured application model store.
 `artwork/generate/` contains the indexed splash mask, deterministic mask-point,
 guide and icon-source generators, appearance reference, splash installer, and
 ImageGen procedure for XRF artwork; and

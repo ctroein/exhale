@@ -38,7 +38,7 @@ def test_invalid_label_images_are_rejected(labels):
         SegmentationOutput(labels, "model", "version")
 
 
-def test_stardist_adapter_returns_small_faint_instances_unchanged(monkeypatch):
+def test_stardist_adapter_returns_small_faint_instances_unchanged(monkeypatch, tmp_path):
     image = np.arange(16, dtype=np.float32).reshape(4, 4)
     labels = np.zeros_like(image, dtype=np.int32)
     labels[0, 0] = 42
@@ -49,9 +49,29 @@ def test_stardist_adapter_returns_small_faint_instances_unchanged(monkeypatch):
     utils = ModuleType("csbdeep.utils")
     utils.normalize = lambda data: data / 100
     monkeypatch.setitem(sys.modules, "csbdeep.utils", utils)
-    actual = backends.segment_stardist(image)
+    path = tmp_path / "weights.h5"
+    path.touch()
+    actual = backends.segment_stardist(image, model_path=str(path))
     np.testing.assert_array_equal(actual, labels)
     np.testing.assert_array_equal(model.predict_instances.call_args.args[0], image / 100)
+
+
+def test_stardist_without_a_model_folder_explicitly_loads_keras_weights(monkeypatch, tmp_path):
+    module = ModuleType("stardist.models")
+    module.Config2D = Mock(side_effect=lambda **kwargs: kwargs)
+    model = SimpleNamespace(keras_model=SimpleNamespace(load_weights=Mock()))
+    module.StarDist2D = Mock(return_value=model)
+    monkeypatch.setitem(sys.modules, "stardist.models", module)
+    path = tmp_path / "weights.h5"
+    backends._stardist_model.cache_clear()
+    try:
+        actual = backends._stardist_model(str(path), "test-version")
+        assert actual is model
+        assert module.StarDist2D.call_args.kwargs == {"name": None, "basedir": None}
+        model.keras_model.load_weights.assert_called_once_with(str(path))
+        assert model.thresholds == {"prob": pytest.approx(0.479071463157368), "nms": 0.3}
+    finally:
+        backends._stardist_model.cache_clear()
 
 
 def test_worker_snapshots_input_and_parameters_and_keeps_model_identity(monkeypatch):
@@ -76,7 +96,7 @@ def test_worker_snapshots_input_and_parameters_and_keeps_model_identity(monkeypa
 
 
 def test_backend_shape_mismatch_is_not_published(monkeypatch):
-    worker = AnalysisWorker(np.ones((2, 3)))
+    worker = AnalysisWorker(np.ones((2, 3)), model_path="mock")
     monkeypatch.setattr(
         backends, "segment_stardist", lambda *_args, **_kw: np.ones((3, 2), dtype=int)
     )
@@ -90,7 +110,7 @@ def test_backend_shape_mismatch_is_not_published(monkeypatch):
 
 
 def test_cancelled_inference_never_publishes_partial_labels(monkeypatch):
-    worker = AnalysisWorker(np.ones((2, 3)))
+    worker = AnalysisWorker(np.ones((2, 3)), model_path="mock")
 
     def predict(data, **_kwargs):
         worker.abort()
@@ -109,7 +129,7 @@ def test_cancelled_inference_never_publishes_partial_labels(monkeypatch):
 def test_cancel_before_execution_does_not_load_a_backend(monkeypatch):
     backend = Mock()
     monkeypatch.setattr(backends, "run_segmentation", backend)
-    worker = AnalysisWorker(np.ones((2, 3)))
+    worker = AnalysisWorker(np.ones((2, 3)), model_path="mock")
     worker.abort()
     with pytest.raises(InterruptedError):
         worker.execute()
@@ -171,7 +191,7 @@ from exhale.analysis import segmentation_backends as backend
 from exhale.analysis.analysisworker import AnalysisWorker
 backend.segment_stardist = lambda data, **kwargs: np.ones(data.shape, dtype=np.uint32)
 backend._stardist_version = lambda path: "revision"
-output = AnalysisWorker(np.ones((3,4))).execute()
+output = AnalysisWorker(np.ones((3,4)), model_path="mock").execute()
 assert output.labels.shape == (3,4)
 assert not any("xrf_refcopy" in name for name in sys.modules)
 assert not {"tensorflow", "torch", "stardist"}.intersection(sys.modules)
@@ -179,7 +199,9 @@ assert not {"tensorflow", "torch", "stardist"}.intersection(sys.modules)
     subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
 
 
-def test_stardist_thresholds_forwarded_and_defaults_do_not_initialize_backend(monkeypatch):
+def test_stardist_thresholds_forwarded_and_defaults_do_not_initialize_backend(
+    monkeypatch, tmp_path
+):
     defaults = backends.stardist_thresholds()
     assert defaults["prob_thresh"] == pytest.approx(0.479071463157368)
     assert defaults["nms_thresh"] == 0.3
@@ -191,7 +213,9 @@ def test_stardist_thresholds_forwarded_and_defaults_do_not_initialize_backend(mo
     utils = ModuleType("csbdeep.utils")
     utils.normalize = lambda data: data
     monkeypatch.setitem(sys.modules, "csbdeep.utils", utils)
-    backends.segment_stardist(image, prob_thresh=0.6, nms_thresh=0.2)
+    path = tmp_path / "weights.h5"
+    path.touch()
+    backends.segment_stardist(image, model_path=str(path), prob_thresh=0.6, nms_thresh=0.2)
     assert model.predict_instances.call_args.kwargs == {"prob_thresh": 0.6, "nms_thresh": 0.2}
     with pytest.raises(ValueError, match="thresholds"):
-        backends.segment_stardist(image, prob_thresh=float("nan"))
+        backends.segment_stardist(image, model_path=str(path), prob_thresh=float("nan"))

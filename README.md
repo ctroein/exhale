@@ -51,7 +51,7 @@ For MONAI U-Net alone:
 uv tool install --python 3.12 'exhale-xrf[monai]'
 ```
 
-MONAI U-Net's trained weights are bundled; no model download is needed.
+MONAI U-Net's 1.6 MB trained checkpoint downloads on first use.
 
 For SMP U-Net with its trained ResNet18 encoder:
 
@@ -187,9 +187,9 @@ URL with its `vVERSION` tag and append `==VERSION` to the package specification.
 A version-pinned uv installation must be reinstalled with a newer version
 specification to upgrade.
 
-Trained Cellpose and SMP U-Net weights are downloaded on first use to the model directory in
+Trained weights for all four methods are downloaded on first use to the model directory in
 application settings. The same mechanism is used for installed applications and
-Git checkouts; the large weights are not included in the application installer.
+Git checkouts; the weights are not included in the application installer.
 DINOv3 code and derived model weights retain the
 [DINOv3 license](exhale/resources/licenses/DINOv3-LICENSE.md).
 
