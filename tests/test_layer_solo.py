@@ -69,6 +69,24 @@ def test_button_cycles_normal_add_solo_normal_without_changing_visibility_choice
     assert [layer.visible for layer in items] == original
 
 
+def test_color_change_keeps_solo_when_the_layer_is_already_checked(layers):
+    helper, items, widget, _ = layers
+    helper.set_layer_blending(items[0], helper.BLENDING_SOLO)
+    row_for(widget, items[0])._set_image_color_option("#00ff00")
+    assert helper.layer_blending(items[0]) == helper.BLENDING_SOLO
+    assert [layer.visible for layer in items] == [True, False, False]
+
+
+def test_opening_custom_color_immediately_checks_the_layer_even_if_cancelled(layers):
+    helper, items, widget, _ = layers
+    row = row_for(widget, items[2])
+    assert not row.visible.isChecked()
+    row._color_editor._pick_color()
+    assert row.visible.isChecked() and helper.layer_visible(items[2])
+    row._color_dialog.reject()
+    assert row.visible.isChecked() and helper.layer_visible(items[2])
+
+
 def test_transferring_solo_advances_previous_layer_to_normal_and_refreshes_its_icon(layers):
     helper, items, widget, _ = layers
     first, second = [row_for(widget, layer) for layer in items[:2]]

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ClusteringBatchDialog</class>
+ <widget class="QDialog" name="ClusteringBatchDialog">
+  <property name="windowTitle"><string>Batch clustering</string></property>
+  <layout class="QVBoxLayout" name="batchLayout" stretch="0,1,0,0,0">
+   <item><widget class="QLabel" name="methodInfo"/></item>
+   <item><widget class="QTreeWidget" name="sampleTree">
+    <property name="rootIsDecorated"><bool>false</bool></property>
+    <property name="sortingEnabled"><bool>false</bool></property>
+    <column><property name="text"><string>Sample</string></property></column>
+    <column><property name="text"><string>Elements</string></property></column>
+    <column><property name="text"><string>Status</string></property></column>
+   </widget></item>
+   <item><layout class="QHBoxLayout" name="selectionLayout" stretch="0,0,0,1">
+    <item><widget class="QPushButton" name="selectAll"><property name="text"><string>Select all</string></property></widget></item>
+    <item><widget class="QPushButton" name="selectNew"><property name="text"><string>Select unclustered</string></property></widget></item>
+    <item><widget class="QPushButton" name="selectNone"><property name="text"><string>Select none</string></property></widget></item>
+    <item><spacer name="selectionSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+   </layout></item>
+   <item><widget class="QLabel" name="selectionInfo"/></item>
+   <item><widget class="QDialogButtonBox" name="buttonBox"><property name="standardButtons"><set>QDialogButtonBox::Cancel</set></property></widget></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

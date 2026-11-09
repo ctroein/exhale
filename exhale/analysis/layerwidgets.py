@@ -120,6 +120,183 @@ class LayerColorButton(QtWidgets.QToolButton):
         self._paint_colors(painter, rect.adjusted(frame, frame, -frame, -frame), self._colors)
 
 
+class LayerColorEditor(QtCore.QObject):
+    """Shared swatch, mode cycling and color menu for a bound viewer layer."""
+
+    changed = QtCore.Signal()
+    activated = QtCore.Signal()
+
+    def __init__(self, helper=None, layer=None, parent=None):
+        super().__init__(parent)
+        self.color_button = LayerColorButton(parent)
+        self._color_dialog = QtWidgets.QColorDialog(self.color_button)
+        self.color_button.clicked.connect(self._color_button_clicked)
+        self.color_button.modeSelected.connect(self._color_menu_selected)
+        self.bind(helper, layer)
+
+    def bind(self, helper, layer):
+        """Reuse this editor when the selected element changes."""
+        identity = None if layer is None else (helper.layer_identity(layer) or id(layer))
+        if getattr(self, "_bound_identity", None) != identity:
+            self._color_dialog.reject()
+        self._bound_identity = identity
+        self.helper = helper
+        self.layer = layer
+        self.color_button.setEnabled(layer is not None)
+        if layer is not None:
+            from napari.layers import Labels
+
+            self.is_labels = isinstance(layer, Labels)
+            self._refresh_previews()
+
+    def _activate(self):
+        self.activated.emit()
+
+    def _make_visible(self):
+        """Match checking a hidden layer without cancelling an already checked Solo layer."""
+        if not self.helper.layer_visible(self.layer):
+            self.helper.set_layer_visible(self.layer, True)
+            self.changed.emit()
+
+    def _set_label_mode(self, mode):
+        self._activate()
+        self._make_visible()
+        self.helper.set_label_display(self.layer, mode)
+        self._refresh_previews()
+        self.changed.emit()
+
+    def _color_menu_selected(self, choice):
+        if self.is_labels and choice.startswith("palette:"):
+            self._activate()
+            self._make_visible()
+            mode, color = self.helper.label_display_mode(self.layer)
+            self.helper.set_label_presentation(
+                self.layer, mode, color, palette_index=int(choice.removeprefix("palette:"))
+            )
+            self._refresh_previews()
+            self.changed.emit()
+        else:
+            self._set_image_color_option(choice)
+
+    def _color_button_clicked(self):
+        """Cycle label modes; image buttons continue to open the color chooser."""
+        if self.is_labels:
+            mode, _color = self.helper.label_display_mode(self.layer)
+            modes = self.helper.LABEL_MODES
+            self._set_label_mode(modes[(modes.index(mode) + 1) % len(modes)])
+        else:
+            self._pick_color()
+
+    def _set_image_color_option(self, choice):
+        if choice == "custom":
+            self._pick_color()
+            return
+        self._activate()
+        self._make_visible()
+        color = self._automatic_image_color() if choice == "auto" else QtGui.QColor(choice)
+        if self.is_labels:
+            mode, _old_color = self.helper.label_display_mode(self.layer)
+            self.helper.set_label_display(self.layer, mode, color.getRgbF())
+        else:
+            self.helper.set_image_color(self.layer, color.getRgbF())
+        self._refresh_previews()
+        self.changed.emit()
+
+    def _automatic_image_color(self):
+        """Choose a saturated hue far from the other enabled image and mask layers."""
+        return self.helper.automatic_layer_color(exclude=self.layer, include_labels=True)
+
+    def _pick_color(self):
+        self._activate()
+        self._make_visible()
+        if self.is_labels:
+            mode, color = self.helper.label_display_mode(self.layer)
+            if mode == self.helper.LABEL_CATEGORICAL:
+                return
+        else:
+            color = self.helper.image_color(self.layer)
+        qcolor = QtGui.QColor.fromRgbF(*map(float, color[:4]))
+        self._color_dialog.setCurrentColor(qcolor)
+        self._color_dialog.open(self._color_picked)
+
+    def _color_picked(self):
+        color = self._color_dialog.currentColor()
+        rgba = (color.redF(), color.greenF(), color.blueF(), color.alphaF())
+        if self.is_labels:
+            mode, _old_color = self.helper.label_display_mode(self.layer)
+            self.helper.set_label_display(self.layer, mode, rgba)
+        else:
+            self.helper.set_image_color(self.layer, rgba)
+        self._refresh_previews()
+        self.changed.emit()
+
+    def _refresh_previews(self):
+        if not self.is_labels:
+            current = QtGui.QColor.fromRgbF(*self.helper.image_color(self.layer))
+            self.color_button.set_colors([current])
+            self.color_button.setToolTip(LAYER_COLOR)
+            self._set_color_menu(current)
+            return
+
+        mode, rgba = self.helper.label_display_mode(self.layer)
+        color = QtGui.QColor("white") if rgba is None else QtGui.QColor.fromRgbF(*map(float, rgba))
+        monochrome = [_with_brightness(color, level) for level in self.helper.MONOCHROME_LEVELS]
+        previews = {
+            self.helper.LABEL_CATEGORICAL: [
+                QtGui.QColor.fromRgbF(*map(float, rgba))
+                for rgba in self.helper.categorical_colors(self.layer)
+            ],
+            self.helper.LABEL_MASK: [color],
+            self.helper.LABEL_MONOCHROME: monochrome,
+        }
+        self.color_button.set_colors(previews[mode])
+        self.color_button.setToolTip(LAYER_LABEL_COLOR[mode])
+        if mode == self.helper.LABEL_CATEGORICAL:
+            self.color_button.set_mode_options(
+                tuple(
+                    (
+                        f"palette:{i}",
+                        f"Palette {i + 1}",
+                        [
+                            QtGui.QColor.fromRgbF(*map(float, rgba))
+                            for rgba in self.helper.categorical_colors(self.layer, palette_index=i)
+                        ],
+                    )
+                    for i in range(5)
+                ),
+                selected=f"palette:{self.helper.label_palette_index(self.layer)}",
+            )
+        else:
+            self._set_color_menu(color)
+
+    def _set_color_menu(self, current):
+        """Share color presets and chooser actions between images and monochrome labels."""
+        presets = (
+            ("#ff0000", "Red"),
+            ("#00ff00", "Green"),
+            ("#0000ff", "Blue"),
+            ("#00ffff", "Cyan"),
+            ("#ff00ff", "Magenta"),
+            ("#ffff00", "Yellow"),
+        )
+        self.color_button.set_mode_options(
+            tuple((value, name, [QtGui.QColor(value)]) for value, name in presets)
+            + (
+                (
+                    "auto",
+                    "Auto",
+                    [
+                        QtGui.QColor("#ff0000"),
+                        QtGui.QColor("#00ff00"),
+                        QtGui.QColor("#0000ff"),
+                        QtGui.QColor("#ffff00"),
+                    ],
+                ),
+                ("custom", "Custom…", [current]),
+            )
+        )
+
+
 class _DragHandle(QtWidgets.QLabel):
     def __init__(self, row):
         super().__init__("≡", row)
@@ -155,7 +332,6 @@ class LayerRowWidget(QtWidgets.QWidget):
         self.layer = layer
         self.helper = layer_list.helper
         self.is_labels = isinstance(layer, Labels)
-        self._color_dialog = QtWidgets.QColorDialog(self)
 
         outer_layout = QtWidgets.QVBoxLayout(self)
         outer_layout.setContentsMargins(2, 2, 2, 2)
@@ -184,15 +360,25 @@ class LayerRowWidget(QtWidgets.QWidget):
             remove_layout = QtWidgets.QHBoxLayout(remove_cell)
             remove_layout.setContentsMargins(0, 0, 0, 0)
             if any(
-                key in layer.metadata for key in ("exhale_reference_ref", "exhale_comparison_id")
+                key in layer.metadata
+                for key in ("exhale_reference_ref", "exhale_comparison_id", "exhale_clustering_id")
             ):
                 remove = QtWidgets.QToolButton()
                 comparison_id = layer.metadata.get("exhale_comparison_id")
+                clustering_id = layer.metadata.get("exhale_clustering_id")
                 remove.setObjectName(
-                    "removeComparisonLayer" if comparison_id is not None else "removeReferenceLayer"
+                    "removeClusteringLayer"
+                    if clustering_id is not None
+                    else "removeComparisonLayer"
+                    if comparison_id is not None
+                    else "removeReferenceLayer"
                 )
                 remove.setIcon(icons.icon(icons.IconName.DELETE))
-                if comparison_id is not None:
+                if clustering_id is not None:
+                    remove.clicked.connect(
+                        lambda: layer_list.removeClusteringRequested.emit(clustering_id)
+                    )
+                elif comparison_id is not None:
                     remove.clicked.connect(
                         lambda: layer_list.removeComparisonRequested.emit(comparison_id)
                     )
@@ -205,9 +391,11 @@ class LayerRowWidget(QtWidgets.QWidget):
                 remove_layout.addWidget(remove)
             layout.addWidget(remove_cell)
 
-        self.color_button = LayerColorButton()
-        self.color_button.clicked.connect(self._color_button_clicked)
-        self.color_button.modeSelected.connect(self._color_menu_selected)
+        self._color_editor = LayerColorEditor(self.helper, self.layer, self)
+        self.color_button = self._color_editor.color_button
+        self._color_dialog = self._color_editor._color_dialog
+        self._color_editor.activated.connect(self._activate)
+        self._color_editor.changed.connect(self._color_changed)
         color_cell = QtWidgets.QWidget()
         color_layout = QtWidgets.QHBoxLayout(color_cell)
         color_layout.setContentsMargins(0, 0, 0, 0)
@@ -323,143 +511,20 @@ class LayerRowWidget(QtWidgets.QWidget):
         self.additive.set_icon_name(icon)
         self.additive.setToolTip(LAYER_BLENDING[description])
 
-    def _set_label_mode(self, mode):
-        self._activate()
-        self.visible.setChecked(True)
-        self.helper.set_label_display(self.layer, mode)
-        self._refresh_previews()
-        self.layer_list.presentationChanged.emit()
-
-    def _color_menu_selected(self, choice):
-        if self.is_labels and choice.startswith("palette:"):
-            self._activate()
-            self.visible.setChecked(True)
-            mode, color = self.helper.label_display_mode(self.layer)
-            self.helper.set_label_presentation(
-                self.layer, mode, color, palette_index=int(choice.removeprefix("palette:"))
-            )
-            self._refresh_previews()
-            self.layer_list.presentationChanged.emit()
-        else:
-            self._set_image_color_option(choice)
-
-    def _color_button_clicked(self):
-        """Cycle label modes; image buttons continue to open the color chooser."""
-        if self.is_labels:
-            mode, _color = self.helper.label_display_mode(self.layer)
-            modes = self.helper.LABEL_MODES
-            self._set_label_mode(modes[(modes.index(mode) + 1) % len(modes)])
-        else:
-            self._pick_color()
+    def _refresh_previews(self):
+        self._color_editor._refresh_previews()
 
     def _set_image_color_option(self, choice):
-        if choice == "custom":
-            self._pick_color()
-            return
-        self._activate()
-        self.visible.setChecked(True)
-        color = self._automatic_image_color() if choice == "auto" else QtGui.QColor(choice)
-        if self.is_labels:
-            mode, _old_color = self.helper.label_display_mode(self.layer)
-            self.helper.set_label_display(self.layer, mode, color.getRgbF())
-        else:
-            self.helper.set_image_color(self.layer, color.getRgbF())
-        self._refresh_previews()
+        self._color_editor._set_image_color_option(choice)
+
+    def _set_label_mode(self, mode):
+        self._color_editor._set_label_mode(mode)
+
+    def _color_changed(self):
+        with QtCore.QSignalBlocker(self.visible):
+            self.visible.setChecked(self.helper.layer_visible(self.layer))
+        self.layer_list.refresh_blending_icons()
         self.layer_list.presentationChanged.emit()
-
-    def _automatic_image_color(self):
-        """Choose a saturated hue far from the other enabled image and mask layers."""
-        return self.helper.automatic_layer_color(exclude=self.layer, include_labels=True)
-
-    def _pick_color(self):
-        self._activate()
-        self.visible.setChecked(True)
-        if self.is_labels:
-            mode, color = self.helper.label_display_mode(self.layer)
-            if mode == self.helper.LABEL_CATEGORICAL:
-                return
-        else:
-            color = self.helper.image_color(self.layer)
-        qcolor = QtGui.QColor.fromRgbF(*map(float, color[:4]))
-        self._color_dialog.setCurrentColor(qcolor)
-        self._color_dialog.open(self._color_picked)
-
-    def _color_picked(self):
-        color = self._color_dialog.currentColor()
-        rgba = (color.redF(), color.greenF(), color.blueF(), color.alphaF())
-        if self.is_labels:
-            mode, _old_color = self.helper.label_display_mode(self.layer)
-            self.helper.set_label_display(self.layer, mode, rgba)
-        else:
-            self.helper.set_image_color(self.layer, rgba)
-        self._refresh_previews()
-        self.layer_list.presentationChanged.emit()
-
-    def _refresh_previews(self):
-        if not self.is_labels:
-            current = QtGui.QColor.fromRgbF(*self.helper.image_color(self.layer))
-            self.color_button.set_colors([current])
-            self.color_button.setToolTip(LAYER_COLOR)
-            self._set_color_menu(current)
-            return
-
-        mode, rgba = self.helper.label_display_mode(self.layer)
-        color = QtGui.QColor("white") if rgba is None else QtGui.QColor.fromRgbF(*map(float, rgba))
-        monochrome = [_with_brightness(color, level) for level in self.helper.MONOCHROME_LEVELS]
-        previews = {
-            self.helper.LABEL_CATEGORICAL: [
-                QtGui.QColor.fromRgbF(*map(float, rgba))
-                for rgba in self.helper.categorical_colors(self.layer)
-            ],
-            self.helper.LABEL_MASK: [color],
-            self.helper.LABEL_MONOCHROME: monochrome,
-        }
-        self.color_button.set_colors(previews[mode])
-        self.color_button.setToolTip(LAYER_LABEL_COLOR[mode])
-        if mode == self.helper.LABEL_CATEGORICAL:
-            self.color_button.set_mode_options(
-                tuple(
-                    (
-                        f"palette:{i}",
-                        f"Palette {i + 1}",
-                        [
-                            QtGui.QColor.fromRgbF(*map(float, rgba))
-                            for rgba in self.helper.categorical_colors(self.layer, palette_index=i)
-                        ],
-                    )
-                    for i in range(5)
-                ),
-                selected=f"palette:{self.helper.label_palette_index(self.layer)}",
-            )
-        else:
-            self._set_color_menu(color)
-
-    def _set_color_menu(self, current):
-        """Share color presets and chooser actions between images and monochrome labels."""
-        presets = (
-            ("#ff0000", "Red"),
-            ("#00ff00", "Green"),
-            ("#0000ff", "Blue"),
-            ("#00ffff", "Cyan"),
-            ("#ff00ff", "Magenta"),
-            ("#ffff00", "Yellow"),
-        )
-        self.color_button.set_mode_options(
-            tuple((value, name, [QtGui.QColor(value)]) for value, name in presets)
-            + (
-                (
-                    "auto",
-                    "Auto",
-                    [
-                        QtGui.QColor("#ff0000"),
-                        QtGui.QColor("#00ff00"),
-                        QtGui.QColor("#0000ff"),
-                        QtGui.QColor("#ffff00"),
-                    ],
-                ),
-                ("custom", "Custom…", [current]),
-            )
-        )
 
 
 class _LayerHeaderWidget(QtWidgets.QWidget):
@@ -499,6 +564,7 @@ class LayerListWidget(QtWidgets.QListWidget):
     presentationChanged = QtCore.Signal()
     removeRequested = QtCore.Signal(object)
     removeComparisonRequested = QtCore.Signal(object)
+    removeClusteringRequested = QtCore.Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -558,7 +624,14 @@ class LayerListWidget(QtWidgets.QListWidget):
             self.fontMetrics().height() + 8
             if self.helper is not None
             and any(
-                "exhale_reference_ref" in layer.metadata or "exhale_comparison_id" in layer.metadata
+                any(
+                    key in layer.metadata
+                    for key in (
+                        "exhale_reference_ref",
+                        "exhale_comparison_id",
+                        "exhale_clustering_id",
+                    )
+                )
                 for layer in self.helper.user_layers()
             )
             else 0

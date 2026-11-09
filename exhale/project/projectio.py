@@ -15,6 +15,7 @@ from ..analysis.segmentationio import (
     remove_unreferenced_snapshots,
     save_candidate,
 )
+from ..data.clustering import DEFAULT_CLUSTERING_METHOD
 from ..data.elementsettings import ElementSettings, ElementSettingsDefaults, Normalizers
 from ..data.imagesettings import Colorschemes, ImageSettings, Layouts, Scalebars
 from ..data.projectdata import (
@@ -478,15 +479,23 @@ def export_project_state(
         "clustering_results": [
             {
                 "sample_id": result.sample_id,
+                "method_id": result.method_id,
                 "element_refs": [_ref_to_json(ref) for ref in result.element_refs],
-                "parameters": {"min_k": result.parameters.min_k, "max_k": result.parameters.max_k},
+                "parameters": asdict(result.parameters),
                 "layer_settings": _layer_settings_to_json(result.layer_settings),
-                "sidecar": str(clustering_relative_path(result.sample_id)),
+                "sidecar": result.sidecar
+                or str(clustering_relative_path(result.sample_id, result.method_id)),
             }
             for result in sorted(
-                project_data.clustering_results.values(), key=lambda result: result.sample_id
+                (
+                    result
+                    for methods in project_data.clustering_results.values()
+                    for result in methods.values()
+                ),
+                key=lambda result: (result.sample_id, result.method_id),
             )
         ],
+        "clustering_method": project_data.clustering_method,
         "matrix_plots": {
             key: settings.to_json()
             for key, settings in sorted(project_data.matrix_plot_settings.items())
@@ -605,6 +614,10 @@ def load_project_state(
     validate_project_state(state)
 
     issues = []
+    project_data.clustering_method = state.get("clustering_method", DEFAULT_CLUSTERING_METHOD)
+    if not isinstance(project_data.clustering_method, str):
+        project_data.clustering_method = DEFAULT_CLUSTERING_METHOD
+        issues.append("Clustering method selection was reset: expected a string")
     method = state.get("segmentation_method")
     if method is None or isinstance(method, str):
         project_data.segmentation_method = method
@@ -954,11 +967,17 @@ def load_project_state(
                     refs,
                     parameters,
                     load_xrf_sample(
-                        Path(project_dir) / obj["sidecar"], expected_method_id="element-clusters"
+                        Path(project_dir) / obj["sidecar"],
+                        expected_method_id=(DEFAULT_CLUSTERING_METHOD, "element-clusters")
+                        if obj.get("method_id", DEFAULT_CLUSTERING_METHOD)
+                        == DEFAULT_CLUSTERING_METHOD
+                        else obj["method_id"],
                     ),
                     layer_settings,
+                    method_id=obj.get("method_id", DEFAULT_CLUSTERING_METHOD),
+                    sidecar=obj["sidecar"],
                 )
-                project_data.clustering_results[sample.sample_id] = result
+                project_data.set_clustering_result(result)
             except Exception as exc:
                 issues.append(f"One element-clustering result was skipped: {exc}")
 

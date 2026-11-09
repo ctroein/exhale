@@ -51,6 +51,7 @@ class SegmentationViewer(NapariHelper):
         *,
         fit=True,
         comparisons=(),
+        clustering_layers=(),
         edit_session=None,
     ) -> None:
         """Show the exact returned labels, retaining pooled layers between results.
@@ -69,7 +70,15 @@ class SegmentationViewer(NapariHelper):
         self._ensure_layer_pools()
         comparisons = tuple(comparisons)
         comparison_ids = {candidate.candidate_id for candidate, _name in comparisons}
+        clustering_layers = tuple(clustering_layers)
+        clustering_ids = {identity for identity, _name, _data in clustering_layers}
         for layer in tuple(self.viewer.layers):
+            if "exhale_clustering_id" in layer.metadata:
+                if layer.metadata["exhale_clustering_id"] not in clustering_ids:
+                    self._fixed_layers.pop(layer.metadata["exhale_role"], None)
+                    self.viewer.layers.remove(layer)
+                else:
+                    self._set_layer_active(layer, False)
             if "exhale_comparison_id" in layer.metadata:
                 if layer.metadata["exhale_comparison_id"] not in comparison_ids:
                     self._fixed_layers.pop(layer.metadata["exhale_role"], None)
@@ -154,8 +163,17 @@ class SegmentationViewer(NapariHelper):
                 SegmentationLayerSettings(layers={identity: candidate.comparison_presentation})
             )
             comparison_layers.append(layer)
+        cluster_layers = []
+        for identity, name, data in clustering_layers:
+            if np.shape(data) != shape:
+                continue
+            layer = self._fixed_labels(identity, data, name=name, visible=True, opacity=0.6)
+            layer.editable = False
+            layer.metadata["exhale_clustering_id"] = identity
+            layer.metadata[self.LAYER_ID_KEY] = identity
+            cluster_layers.append(layer)
         self._set_active_layer_order(
-            (source_layer, *reference_layers, *comparison_layers, self.nuc_layer)
+            (source_layer, *reference_layers, *cluster_layers, *comparison_layers, self.nuc_layer)
         )
         settings = SegmentationLayerSettings(
             layers={

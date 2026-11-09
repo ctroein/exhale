@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import numpy as np
 
+from .clustering import DEFAULT_CLUSTERING_METHOD
 from .constants import CONCENTRATION_UNITS
 from .elementsettings import ElementSettingsDefaults
 from .imagesettings import ImageSettings
@@ -208,19 +209,31 @@ class SegmentationResult:
 class ClusteringParameters:
     """Intensity partition settings independent of segmentation methods."""
 
-    min_k: int
-    max_k: int
+    min_k: int = 3
+    max_k: int = 10
+    method_options: dict = field(default_factory=dict)
 
 
 @dataclass
 class ClusteringResult:
-    """The latest successful element clustering for one sample."""
+    """The latest successful clustering for one sample and method."""
 
     sample_id: str
     element_refs: tuple[ElementRef, ...]
     parameters: ClusteringParameters
     xrf_sample: Any
     layer_settings: SegmentationLayerSettings = field(default_factory=SegmentationLayerSettings)
+    method_id: str = DEFAULT_CLUSTERING_METHOD
+    sidecar: str | None = None
+
+    def __post_init__(self):
+        if (
+            not isinstance(self.method_id, str)
+            or not self.method_id
+            or Path(self.method_id).name != self.method_id
+            or self.method_id in (".", "..")
+        ):
+            raise ValueError("Invalid clustering method identity")
 
 
 @dataclass
@@ -367,7 +380,8 @@ class ProjectData:
         self.segmentation_edit_sessions: dict[str, SegmentationEditSession] = {}
         self.segmentation_previews: dict[str, dict[str, SegmentationPreview]] = {}
         self.segmentation_method: str | None = None
-        self.clustering_results: dict[str, ClusteringResult] = {}
+        self.clustering_results: dict[str, dict[str, ClusteringResult]] = {}
+        self.clustering_method = DEFAULT_CLUSTERING_METHOD
         self.matrix_plot_settings = {key: MatrixPlotSettings() for key in MATRIX_PLOT_KEYS}
         self.matrix_plot_settings[CLUSTER_DISTANCES] = MatrixPlotSettings(
             palette="viridis", default_palette="viridis"
@@ -436,6 +450,16 @@ class ProjectData:
             result.sample_id, SegmentationHistory(result.sample_id)
         )
         return history.add_result(result)
+
+    def clustering_result(self, sample_id, method_id=None):
+        """Get the sample's result for an explicit or currently selected method."""
+        return self.clustering_results.get(sample_id, {}).get(method_id or self.clustering_method)
+
+    def set_clustering_result(self, result: ClusteringResult):
+        """Replace only this sample/method pair after successful persistence."""
+        if result.sample_id not in self.samples:
+            raise KeyError(result.sample_id)
+        self.clustering_results.setdefault(result.sample_id, {})[result.method_id] = result
 
     def create_empty_segmentation(self, sample_id, input_ref, shape) -> SegmentationCandidate:
         """Start manual annotation on a sample map, without running an inference method."""
@@ -928,6 +952,7 @@ class ProjectData:
         self.segmentation_previews.clear()
         self.segmentation_method = None
         self.clustering_results.clear()
+        self.clustering_method = DEFAULT_CLUSTERING_METHOD
         for settings in self.matrix_plot_settings.values():
             settings.reset()
         self.matrix_publication_settings.reset()

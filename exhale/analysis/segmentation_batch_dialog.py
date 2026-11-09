@@ -1,4 +1,4 @@
-"""Review sample scope and per-sample nuclei channels before starting a batch."""
+"""Review sample scope and per-sample segmentation channels before starting a batch."""
 
 from qtpy import QtCore, QtWidgets
 
@@ -8,16 +8,17 @@ from ..data.segmentationbatch import (
     batch_channels,
     suggested_batch_channel,
 )
+from .batchselection import configure_batch_selection
 from .segmentation_batch_dialog_ui import Ui_SegmentationBatchDialog
 
 
 class SegmentationBatchDialog(QtWidgets.QDialog, Ui_SegmentationBatchDialog):
-    """Keep sample rows stable while selections, channels and skip policy are edited."""
+    """Keep sample rows stable while explicit selections and channels are edited."""
 
     def __init__(self, project, method, *, current_sample_id=None, current_ref=None, parent=None):
         super().__init__(parent)
         self.setupUi(self)
-        self.methodInfo.setText(f"Method: {method.name} — using the current options")
+        self.methodInfo.setText(f"Method: {method.name}")
         self.startButton = self.buttonBox.addButton(
             "Start batch", QtWidgets.QDialogButtonBox.AcceptRole
         )
@@ -62,49 +63,42 @@ class SegmentationBatchDialog(QtWidgets.QDialog, Ui_SegmentationBatchDialog):
         header.setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)
         header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)
         self.sampleTree.itemChanged.connect(self._refresh)
-        self.skipExisting.toggled.connect(self._refresh)
-        self.selectAll.clicked.connect(lambda: self._select(True))
-        self.selectNone.clicked.connect(lambda: self._select(False))
+        configure_batch_selection(
+            self,
+            (
+                (item, existing, available)
+                for item, _combo, _sample, existing, available in self._rows
+            ),
+            self._refresh,
+        )
         self._refresh()
         metrics = self.fontMetrics()
         self.resize(metrics.averageCharWidth() * 100, metrics.lineSpacing() * 26)
-
-    def _select(self, checked):
-        with QtCore.QSignalBlocker(self.sampleTree):
-            for item, _combo, _sample, _existing, available in self._rows:
-                if available:
-                    item.setCheckState(0, QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked)
-        self._refresh()
 
     def jobs(self):
         """Return only explicitly included jobs with a usable channel."""
         return [
             SegmentationBatchJob(sample.sample_id, sample.name, combo.currentData())
-            for item, combo, sample, existing, _available in self._rows
-            if item.checkState(0) == QtCore.Qt.Checked
-            and combo.currentData() is not None
-            and not (existing and self.skipExisting.isChecked())
+            for item, combo, sample, _existing, _available in self._rows
+            if item.checkState(0) == QtCore.Qt.Checked and combo.currentData() is not None
         ]
 
     def _refresh(self, *_unused):
         missing = 0
         with QtCore.QSignalBlocker(self.sampleTree):
             for item, combo, _sample, existing, available in self._rows:
-                skipped = existing and self.skipExisting.isChecked()
                 checked = item.checkState(0) == QtCore.Qt.Checked
                 if not available:
-                    status = "No usable element maps"
-                elif skipped:
-                    status = "Already segmented — skipped"
+                    status = "No usable maps"
                 elif combo.currentData() is None:
-                    status = "Choose a nuclei channel"
+                    status = "Choose channel"
                 else:
                     status = "Already segmented" if existing else "Not segmented"
                 item.setText(2, status)
-                missing += bool(checked and not skipped and combo.currentData() is None)
-        count = len(self.jobs())
-        text = f"{count} sample{'s' if count != 1 else ''} ready"
+                missing += bool(checked and combo.currentData() is None)
+        count = sum(item.checkState(0) == QtCore.Qt.Checked for item, *_rest in self._rows)
+        text = f"{count} sample{'s' if count != 1 else ''} selected"
         if missing:
-            text += f"; {missing} {'needs' if missing == 1 else 'need'} a nuclei channel"
+            text += f"; {missing} {'needs' if missing == 1 else 'need'} a channel"
         self.selectionInfo.setText(text)
         self.startButton.setEnabled(count > 0 and not missing)

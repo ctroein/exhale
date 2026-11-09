@@ -140,8 +140,10 @@ combined processing entry points have been removed.
 
 Batch segmentation uses a separate `SegmentationBatchController` owned by
 `AnalysisController`. The review dialog captures checked samples and their nuclei
-channels; method/options are snapshotted when starting the batch. Samples with
-an existing run of that method are skipped by default. The queue is session-only.
+channels; method/options are snapshotted when starting the batch. Both batch
+dialogs share All/None/Unprocessed selection actions. Only explicit check states
+determine inclusion; existing results are reported but never silently skipped.
+The queue is session-only.
 One `BatchSegmentationWorker` loads and segments maps sequentially in a background
 thread and publishes each completed output through GUI-thread callbacks. Model
 acquisition and loaded model caches are reused. Individual failures are collected
@@ -349,10 +351,27 @@ inference finishes editing first. Older working pixels are not archived; existin
 downstream references retain their own exact IDs and become outdated. Resolution
 of an unavailable old revision fails rather than substituting current pixels.
 
-`ClusteringWorker` retains the independent element-clustering path using the
-imported numerical code and its own sample-level persistence. Both workers share
-only progress/output capture and cooperative cancellation through `AnalysisTask`.
-The controllers own thread lifetimes and publication of completed results.
+The Element clusters tab precedes Segmentation and has independent method/options
+and Run/Batch/Stop controls. It processes all effective enabled sample elements;
+there is no second element-inclusion checklist. `ClusteringBatchWorker` captures
+jobs and parameters, runs samples sequentially using raw intensities, saves each
+sample before publication, and continues after independent input failures. Stop
+keeps completed results. Sample and element viewing remain available during a
+batch, and completed jobs do not change the selected sample. A project generation
+guard rejects callbacks from cleared projects.
+
+`clusteringmethods` registers execution and options adapters. The initial method
+is deterministic intensity partitioning. Results are indexed by sample and method;
+a rerun replaces only that pair. Sidecars live under `element-clusters/<method>/`.
+Cluster distances select a clustering method explicitly. Clustering inputs and
+results remain independent of segmentation masks.
+
+The lightweight clustering viewer uses the common Napari integration with only
+the selected map and cluster overlays. It previews transformed maps before a run,
+preserves pan/zoom while switching elements, and stores per-element visibility,
+cluster palette/mode and opacity. The same `LayerColorEditor` supplies color
+controls here and in the full segmentation layer list. `ClusteringWorker` remains
+available for direct numerical callers; GUI execution uses the batch worker.
 `SegmentationViewer` accepts the result and referenced source map directly,
 reusing the common Napari layer controls and fixed-layer pool. It displays the
 postprocessed instance-label pixels and keeps computed labels read-only. It can
@@ -427,14 +446,13 @@ plots, while dimensions and appearance belong to each matrix type. PDF and SVG
 use vector cells and text; PNG uses the same physical layout at the selected
 DPI.
 
-Completed analysis is represented by one `SegmentationResult` per sample and
-method in the project model. The stable method ID is saved in both the project
-entry and sidecar. Large arrays and result tables are stored separately by
-`exhale.analysis.segmentationio` in immutable candidate/revision HDF5 sidecars below the
-project; the main project file stores the association, parameters, and layer
-presentation. Layer presentation is keyed by fixed role or source element
-reference so it remains valid across display-name changes and pooled Napari
-layer reuse.
+Completed element clustering is represented by one `ClusteringResult` per sample
+and method. The stable method ID is saved in both the project entry and sidecar;
+map arrays and measurements live in method-specific HDF5 files. Segmentation
+masks instead use immutable candidate/revision HDF5 snapshots. The main project
+file stores associations, parameters and presentation. Presentation is keyed by
+fixed role or source element reference, independently of display-name changes
+and pooled Napari layer reuse.
 
 ## Persistence and state changes
 
@@ -625,3 +643,8 @@ layer. Restore base/comparison settings in either group without losing a Solo
 layer omitted from a partial update. Clear isolation before replacing pooled
 sample/mask data, then restore the new context's saved settings. No project format
 version change is needed.
+
+The lightweight clustering viewer shares one map presentation and one cluster
+presentation across element switches, with separate color controls. Saved clustering
+outputs can also be added as removable read-only overlays in the Segmentation viewer;
+selected overlay identities and colors are stored in its layer settings.

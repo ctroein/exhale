@@ -190,6 +190,10 @@ consumer's chosen input to determine whether output is outdated; do not infer th
 input from whichever mask is currently displayed. Resolve the recorded revision
 without substituting another mask, and never silently recompute stored output.
 The current element clustering does not consume segmentation.
+Clustering results belong to a sample/method pair. Run and Batch capture all
+effective enabled sample elements; display selection does not select inputs.
+Publish only successfully saved results, retain completed batch jobs on Stop,
+and never change the user's selected sample when another job completes.
 
 Manual and corrected masks keep a stable candidate ID across accepted edits;
 their revision ID changes. Only the first correction of a prediction creates a

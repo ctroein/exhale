@@ -64,22 +64,26 @@ def test_channel_suggestions_use_existing_or_p_without_materializing_data(projec
     assert not sample.channels["P_K"].data_source.has_cache
 
 
-def test_batch_dialog_skip_channel_edits_and_all_selection_are_stable(project):
+def test_batch_dialog_explicit_selection_and_channel_edits_are_stable(project):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     jobs = jobs_for(project)
     project.add_segmentation_candidate(result_for(jobs[0]))
     dialog = SegmentationBatchDialog(
         project, segmentation_method("stardist"), current_sample_id=jobs[0].sample_id
     )
-    assert not dialog.jobs() and not dialog.startButton.isEnabled()
+    assert len(dialog.jobs()) == 1 and dialog.startButton.isEnabled()
+    assert dialog.selectionInfo.text() == "1 sample selected"
     names = [
         dialog.sampleTree.topLevelItem(i).text(0)
         for i in range(dialog.sampleTree.topLevelItemCount())
     ]
     dialog.selectAll.click()
-    assert len(dialog.jobs()) == 2
-    dialog.skipExisting.setChecked(False)
     assert len(dialog.jobs()) == 3
+    assert dialog.selectionInfo.text() == "3 samples selected"
+    dialog.selectNew.click()
+    assert len(dialog.jobs()) == 2
+    assert jobs[0].sample_id not in {job.sample_id for job in dialog.jobs()}
+    dialog.selectAll.click()
     item, combo, sample, _existing, _available = dialog._rows[1]
     combo.setCurrentIndex(combo.findData(sample.channels["Fe_K"].ref))
     assert (
@@ -88,6 +92,8 @@ def test_batch_dialog_skip_channel_edits_and_all_selection_are_stable(project):
     )
     combo.setCurrentIndex(0)
     assert not dialog.startButton.isEnabled()
+    assert dialog.selectionInfo.text().startswith("3 samples selected")
+    assert all("skipped" not in dialog.sampleTree.topLevelItem(i).text(2) for i in range(3))
     assert [dialog.sampleTree.topLevelItem(i).text(0) for i in range(3)] == names
     dialog.selectNone.click()
     assert not dialog.jobs()

@@ -19,6 +19,7 @@ def log_transform(img: np.ndarray) -> np.ndarray:
 
     Scales the image to [0, 255] using a logarithmic curve, subtracts the
     mean, and clips negative values to zero. Preserves the input dtype.
+    Non-finite pixels are excluded from scaling and remain NaN in the output.
 
     Parameters
     ----------
@@ -30,9 +31,27 @@ def log_transform(img: np.ndarray) -> np.ndarray:
     np.ndarray
         Transformed image, same dtype as input.
     """
-    c = 255 / np.log1p(img.max())
-    log_image = c * np.log1p(img.astype(np.float32))
-    return np.clip(log_image - log_image.mean(), 0, None).astype(img.dtype)
+    img = np.asarray(img)
+    valid = np.isfinite(img)
+    values = img[valid]
+    if not values.size:
+        raise ValueError("Element map contains no finite intensities")
+    if np.any(values <= -1):
+        raise ValueError("Log transformation requires intensities greater than -1")
+    if np.all(values == 0):
+        transformed = np.zeros_like(values)
+    else:
+        peak = values.max()
+        if peak == 0:
+            raise ValueError("Cannot log-scale an element map with maximum intensity zero")
+        c = 255 / np.log1p(peak)
+        transformed = c * np.log1p(values.astype(np.float32))
+        transformed = np.clip(transformed - transformed.mean(), 0, None)
+    result = np.zeros_like(img)
+    result[valid] = transformed.astype(img.dtype)
+    if not valid.all():
+        result[~valid] = np.nan
+    return result
 
 
 # =============================================================================
@@ -446,7 +465,8 @@ def extract_small_cluster_mask(k_labels: np.ndarray, max_cluster_size: int = 100
     -------
     np.ndarray  (dtype=bool)
     """
-    cluster_sizes = np.bincount(k_labels.ravel())
+    # Negative labels identify unavailable pixels, which cannot form clusters.
+    cluster_sizes = np.bincount(k_labels[k_labels >= 0])
     mask = np.zeros(k_labels.shape, dtype=bool)
     for label, size in enumerate(cluster_sizes):
         if size <= max_cluster_size:

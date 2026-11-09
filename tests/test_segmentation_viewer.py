@@ -550,3 +550,25 @@ def test_queued_fitted_outline_commits_once_and_displays_the_working_mask(viewer
     assert session.changed and session.can_undo
     session.undo()
     assert not session.changed and not session.can_undo
+
+
+def test_clustering_overlays_are_read_only_and_removed_when_no_longer_selected(viewer):
+    saved = result([[0, 1], [1, 0]])
+    labels = np.array([[2, 0], [2, 3]], dtype=np.uint32)
+    identity = "clustering:method:element"
+    viewer.set_result(saved, clustering_layers=[(identity, "Fe clusters", labels)])
+    overlay = next(
+        layer for layer in viewer.user_layers() if layer.metadata.get("exhale_clustering_id")
+    )
+    np.testing.assert_array_equal(overlay.data, labels)
+    assert not overlay.editable
+    assert viewer.layer_identity(overlay) == identity
+    viewer.set_label_presentation(overlay, viewer.LABEL_MONOCHROME, (0, 0, 1, 1), 0)
+    state = viewer.layer_settings()
+    viewer.set_result(saved, clustering_layers=[(identity, "Fe clusters", labels)])
+    viewer.apply_layer_settings(state)
+    assert next(layer for layer in viewer.user_layers() if layer is overlay) is overlay
+    assert viewer.label_display_mode(overlay)[0] == viewer.LABEL_MONOCHROME
+    viewer.set_result(saved)
+    assert overlay not in viewer.viewer.layers
+    assert identity not in viewer.layer_settings().layers

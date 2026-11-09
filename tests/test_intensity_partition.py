@@ -92,3 +92,30 @@ def test_adaptive_partition_40000_distinct_pixels_k10():
         f"silhouette={partition.silhouette_score:.6f}, "
         f"time={elapsed:.4f}s"
     )
+
+
+def test_log_transform_ignores_missing_pixels_and_handles_zero_maps():
+    source = np.array([[0.0, 2.0, np.nan], [8.0, np.inf, 30.0]])
+    finite = np.isfinite(source)
+    with np.errstate(all="raise"):
+        transformed = xu.log_transform(source)
+        expected = xu.log_transform(source[finite])
+        np.testing.assert_array_equal(xu.log_transform(np.zeros((3, 4))), 0)
+    np.testing.assert_array_equal(transformed[finite], expected)
+    assert np.isnan(transformed[~finite]).all()
+    with pytest.raises(ValueError, match="no finite intensities"):
+        xu.log_transform(np.full((2, 2), np.nan))
+
+
+def test_missing_pixels_are_not_clustered_or_included_in_measurements():
+    from exhale.xrf_refcopy.xrf_element_channel import ElementChannel
+
+    source = np.arange(1.0, 401.0).reshape(20, 20)
+    source[10, 10] = np.nan
+    source[1, 2] = np.inf
+    with np.errstate(invalid="raise"):
+        channel = ElementChannel("P", source).process(min_k=2, max_k=3)
+    assert np.isnan(channel.log_image[~np.isfinite(source)]).all()
+    assert not channel.cluster_labels[~np.isfinite(source)].any()
+    assert np.isfinite(channel.cluster_df["mean_intensity"]).all()
+    assert channel.cluster_df["area"].sum() <= np.isfinite(source).sum()

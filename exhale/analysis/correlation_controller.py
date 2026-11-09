@@ -15,6 +15,7 @@ from qtpy import QtCore, QtWidgets
 from ..data.plotsettings import CLUSTER_DISTANCES, ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES
 from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
 from .cluster_distances import cluster_distance_matrix, random_placement_statistics
+from .clusteringmethods import CLUSTERING_METHODS
 from .correlations import (
     CorrelationMatrix,
     SampleSimilarityMatrix,
@@ -149,6 +150,9 @@ class CorrelationController(QtCore.QObject):
         window.elementCorrelationSample.currentIndexChanged.connect(self._element_sample_changed)
         window.elementScatterSample.currentIndexChanged.connect(self._scatter_sample_changed)
         window.clusterDistanceSample.currentIndexChanged.connect(self._distance_sample_changed)
+        for method in CLUSTERING_METHODS:
+            window.clusterDistanceMethod.addItem(method.name, method.method_id)
+        window.clusterDistanceMethod.currentIndexChanged.connect(self._distance_sample_changed)
         window.clusterDistanceMinimum.valueChanged.connect(self._distance_options_changed)
         window.showClusterDistanceValues.toggled.connect(self._distance_options_changed)
         window.clusterDistanceValue.currentIndexChanged.connect(self._distance_presentation_changed)
@@ -427,7 +431,9 @@ class CorrelationController(QtCore.QObject):
         self._distance_placeholder.hide()
         self.distance_matrix.plot.show()
         sample_id = self.window.clusterDistanceSample.currentData()
-        result = self.window.project_data.clustering_results.get(sample_id)
+        result = self.window.project_data.clustering_result(
+            sample_id, self.window.clusterDistanceMethod.currentData()
+        )
         if result is None:
             self._distance_calculation_failed(
                 "Run element clustering for the selected sample first.", show_errors

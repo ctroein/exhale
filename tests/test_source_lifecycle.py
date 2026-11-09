@@ -111,7 +111,7 @@ class SourceLifecycleTests(unittest.TestCase):
         tabs = self.win.tabWidget
         self.assertEqual(
             [tabs.tabText(i) for i in range(tabs.count())],
-            ["Project data", "Element maps", "Segmentation", "Element clusters", "Relationships"],
+            ["Project data", "Element maps", "Element clusters", "Segmentation", "Relationships"],
         )
         self.assertEqual(tabs.currentIndex(), 0)
         tabs.setCurrentWidget(self.win.analysisTab)
@@ -194,7 +194,6 @@ class SourceLifecycleTests(unittest.TestCase):
             "analysis_left",
             "analysis_right",
             "clustering",
-            "clustering_left",
             "clustering_right",
             "element_correlations",
             "element_scatter",
@@ -765,7 +764,7 @@ class SourceLifecycleTests(unittest.TestCase):
             {self.win.analysisChNuclei.itemText(row) for row in range(1, 3)},
             {"Fe", "Zn"},
         )
-        self.assertEqual(self.win.clusteringElements.count(), 2)
+        self.assertEqual(self.win.clusteringElementCombo.count(), 2)
 
         first_ref = self.win.analysisChNuclei.itemData(1)
         self.win.analysisChNuclei.setCurrentIndex(1)
@@ -783,8 +782,8 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.clustering_controller.sample_changed()
 
         refs = {
-            self.win.clusteringElements.item(row).data(ElementListWidget.ELEMENT_REF_ROLE)
-            for row in range(self.win.clusteringElements.count())
+            self.win.clusteringElementCombo.itemData(row)
+            for row in range(self.win.clusteringElementCombo.count())
         }
         self.assertEqual({ref.source_id for ref in refs}, {other})
         self.assertEqual(
@@ -813,39 +812,6 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.analysis_controller.update_channels()
         self.assertEqual(self.win.analysisChNuclei.currentText(), "Fe")
 
-    def test_analysis_elements_support_multi_selection_and_space_toggle(self):
-        self.win.source_manager.open_files([self.h5])
-        sample_id = self.win.project_data.assets[self.h5].sample_id
-        for key in ("Fe", "Zn"):
-            self.win.project_data.add_project_channel_from_sample(sample_id, key)
-        self.win.element_controller.effective_channels_changed()
-        self.win.analysisSampleComboBox.addItem("elements", sample_id)
-        self.win.clustering_controller.sample_changed()
-        element_list = self.win.clusteringElements
-        self.assertEqual(
-            element_list.selectionMode(),
-            QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection,
-        )
-        for row in range(element_list.count()):
-            element_list.item(row).setSelected(True)
-        element_list.setCurrentRow(0, QtCore.QItemSelectionModel.SelectionFlag.NoUpdate)
-
-        QtTest.QTest.keyClick(element_list, QtCore.Qt.Key_Space)
-        self.assertTrue(
-            all(
-                element_list.item(row).checkState() == QtCore.Qt.CheckState.Unchecked
-                for row in range(element_list.count())
-            )
-        )
-
-        QtTest.QTest.keyClick(element_list, QtCore.Qt.Key_Space)
-        self.assertTrue(
-            all(
-                element_list.item(row).checkState() == QtCore.Qt.CheckState.Checked
-                for row in range(element_list.count())
-            )
-        )
-
     def test_analysis_inputs_are_disabled_while_busy(self):
         self.win.analysis_controller.set_busy(True)
         for widget in (
@@ -861,43 +827,11 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.analysis_controller.set_busy(False)
         self.assertTrue(self.win.analysisSampleComboBox.isEnabled())
         self.win.clustering_controller.set_busy(True)
-        self.assertFalse(self.win.clusteringElements.isEnabled())
-        self.assertFalse(self.win.clusteringSampleComboBox.isEnabled())
+        self.assertFalse(self.win.clusteringRun.isEnabled())
+        self.assertFalse(self.win.clusteringMethodCombo.isEnabled())
+        self.assertTrue(self.win.clusteringSampleComboBox.isEnabled())
         self.win.clustering_controller.set_busy(False)
-        self.assertTrue(self.win.clusteringElements.isEnabled())
-
-    def test_analysis_elements_use_standard_check_state_with_custom_glyphs(self):
-        self.win.source_manager.open_files([self.h5])
-        sample_id = self.win.project_data.assets[self.h5].sample_id
-        for key in ("Fe", "Zn"):
-            self.win.project_data.add_project_channel_from_sample(sample_id, key)
-        self.win.element_controller.effective_channels_changed()
-        self.win.analysisSampleComboBox.addItem("elements", sample_id)
-        self.win.clustering_controller.sample_changed()
-
-        element_list = self.win.clusteringElements
-        item = element_list.item(0)
-        delegate = element_list.itemDelegate()
-        self.assertIsInstance(delegate, IconCheckDelegate)
-        option = QtWidgets.QStyleOptionViewItem()
-        index = element_list.indexFromItem(item)
-        option.rect = element_list.visualRect(index)
-        option.widget = element_list
-        delegate.initStyleOption(option, index)
-        self.assertTrue(
-            option.features & QtWidgets.QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
-        )
-        self.assertEqual(item.checkState(), QtCore.Qt.Checked)
-        self.assertTrue(item.icon().isNull())
-
-        QtTest.QTest.mouseClick(
-            element_list.viewport(),
-            QtCore.Qt.LeftButton,
-            pos=delegate.indicator_rect(option, index).center(),
-        )
-
-        self.assertEqual(item.checkState(), QtCore.Qt.Unchecked)
-        self.assertTrue(item.icon().isNull())
+        self.assertTrue(self.win.clusteringRun.isEnabled())
 
     def test_cancel_editing_finish_preserves_mask_and_prevents_run(self):
         self.win.source_manager.open_files([self.h5])
@@ -1224,6 +1158,7 @@ class SourceLifecycleTests(unittest.TestCase):
                 *,
                 fit=True,
                 comparisons=(),
+                clustering_layers=(),
                 edit_session=None,
             ):
                 self.result = result
@@ -1988,7 +1923,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertIsNone(clustering.worker)
         self.win.show_error.assert_not_called()
         self.assertIn(sample_id, self.win.project_data.clustering_results)
-        cluster_result = self.win.project_data.clustering_results[sample_id]
+        cluster_result = self.win.project_data.clustering_result(sample_id)
         self.assertIsNone(cluster_result.xrf_sample.nuclei)
         self.assertIsNone(cluster_result.xrf_sample.tissue)
         self.assertFalse(self.win.project_data.segmentation_results)
@@ -2017,7 +1952,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertIsNotNone(segmented)
         np.testing.assert_array_equal(segmented.output.labels, np.ones_like(self.data))
         self.assertFalse(hasattr(segmented, "xrf_sample"))
-        self.assertIs(self.win.project_data.clustering_results[sample_id], cluster_result)
+        self.assertIs(self.win.project_data.clustering_result(sample_id), cluster_result)
         self.assertEqual(sidecar.stat().st_mtime_ns, timestamp)
 
         state = projectio.export_project_state(
@@ -2029,4 +1964,4 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertFalse(issues)
         self.assertIn(sample_id, restored.clustering_results)
         self.assertIsNotNone(restored.segmentation_result(sample_id, "stardist"))
-        self.assertTrue(restored.clustering_results[sample_id].xrf_sample.is_clustered)
+        self.assertTrue(restored.clustering_result(sample_id).xrf_sample.is_clustered)

@@ -111,6 +111,9 @@ class AnalysisController(QtCore.QObject):
         window.analysisRestoreMask.clicked.connect(self._restore_mask)
         window.analysisKeepMask.toggled.connect(self._keep_mask)
         window.analysisReviewedForTraining.toggled.connect(self._review_mask)
+        window.analysisAddClustering.clicked.connect(self._add_clustering_layer)
+        window.clusteringResultsChanged.connect(self._clustering_results_changed)
+        window.analysisLayerList.removeClusteringRequested.connect(self._remove_clustering_layer)
         window.analysisAddComparison.clicked.connect(self._add_comparison)
         window.analysisComparisonCombo.currentIndexChanged.connect(self._update_comparison_controls)
         window.analysisProcessingTabs.currentChanged.connect(self._processing_tab_changed)
@@ -1165,6 +1168,9 @@ class AnalysisController(QtCore.QObject):
             None,
             self._preview_input(),
             self._reference_maps(refs),
+            clustering_layers=self._clustering_layers(
+                None if preview is None else preview.layer_settings
+            ),
             fit=self._result_sample_id != sample_id or self.naparihelper.input_map is None,
         )
         self._result_sample_id = sample_id
@@ -1200,6 +1206,7 @@ class AnalysisController(QtCore.QObject):
             self._reference_maps(result.reference_refs),
             fit=fit,
             comparisons=self._comparisons(),
+            clustering_layers=self._clustering_layers(result.layer_settings),
             edit_session=self._edit_session if self._editing_mode() else None,
         )
         self.naparihelper.apply_layer_settings(result.layer_settings)
@@ -1275,6 +1282,100 @@ class AnalysisController(QtCore.QObject):
             if index >= 0:
                 selector.setCurrentIndex(index)
         self.window.analysisAddReference.setEnabled(selector.count() > 0 and self.worker is None)
+        self._refresh_clustering_choices()
+
+    def _available_clustering_layers(self):
+        """Resolve this sample's saved method/element overlays without copying labels."""
+        from .clusteringmethods import CLUSTERING_METHODS
+
+        method_names = {method.method_id: method.name for method in CLUSTERING_METHODS}
+        sample = self.current_sample()
+        if sample is None:
+            return {}
+        available = {}
+        results = self.window.project_data.clustering_results.get(sample.sample_id, {})
+        for method_id, result in results.items():
+            method_name = method_names.get(method_id, method_id)
+            for ref, channel in zip(
+                result.element_refs, result.xrf_sample.elements.values(), strict=True
+            ):
+                if channel.cluster_labels is None:
+                    continue
+                identity = f"clustering:{method_id}:{ref}"
+                name = f"{channel.name} — {method_name}"
+                available[identity] = (identity, name, channel.cluster_labels)
+        return available
+
+    def _clustering_settings(self):
+        if self._display_result is not None:
+            return self._display_result.layer_settings
+        preview = self._preview()
+        return None if preview is None else preview.layer_settings
+
+    def _clustering_layers(self, settings):
+        available = self._available_clustering_layers()
+        return (
+            []
+            if settings is None
+            else [available[key] for key in settings.layers if key in available]
+        )
+
+    def _refresh_clustering_choices(self):
+        selector = self.window.analysisClusteringCombo
+        previous = selector.currentData()
+        settings = self._clustering_settings()
+        selected = {} if settings is None else settings.layers
+        with QtCore.QSignalBlocker(selector):
+            selector.clear()
+            for identity, (_key, name, _labels) in self._available_clustering_layers().items():
+                if identity not in selected:
+                    selector.addItem(name, identity)
+            index = selector.findData(previous)
+            if index >= 0:
+                selector.setCurrentIndex(index)
+        self.window.analysisAddClustering.setEnabled(selector.count() > 0 and self.worker is None)
+
+    def _clustering_results_changed(self):
+        if self.naparihelper is not None:
+            self._layer_settings_changed()
+            if self._display_result is not None:
+                self.show_result(self._display_result, fit=False)
+            else:
+                self.clear_result_view()
+        self._refresh_clustering_choices()
+
+    def _add_clustering_layer(self):
+        identity = self.window.analysisClusteringCombo.currentData()
+        if identity is None or self.naparihelper is None:
+            return
+        self._layer_settings_changed()
+        result = self._display_result or self._preview(create=True)
+        if result is None:
+            return
+        color = self.naparihelper.automatic_layer_color(include_labels=True)
+        result.layer_settings.layers[identity] = LayerPresentation(
+            visible=True,
+            opacity=0.6,
+            blending=self.naparihelper.BLENDING_NORMAL,
+            color=color.getRgbF(),
+            label_mode=self.naparihelper.LABEL_MONOCHROME,
+        )
+        self._redraw_clustering_layers()
+
+    def _remove_clustering_layer(self, identity):
+        self._layer_settings_changed()
+        settings = self._clustering_settings()
+        if settings is not None:
+            settings.layers.pop(identity, None)
+            settings.order = tuple(key for key in settings.order if key != identity)
+        self._redraw_clustering_layers()
+
+    def _redraw_clustering_layers(self):
+        if self._display_result is not None:
+            self.show_result(self._display_result, fit=False)
+        else:
+            self.clear_result_view()
+        self.window.project_state_manager.project_changed()
 
     def _reference_maps(self, refs):
         """Resolve optional display maps without changing the segmentation input."""
@@ -1543,6 +1644,8 @@ class AnalysisController(QtCore.QObject):
             window.analysisRestoreMask,
             window.analysisComparisonCombo,
             window.analysisAddComparison,
+            window.analysisClusteringCombo,
+            window.analysisAddClustering,
             window.analysisSampleComboBox,
             window.analysisChNuclei,
             window.analysisOptions,

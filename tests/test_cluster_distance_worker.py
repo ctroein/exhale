@@ -37,6 +37,8 @@ def _controller():
     )
     window.clusterDistanceSample = QtWidgets.QComboBox()
     window.clusterDistanceSample.addItem("sample", "sample")
+    window.clusterDistanceMethod = QtWidgets.QComboBox()
+    window.clusterDistanceMethod.addItem("Intensity partition", "intensity-partition")
     window.clusterDistanceValue = QtWidgets.QComboBox()
     window.clusterDistanceValue.addItems(
         ("Distance", "Pixels", "Null-model normalized", "Null-model percentile")
@@ -50,7 +52,7 @@ def _controller():
     window.clusterDistanceStatus = QtWidgets.QLabel()
     settings = MatrixPlotSettings(normalize_to_random=True, distance_secondary="observed")
     window.project_data = SimpleNamespace(
-        clustering_results={"sample": result},
+        clustering_result=lambda sample, method: result if sample == "sample" else None,
         image_defaults=SimpleNamespace(resolution=(2.0, "µm")),
         matrix_plot_settings={CLUSTER_DISTANCES: settings},
     )

@@ -156,7 +156,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             "analysis_left": (self.analysisLeftSplitter, self.analysisTab, (2, 1)),
             "analysis_right": (self.analysisRightSplitter, self.analysisTab, (2, 1)),
             "clustering": (self.clusteringSplitter, self.clusteringTab, (180, 400, 200)),
-            "clustering_left": (self.clusteringLeftSplitter, self.clusteringTab, (2, 1)),
             "clustering_right": (self.clusteringRightSplitter, self.clusteringTab, (2, 1)),
             "element_correlations": (
                 self.elementCorrelationSplitter,
@@ -245,6 +244,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.analysisBatch.setIcon(icons.icon(icons.IconName.BATCH))
         self.analysisAbort.setIcon(icons.icon(icons.IconName.STOP))
         self.analysisAddReference.setIcon(icons.icon(icons.IconName.ADD_LAYER))
+        self.analysisAddClustering.setIcon(icons.icon(icons.IconName.ADD_LAYER))
         self.analysisAddComparison.setIcon(icons.icon(icons.IconName.ADD_LAYER))
         self.addImageButton.set_icon_name(icons.IconName.ADD_IMAGE)
         self.deleteImageButton.set_icon_name(icons.IconName.DELETE)
@@ -261,6 +261,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.analysisFit.set_icon_name(icons.IconName.MAXIMIZE)
         self.clusteringOptions.setIcon(icons.icon(icons.IconName.ADJUSTMENTS))
         self.clusteringRun.setIcon(icons.icon(icons.IconName.START))
+        self.clusteringBatch.setIcon(icons.icon(icons.IconName.BATCH))
         self.clusteringAbort.setIcon(icons.icon(icons.IconName.STOP))
         self.clusteringSaveView.set_icon_name(icons.IconName.SCREENSHOT)
         self.clusteringFit.set_icon_name(icons.IconName.MAXIMIZE)
@@ -277,8 +278,17 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.elementPlot.reload_appearance()
         self.elementHistogramPlot.reload_appearance()
         self.elementList.reload_icons()
-        self.clusteringElements.reload_icons()
-        self.clusteringLayerList.reload_appearance()
+        if (
+            hasattr(self, "clustering_controller")
+            and self.clustering_controller.color_editor.layer is not None
+        ):
+            self.clustering_controller.color_editor._refresh_previews()
+            self.clusteringBlending.reload_icon()
+        if (
+            hasattr(self, "clustering_controller")
+            and self.clustering_controller.map_color_editor.layer is not None
+        ):
+            self.clustering_controller.map_color_editor._refresh_previews()
         self.imageList.reload_icons()
         self.project_tab.reload_icons()
         self.analysisLayerList.reload_appearance()
@@ -405,6 +415,7 @@ Licensed under the MIT License.</p>
 
     def clear_project(self):
         self.analysis_controller.batch.shutdown()
+        self.clustering_controller.shutdown()
         # Close open files first
         self.source_manager.close_source_handles()
 

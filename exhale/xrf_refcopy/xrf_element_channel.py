@@ -84,10 +84,20 @@ class ElementChannel:
 
         callback(f"Processing element {self.name}")
         self.log_image = xu.log_transform(self.raw)
-        partition = xu.find_optimal_partition(self.log_image, min_k, max_k, callback=callback)
+        valid = np.isfinite(self.log_image)
+        partition = xu.find_optimal_partition(
+            self.log_image if valid.all() else self.log_image[valid],
+            min_k,
+            max_k,
+            callback=callback,
+        )
+        partition_labels = partition.labels
+        if not valid.all():
+            partition_labels = np.full(self.raw.shape, -1, dtype=np.intp)
+            partition_labels[valid] = partition.labels
         self.intensity_thresholds = partition.thresholds
         self.cluster_labels, self.cluster_df = self._run_pipeline(
-            partition.labels,
+            partition_labels,
             self.raw,
             max_cluster_size=max_cluster_size,
             min_area=min_area,
@@ -118,6 +128,10 @@ class ElementChannel:
         mask = xu.extract_small_cluster_mask(k_labels, max_cluster_size)
         callback("Building segmented image")
         segmented = xu.build_segmented_image(k_labels.shape, mask)
-        labels, df = xu.compute_region_properties(segmented, raw_img, min_area)
+        # Missing pixels are outside every region; avoid inf * 0 in regionprops.
+        intensity = (
+            raw_img if np.isfinite(raw_img).all() else np.where(np.isfinite(raw_img), raw_img, 0)
+        )
+        labels, df = xu.compute_region_properties(segmented, intensity, min_area)
         cluster_labels = xu.draw_filtered_labels(labels, df)
         return cluster_labels, df

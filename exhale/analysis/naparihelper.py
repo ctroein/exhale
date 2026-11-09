@@ -843,7 +843,7 @@ class NapariHelper:
             destination = target + 1 if target > source else target
             layers.move(source, destination)
 
-    def set_sample(self, sample, element_maps=None, element_ids=None):
+    def set_sample(self, sample, element_maps=None, element_ids=None, *, fit=True):
         "Set/update the XRFSample using reusable fixed and variable layer pools."
         self.clear_solo()
         self._ensure_layer_pools()
@@ -944,7 +944,8 @@ class NapariHelper:
                 self.nuc_layer,
             )
         )
-        self.viewer.reset_view(margin=0)
+        if fit:
+            self.viewer.reset_view(margin=0)
         # attach_napari_hover(sample, viewer, widget, nuc_layer, mem_layer)
 
     def update_element_maps(self, maps):

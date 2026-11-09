@@ -108,9 +108,12 @@ def publish_segmentation(
     return candidate
 
 
-def clustering_relative_path(sample_id: str) -> Path:
+def clustering_relative_path(sample_id: str, method_id="intensity-partition") -> Path:
     """Return the independent element-clustering sidecar location."""
-    return Path("element-clusters") / f"{sample_id}.h5"
+    for value in (sample_id, method_id):
+        if not value or Path(value).name != value or value in (".", ".."):
+            raise ValueError("Invalid clustering path identity")
+    return Path("element-clusters") / method_id / f"{sample_id}.h5"
 
 
 def _write_optional_array(group, name, value) -> None:
@@ -262,7 +265,9 @@ def save_xrf_sample(
         _write_dataframe(tables, "results", sample.results_df)
 
 
-def load_xrf_sample(filename: str | Path, *, expected_method_id: str | None = None) -> XRFSample:
+def load_xrf_sample(
+    filename: str | Path, *, expected_method_id: str | tuple[str, ...] | None = None
+) -> XRFSample:
     """Restore an analyzed sample from an HDF5 sidecar."""
     from ..xrf_refcopy.xrf_element_channel import ElementChannel
     from ..xrf_refcopy.xrf_other_channel import NucleiChannel, TissueChannel
@@ -280,7 +285,10 @@ def load_xrf_sample(filename: str | Path, *, expected_method_id: str | None = No
         if (
             expected_method_id is not None
             and stored_method_id is not None
-            and stored_method_id != expected_method_id
+            and stored_method_id
+            not in (
+                (expected_method_id,) if isinstance(expected_method_id, str) else expected_method_id
+            )
         ):
             raise ValueError(
                 f"Segmentation result belongs to method {stored_method_id!r}, "

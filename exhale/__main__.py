@@ -184,6 +184,7 @@ def _run_application():
             "analysis_settings_dialog": os.path.join(package_dir, "analysis"),
             "segmentation_options_dialog": os.path.join(package_dir, "analysis"),
             "segmentation_batch_dialog": os.path.join(package_dir, "analysis"),
+            "clustering_batch_dialog": os.path.join(package_dir, "analysis"),
             "matrix_export_dialog": os.path.join(package_dir, "analysis"),
             "settings_dialog": package_dir,
         }

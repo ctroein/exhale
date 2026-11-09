@@ -150,7 +150,7 @@ without materializing map arrays.
 
 ### `exhale/analysis/segmentation_batch_dialog.py`
 
-Reviews batch scope, per-sample nuclei inputs and method-based skipping in stable
+Reviews explicit batch scope and per-sample nuclei inputs in stable
 sample rows. Designer source is `segmentation_batch_dialog.ui`; generated output
 is `analysis/segmentation_batch_dialog_ui.py`.
 
@@ -281,9 +281,42 @@ generated widgets and application-level services but owns no analysis state.
 
 ### `exhale/analysis/clustering_controller.py`
 
-Owns the independent Element clusters tab, selected maps and clustering options,
-background worker lifetime, sample-level result persistence, and the lazily
-created element-map/cluster Napari viewer. No segmentation backend is required.
+Owns the Element clusters tab before Segmentation: method/options selection,
+single and batch execution, incremental publication and lightweight display of
+one element map with its clusters. Element switches reuse two pooled overlays
+and preserve the camera and shared map/cluster presentation. Each overlay has a
+color control; the full layer list is not replicated.
+
+### `exhale/data/clustering.py`
+
+Defines the default method ID and immutable sample jobs containing all enabled
+elements, captured in stable order with separate keys, display names and refs.
+
+### `exhale/analysis/clusteringmethods.py`
+
+Registers clustering methods with numerical execution and options-dialog
+adapters. Intensity partitioning is the initial method. Dependencies and model
+choices remain independent of segmentation.
+
+### `exhale/analysis/clusteringbatch.py`
+
+Runs sample jobs sequentially in a background thread, reads original maps,
+saves results before publishing each completed sample, checks cancellation and
+continues after independent sample failures.
+
+Reports determinate progress across element processing and sample saves, including
+failed samples, while cancellation retains the last completed work position.
+
+### `exhale/analysis/clustering_batch_dialog.py`
+
+Chooses sample scope, reports enabled-element counts and unavailable inputs,
+and provides explicit selection of samples without output from this method. Designer source is
+`clustering_batch_dialog.ui`; generated output has the matching `_ui.py` suffix.
+
+### `exhale/analysis/batchselection.py`
+
+Shares All/None/Unprocessed check-state actions between both batch dialogs.
+The checked rows define the scope directly; no separate skip policy filters jobs.
 
 ### `exhale/data/segmentation.py`
 
@@ -454,7 +487,8 @@ segmentation method.
 ### `exhale/xrf_refcopy/xrf_utils.py`
 
 Contains region operations, membrane expansion, intensity filtering and exact
-weighted intensity partitioning for downstream analysis. StarDist loading and
+weighted intensity partitioning for downstream analysis. Log scaling ignores
+non-finite source pixels; element clustering leaves those pixels unlabeled. StarDist loading and
 inference helpers are removed; clustering imports no neural backend.
 
 ## Visualization and reusable widgets
@@ -475,6 +509,10 @@ colors and monochrome label colors, ignoring categorical palettes.
 Implements the layer list shown beside Napari. Rows expose visibility, colour,
 opacity, Normal/Add/Solo cycling, and reorder/remove operations while reflecting the actual
 viewer layers.
+Clustering overlays can be added to the Segmentation viewer from saved sample/method
+results; their identities and presentation are retained with viewer layer settings.
+`LayerColorEditor` owns the reusable swatch and color actions shared by layer
+rows and the lightweight clustering overlay controls.
 For label layers, the main color-button click cycles categorical, monochrome mask
 and monochrome scale. The dropdown selects one of five categorical palettes or
 uses the shared image-color menu for either monochrome mode. Mode changes retain
@@ -590,6 +628,8 @@ dialog's runtime-information table.
 
 `exhale/analysis/analysis_settings_dialog_ui.py`,
 `exhale/analysis/segmentation_options_dialog_ui.py`,
+`exhale/analysis/segmentation_batch_dialog_ui.py`,
+`exhale/analysis/clustering_batch_dialog_ui.py`,
 `exhale/imaging/image_settings_dialog_ui.py`, `exhale/main_window_ui.py`, and
 `exhale/settings_dialog_ui.py` are generated from the same base names under
 `exhale/resources/ui/`. Edit the `.ui` files and regenerate; never edit or
