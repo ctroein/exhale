@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>HdbscanOptionsDialog</class>
+ <widget class="QDialog" name="HdbscanOptionsDialog">
+  <property name="windowTitle"><string>HDBSCAN options</string></property>
+  <property name="minimumSize"><size><width>510</width><height>320</height></size></property>
+  <layout class="QVBoxLayout" name="mainLayout">
+   <item><layout class="QFormLayout" name="settingsLayout">
+    <item row="0" column="0"><widget class="QLabel" name="minimumLabel"><property name="text"><string>Minimum cluster size</string></property></widget></item>
+    <item row="0" column="1"><widget class="QSpinBox" name="minClusterSize"><property name="minimum"><number>2</number></property><property name="maximum"><number>100000000</number></property><property name="suffix"><string> pixels</string></property></widget></item>
+    <item row="1" column="0"><widget class="QLabel" name="supportLabel"><property name="text"><string>Density support</string></property></widget></item>
+    <item row="1" column="1"><widget class="QSpinBox" name="densitySupport"><property name="minimum"><number>1</number></property><property name="maximum"><number>100000000</number></property><property name="suffix"><string> pixels</string></property></widget></item>
+   </layout></item>
+   <item><widget class="QLabel" name="thresholdExplanation"><property name="text"><string>Automatic cutoffs use Otsu thresholding of raw abundances. Only pixels above the cutoff enter clustering; gaps remain unfilled.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><widget class="QTableWidget" name="thresholdTable">
+    <property name="selectionMode"><enum>QAbstractItemView::NoSelection</enum></property>
+    <column><property name="text"><string>Element</string></property></column>
+    <column><property name="text"><string>Automatic</string></property></column>
+    <column><property name="text"><string>Abundance cutoff</string></property></column>
+   </widget></item>
+   <item><widget class="QLabel" name="scopeExplanation"><property name="text"><string>Cutoffs apply to the same element in every sample in a batch.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><widget class="QDialogButtonBox" name="buttonBox"><property name="standardButtons"><set>QDialogButtonBox::Close</set></property></widget></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

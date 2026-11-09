@@ -39,10 +39,10 @@ For StarDist (TensorFlow):
 uv tool install --python 3.12 'exhale-xrf[stardist]'
 ```
 
-For Cellpose and MONAI U-Net (PyTorch; Cellpose also needs DINOv3):
+For Cellpose, MONAI U-Net and SMP U-Net (PyTorch; Cellpose also needs DINOv3):
 
 ```bash
-uv tool install --python 3.12 --with-requirements https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt 'exhale-xrf[cellpose,monai]'
+uv tool install --python 3.12 --with-requirements https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt 'exhale-xrf[cellpose,monai,smp]'
 ```
 
 For MONAI U-Net alone:
@@ -53,7 +53,15 @@ uv tool install --python 3.12 'exhale-xrf[monai]'
 
 MONAI U-Net's trained weights are bundled; no model download is needed.
 
-To also include StarDist, use `'exhale-xrf[stardist,cellpose,monai]'` with the same additional
+For SMP U-Net with its trained ResNet18 encoder:
+
+```bash
+uv tool install --python 3.12 'exhale-xrf[smp]'
+```
+
+Its 50 MB trained checkpoint downloads on first use. No DINOv3 installation is needed.
+
+To also include StarDist, use `'exhale-xrf[stardist,cellpose,monai,smp]'` with the same additional
 requirements argument. Plain `exhale-xrf` installs viewing, composition and
 analysis of existing results without neural segmentation backends. Unavailable
 backends are disabled in the application.
@@ -152,18 +160,19 @@ For StarDist:
 python -m pip install 'exhale-xrf[stardist]'
 ```
 
-For Cellpose and MONAI U-Net (Apple Silicon required on macOS):
+For Cellpose, MONAI U-Net and SMP U-Net (Apple Silicon required on macOS):
 
 ```bash
-python -m pip install 'exhale-xrf[cellpose,monai]' -r https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt
+python -m pip install 'exhale-xrf[cellpose,monai,smp]' -r https://raw.githubusercontent.com/ctroein/exhale/main/requirements-cellpose.txt
 ```
 
+For SMP U-Net alone, use `python -m pip install 'exhale-xrf[smp]'`.
 For MONAI U-Net alone, use `python -m pip install 'exhale-xrf[monai]'`; no
-DINOv3 requirements file is needed. Use `'exhale-xrf[stardist,cellpose,monai]'` with
-the same requirements argument to include all three methods. For a Git checkout:
+DINOv3 requirements file is needed. Use `'exhale-xrf[stardist,cellpose,monai,smp]'` with
+the same requirements argument to include all four methods. For a Git checkout:
 
 ```bash
-python -m pip install -e '.[stardist,cellpose,monai]' -r requirements-cellpose.txt
+python -m pip install -e '.[stardist,cellpose,monai,smp]' -r requirements-cellpose.txt
 ./run_exhale.py
 ```
 
@@ -178,7 +187,7 @@ URL with its `vVERSION` tag and append `==VERSION` to the package specification.
 A version-pinned uv installation must be reinstalled with a newer version
 specification to upgrade.
 
-Trained Cellpose weights are downloaded on first use to the model directory in
+Trained Cellpose and SMP U-Net weights are downloaded on first use to the model directory in
 application settings. The same mechanism is used for installed applications and
 Git checkouts; the large weights are not included in the application installer.
 DINOv3 code and derived model weights retain the

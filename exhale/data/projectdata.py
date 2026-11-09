@@ -207,7 +207,7 @@ class SegmentationResult:
 
 @dataclass(frozen=True)
 class ClusteringParameters:
-    """Intensity partition settings independent of segmentation methods."""
+    """Method settings independent of segmentation; legacy class counts remain compatible."""
 
     min_k: int = 3
     max_k: int = 10

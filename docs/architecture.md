@@ -360,11 +360,30 @@ keeps completed results. Sample and element viewing remain available during a
 batch, and completed jobs do not change the selected sample. A project generation
 guard rejects callbacks from cleared projects.
 
-`clusteringmethods` registers execution and options adapters. The initial method
-is deterministic intensity partitioning. Results are indexed by sample and method;
+`clusteringmethods` registers execution and options adapters for deterministic
+intensity partitioning and spatial HDBSCAN. Results are indexed by sample and method;
 a rerun replaces only that pair. Sidecars live under `element-clusters/<method>/`.
 Cluster distances select a clustering method explicitly. Clustering inputs and
 results remain independent of segmentation masks.
+
+HDBSCAN selects finite raw-abundance pixels strictly above a per-element cutoff.
+Automatic cutoffs use a 256-bin Otsu histogram; constant maps have no pixels above
+their automatic cutoff. Manual cutoffs are stored by element key and reused for
+that element across a batch. No smoothing, display transformation or gap filling
+is applied. The estimator sees only pixel positions with Euclidean distance:
+abundance is neither a coordinate nor a point weight. With the current square
+pixels, uniform physical scaling does not change this hierarchy. Independent
+minimum cluster size (default 20 pixels) and density support (default 5, including
+the point itself) control retention and local density. Stability-based `eom`
+selection allows a single cluster and applies no distance-based merging cutoff.
+
+One cluster ID may cover disconnected pixels. Measurements operate on those IDs
+directly, so area counts only assigned pixels and centroids cover the full cluster;
+connected-component relabelling would destroy the result. Noise and invalid pixels
+remain background. Existing clustering sidecars retain labels, measurements and
+each actual abundance cutoff in `intensity_thresholds`; project parameters retain
+manual overrides. Cancellation is checked around each estimator fit and between
+elements; scikit-learn does not support interruption inside one HDBSCAN fit.
 
 The lightweight clustering viewer uses the common Napari integration with only
 the selected map and cluster overlays. It previews transformed maps before a run,
@@ -648,3 +667,25 @@ The lightweight clustering viewer shares one map presentation and one cluster
 presentation across element switches, with separate color controls. Saved clustering
 outputs can also be added as removable read-only overlays in the Segmentation viewer;
 selected overlay identities and colors are stored in its layer settings.
+
+## SMP U-Net segmentation
+
+The `smp` method uses Donglin's XRF-trained SMP U-Net with a ResNet18 encoder,
+three repeated grayscale input channels and background/interior/boundary outputs.
+The loader restores mean/std buffers and all network weights strictly from the
+checkpoint. Construct the encoder with `encoder_weights=None`: inference must
+not acquire ImageNet weights. Only ResNet18 is supported; the UI exposes no encoder choice.
+
+Default preprocessing retains the full raw range (no percentile clipping), then
+normalizes to [0, 1], matching the supplied prediction script. The shared
+`segmentation_monai.segment_unet` performs 50%-overlap Gaussian blending of logits
+with the checkpoint's patch size (256), followed by one whole-image softmax and
+watershed conversion. Options retain independent seed-threshold and minimum-area
+values for SMP and MONAI. Both support CPU/CUDA and cancellation between tiles.
+
+The 49,958,075-byte model is fetched through the existing verified model store,
+independently of application releases; it is not bundled. Results record the
+model-content SHA-256 and inference options. The optional `smp` extra supplies
+SMP, TorchVision, PyTorch and MONAI. Native installers include it in the existing
+PyTorch selection. The segmentation queue, candidates, editing, exports and
+project persistence use the same contracts as the other segmentation methods.

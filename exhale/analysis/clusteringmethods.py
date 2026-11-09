@@ -49,6 +49,18 @@ def _restore(dialog, parameters):
     dialog.clusterMaxK.setValue(parameters.max_k)
 
 
+def _hdbscan(arrays, job, parameters, callback, *, progress=None):
+    from .clustering_hdbscan import compute
+
+    return compute(arrays, job, parameters, callback, progress=progress)
+
+
+def _hdbscan_options(parent):
+    from .hdbscan_options_dialog import HdbscanOptionsDialog
+
+    return HdbscanOptionsDialog(parent)
+
+
 @dataclass(frozen=True)
 class ClusteringMethod:
     """Supply execution and options without coupling the queue or viewer to an algorithm.
@@ -62,6 +74,7 @@ class ClusteringMethod:
     create_options: Callable
     parameters: Callable
     restore_options: Callable
+    configure_options: Callable | None = None
 
 
 CLUSTERING_METHODS = (
@@ -72,6 +85,15 @@ CLUSTERING_METHODS = (
         _options,
         _parameters,
         _restore,
+    ),
+    ClusteringMethod(
+        "hdbscan",
+        "HDBSCAN",
+        _hdbscan,
+        _hdbscan_options,
+        lambda dialog: dialog.parameters(),
+        lambda dialog, parameters: dialog.set_parameters(parameters),
+        lambda dialog, project, sample: dialog.set_context(project, sample),
     ),
 )
 

@@ -19,7 +19,7 @@ class SegmentationOptionsDialog(QtWidgets.QDialog, Ui_SegmentationOptionsDialog)
         self._stardist_defaults = stardist_thresholds()
         self.probThreshold.setValue(self._stardist_defaults["prob_thresh"])
         self.nmsThreshold.setValue(self._stardist_defaults["nms_thresh"])
-        self._clip_percentiles = {"stardist": None, "cellpose": 99.9, "monai": 99.9}
+        self._clip_percentiles = {"stardist": None, "cellpose": 99.9, "monai": 99.9, "smp": None}
         self.set_method("stardist")
         self.buttonBox.rejected.connect(self.hide)
         apply_tooltips(self, SEGMENTATION_OPTIONS_DIALOG)
@@ -30,9 +30,12 @@ class SegmentationOptionsDialog(QtWidgets.QDialog, Ui_SegmentationOptionsDialog)
             raise ValueError(f"Unknown segmentation method {method_id!r}")
         self.method_id = method_id
         self.methodOptionsStack.setCurrentWidget(
-            {"stardist": self.stardistPage, "cellpose": self.cellposePage, "monai": self.monaiPage}[
-                method_id
-            ]
+            {
+                "stardist": self.stardistPage,
+                "cellpose": self.cellposePage,
+                "monai": self.monaiPage,
+                "smp": self.smpPage,
+            }[method_id]
         )
         self.setWindowTitle(f"{segmentation_method(method_id).name} options")
 
@@ -59,6 +62,11 @@ class SegmentationOptionsDialog(QtWidgets.QDialog, Ui_SegmentationOptionsDialog)
                 "seed_threshold": self.monaiSeedThreshold.value(),
                 "min_size": self.monaiMinSize.value(),
             }
+        if self.method_id == "smp":
+            options = {
+                "seed_threshold": self.smpSeedThreshold.value(),
+                "min_size": self.smpMinSize.value(),
+            }
         return SegmentationParameters(
             clip_percentile=self._clip_percentiles[self.method_id],
             method_options=options,
@@ -84,3 +92,7 @@ class SegmentationOptionsDialog(QtWidgets.QDialog, Ui_SegmentationOptionsDialog)
             options = parameters.method_options
             self.monaiSeedThreshold.setValue(options.get("seed_threshold", 0.5))
             self.monaiMinSize.setValue(options.get("min_size", 20))
+        if self.method_id == "smp":
+            options = parameters.method_options
+            self.smpSeedThreshold.setValue(options.get("seed_threshold", 0.5))
+            self.smpMinSize.setValue(options.get("min_size", 20))

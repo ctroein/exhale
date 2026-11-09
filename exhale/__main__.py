@@ -182,6 +182,7 @@ def _run_application():
             "main_window": package_dir,
             "image_settings_dialog": os.path.join(package_dir, "imaging"),
             "analysis_settings_dialog": os.path.join(package_dir, "analysis"),
+            "hdbscan_options_dialog": os.path.join(package_dir, "analysis"),
             "segmentation_options_dialog": os.path.join(package_dir, "analysis"),
             "segmentation_batch_dialog": os.path.join(package_dir, "analysis"),
             "clustering_batch_dialog": os.path.join(package_dir, "analysis"),

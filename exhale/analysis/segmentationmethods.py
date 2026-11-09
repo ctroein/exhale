@@ -52,6 +52,14 @@ SEGMENTATION_METHODS += (
         has_options=True,
     ),
 )
+SEGMENTATION_METHODS += (
+    SegmentationMethod(
+        method_id="smp",
+        name="SMP U-Net",
+        required_modules=("torch", "torchvision", "monai", "segmentation_models_pytorch"),
+        has_options=True,
+    ),
+)
 SEGMENTATION_METHODS_BY_ID = {method.method_id: method for method in SEGMENTATION_METHODS}
 
 
@@ -67,7 +75,8 @@ def check_installed_backends() -> None:
     """Exercise installed backends; reject partial installations instead of skipping them."""
     for method in SEGMENTATION_METHODS:
         # A framework alone may belong to an unrelated application.
-        if find_spec(method.method_id) is None:
+        package = "segmentation_models_pytorch" if method.method_id == "smp" else method.method_id
+        if find_spec(package) is None:
             print(f"{method.name}: not installed")
             continue
         reason = method.unavailable_reason()
@@ -82,5 +91,8 @@ def check_installed_backends() -> None:
                 raise RuntimeError("CellposeDINO is unavailable: DINOv3 failed to import")
         elif method.method_id == "monai":
             import_module("monai.networks.nets")
+            import_module("monai.inferers")
+        elif method.method_id == "smp":
+            import_module("segmentation_models_pytorch")
             import_module("monai.inferers")
         print(f"{method.name}: import check passed")

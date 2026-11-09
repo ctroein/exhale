@@ -16,7 +16,7 @@ from packaging.utils import canonicalize_name
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def trial_requirements(project, exceptions, backends=("stardist", "cellpose", "monai")):
+def trial_requirements(project, exceptions, backends=("stardist", "cellpose", "monai", "smp")):
     """Remove project version bounds except explicitly documented exceptions."""
     retained = {canonicalize_name(name): reason for name, reason in exceptions.items()}
     requirements = []
@@ -44,7 +44,7 @@ def main():
     )
     parser.add_argument(
         "--backends",
-        choices=("none", "stardist", "cellpose", "monai", "both"),
+        choices=("none", "stardist", "cellpose", "monai", "smp", "both"),
         default="both",
         help="backends for a new trial (default: both); ignored when reusing an environment",
     )
@@ -52,9 +52,10 @@ def main():
     backends = {
         "none": (),
         "stardist": ("stardist",),
-        "cellpose": ("cellpose", "monai"),
+        "cellpose": ("cellpose", "monai", "smp"),
         "monai": ("monai",),
-        "both": ("stardist", "cellpose", "monai"),
+        "smp": ("smp",),
+        "both": ("stardist", "cellpose", "monai", "smp"),
     }[args.backends]
     if not sys.platform.startswith("linux"):
         parser.error("dependency trials currently target Linux")

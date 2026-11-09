@@ -44,6 +44,7 @@ selection = sys.argv[1]
 assert (importlib.util.find_spec('tensorflow') is not None) == (selection in ('stardist', 'both'))
 assert (importlib.util.find_spec('torch') is not None) == (selection in ('cellpose', 'both'))
 assert (importlib.util.find_spec('monai') is not None) == (selection in ('cellpose', 'both'))
+assert (importlib.util.find_spec('segmentation_models_pytorch') is not None) == (selection in ('cellpose', 'both'))
 assert (importlib.util.find_spec('dinov3') is not None) == (selection in ('cellpose', 'both'))
 '@
     & $python -c $code $selection

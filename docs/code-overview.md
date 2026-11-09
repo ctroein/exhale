@@ -295,8 +295,23 @@ elements, captured in stable order with separate keys, display names and refs.
 ### `exhale/analysis/clusteringmethods.py`
 
 Registers clustering methods with numerical execution and options-dialog
-adapters. Intensity partitioning is the initial method. Dependencies and model
-choices remain independent of segmentation.
+adapters for intensity partitioning and HDBSCAN. An optional context adapter
+provides project/sample elements to a method's options dialog. Dependencies and
+model choices remain independent of segmentation.
+
+### `exhale/analysis/clustering_hdbscan.py`
+
+Selects finite raw abundances above automatic Otsu or per-element manual cutoffs,
+then clusters pixel positions with scikit-learn HDBSCAN. Preserves disconnected
+assignments, leaves noise/background unlabelled and measures each cluster ID as
+one region. Stores actual cutoffs using existing channel-sidecar metadata.
+
+### `exhale/analysis/hdbscan_options_dialog.py`
+
+Edits minimum cluster size, density support and per-element abundance cutoffs.
+Retains unfinished cutoff entries across sample switches and validates them when
+capturing run parameters. Designer source is `hdbscan_options_dialog.ui`; the
+generated module has the matching `_ui.py` suffix.
 
 ### `exhale/analysis/clusteringbatch.py`
 
@@ -372,7 +387,7 @@ split preserves foreground pixels and refuses ineffective cuts.
 ### `exhale/analysis/segmentation_backends.py`
 
 Owns non-mutating percentile preprocessing, safe lazy neural-library initialization,
-direct StarDist/Cellpose inference and MONAI dispatch, model caching and
+direct StarDist/Cellpose inference and MONAI/SMP dispatch, model caching and
 model-content provenance.
 Validates the labels against the input shape without downstream filtering or regions.
 
@@ -380,12 +395,19 @@ Validates the labels against the input shape without downstream filtering or reg
 
 Loads the bundled residual U-Net lazily, normalizes clipped raw maps and blends
 original-resolution tile logits before a single watershed conversion. Reuses
-models by file revision/device, checks cancellation at tile boundaries, and
+models by file revision/device, shares tiled inference with SMP U-Net, checks cancellation at tile boundaries, and
 converts interior/boundary probabilities to instance labels with fallback seeds.
+
+### `exhale/analysis/segmentation_smp.py`
+
+Loads the versioned SMP U-Net ResNet18 checkpoint lazily and strictly, without
+ImageNet downloads. Repeats grayscale input into RGB with the training's mean/std
+normalization; reuses `segmentation_monai.segment_unet` for tiled logits and
+instance separation. Checkpoint metadata sets the tile size.
 
 ### `exhale/analysis/segmentation_options_dialog.py`
 
-Edits method-specific StarDist, Cellpose and MONAI U-Net inference settings, retaining
+Edits method-specific StarDist, Cellpose, MONAI U-Net and SMP U-Net inference settings, retaining
 separate method controls and internal preprocessing parameters. StarDist defaults
 come from bundled model metadata without initializing a backend.
 
@@ -425,7 +447,8 @@ per-user default, independently of projects and launcher paths.
 ### `tools/prepare_model_release.py`
 
 Checks the supplied trained model against the pinned catalog and prepares a
-release asset, checksum file, JSON metadata and DINOv3 license. It never uploads or creates a
+release asset, checksum file and JSON metadata, plus the DINOv3 license for Cellpose.
+Select SMP with `--method smp`. It never uploads or creates a
 GitHub release.
 
 ### `exhale/analysis/segmentationmethods.py`

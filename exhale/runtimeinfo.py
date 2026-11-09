@@ -24,6 +24,7 @@ _PACKAGE_DISTRIBUTIONS = (
     ("TorchVision", "torchvision"),
     ("Cellpose", "cellpose"),
     ("MONAI", "monai"),
+    ("SMP", "segmentation-models-pytorch"),
     ("DINOv3", "dinov3"),
 )
 

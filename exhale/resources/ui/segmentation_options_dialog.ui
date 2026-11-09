@@ -139,6 +139,14 @@
        <item row="1" column="1"><widget class="QSpinBox" name="monaiMinSize"><property name="minimum"><number>1</number></property><property name="maximum"><number>999999</number></property><property name="value"><number>20</number></property><property name="suffix"><string> px²</string></property></widget></item>
       </layout>
      </widget>
+     <widget class="QWidget" name="smpPage">
+      <layout class="QFormLayout" name="smpPageLayout">
+       <item row="0" column="0"><widget class="QLabel" name="smpSeedThresholdLabel"><property name="text"><string>Seed threshold</string></property></widget></item>
+       <item row="0" column="1"><widget class="QDoubleSpinBox" name="smpSeedThreshold"><property name="minimum"><double>0</double></property><property name="maximum"><double>1</double></property><property name="singleStep"><double>0.05</double></property><property name="value"><double>0.5</double></property></widget></item>
+       <item row="1" column="0"><widget class="QLabel" name="smpMinSizeLabel"><property name="text"><string>Minimum nucleus area</string></property></widget></item>
+       <item row="1" column="1"><widget class="QSpinBox" name="smpMinSize"><property name="minimum"><number>1</number></property><property name="maximum"><number>999999</number></property><property name="value"><number>20</number></property><property name="suffix"><string> px²</string></property></widget></item>
+      </layout>
+     </widget>
     </widget>
    </item>
    <item>

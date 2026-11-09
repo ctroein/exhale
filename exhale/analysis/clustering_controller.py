@@ -157,6 +157,9 @@ class ClusteringController(QtCore.QObject):
             clustering_method(self.current_method_id()).restore_options(
                 self.dialog, result.parameters
             )
+        method = clustering_method(self.current_method_id())
+        if method.configure_options is not None:
+            method.configure_options(self.dialog, self.window.project_data, sample)
         self.show_result()
 
     def show_result(self, *_unused):
@@ -483,6 +486,9 @@ class ClusteringController(QtCore.QObject):
                 clustering_method(self.current_method_id()).restore_options(
                     self.dialog, result.parameters
                 )
+                method = clustering_method(self.current_method_id())
+                if method.configure_options is not None:
+                    method.configure_options(self.dialog, project, self._sample())
             self.window.clusteringProgress.setFormat(
                 "Stopped" if worker._abort else "Finished with errors" if failures else "Done"
             )

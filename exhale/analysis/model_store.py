@@ -35,6 +35,15 @@ CELLPOSE_MODEL = TrainedModel(
     sha256="74e3cf36841e4fbbea45ec56ef11ecb81574e52cfb2c1919a8d588f72f15c71b",
 )
 
+SMP_MODEL = TrainedModel(
+    model_id="smp-unet-resnet18-xrf",
+    version="1",
+    filename="smp-unet-resnet18-xrf-v1.pt",
+    url="https://github.com/ctroein/exhale/releases/download/models-v1/smp-unet-resnet18-xrf-v1.pt",
+    size=49958075,
+    sha256="2a38f86815109cd84ed9fe86b64bf7bd18b762907fea067212338eaf12963a55",
+)
+
 MODEL_DIRECTORY_SETTING = "segmentation/model_directory"
 _CHUNK_SIZE = 256 * 1024
 # Trust verification only while the file's identity, size and modification time match.
@@ -47,7 +56,7 @@ class ModelDownloadError(RuntimeError):
 
 def model_for_method(method_id: str) -> TrainedModel | None:
     """Return downloadable weights; StarDist and MONAI U-Net use bundled models."""
-    return CELLPOSE_MODEL if method_id == "cellpose" else None
+    return {"cellpose": CELLPOSE_MODEL, "smp": SMP_MODEL}.get(method_id)
 
 
 def _file_identity(path):

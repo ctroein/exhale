@@ -341,8 +341,9 @@ DINOv3 source in `requirements-cellpose.txt` is also retained.
 The tool records the requested requirements and exact installed versions in the
 trial directory, runs Ruff, the startup check and pytest, then launches the GUI
 for manual testing if all checks pass. Automated checks use Qt's offscreen
-platform; the GUI uses the normal display. Choose `--backends none|stardist|cellpose|monai|both` for a new trial (default: both).
-The Cellpose/PyTorch track and default include MONAI U-Net as well; `monai`
+platform; the GUI uses the normal display. Choose `--backends none|stardist|cellpose|monai|smp|both` for a new trial (default: both).
+The Cellpose/PyTorch track and default include MONAI U-Net and SMP U-Net; `smp`
+selects the SMP track, while `monai`
 selects only that backend. Only Cellpose trials install the DINOv3 requirements file.
 Use `--no-gui` for automated checks
 alone. The checkout is run directly, so source changes are available immediately.
@@ -417,6 +418,22 @@ explicitly authorized operation; the configured public URL returns HTTP 404 unti
 that release asset is published. Changing trained weights requires a new model
 version, checksum and versioned asset URL rather than silently replacing a file.
 
+SMP U-Net ResNet18 uses the same model-store release and verification flow:
+
+```bash
+python tools/prepare_model_release.py --method smp /path/to/smp_resnet18_best.pt /path/to/release-assets
+```
+
+This prepares `smp-unet-resnet18-xrf/1/smp-unet-resnet18-xrf-v1.pt` (49,958,075 bytes),
+its checksum and catalogue metadata. Publish those three files as assets of
+`models-v1`, retaining their basenames. Until publication, use the prepared
+release-assets directory as the model directory in Settings for local runs.
+The SMP checkpoint already contains the trained encoder; no ImageNet download
+or training data is needed. SMP defaults to full-range normalization without
+percentile clipping. Keep its three-channel repetition, ImageNet mean/std,
+256-pixel tiles, Gaussian logit blending and instance conversion consistent
+with `test_smp.py` and `train_smp.py` in the supplied training code.
+
 Source and installed applications share the same cache layout and validation.
 Transfer tests use a local HTTP server to cover truncated responses, checksum
 failures, cancellation and offline reuse without requiring public release assets.
@@ -425,10 +442,10 @@ failures, cancellation and offline reuse without requiring public release assets
 ## Segmentation dependencies and installers
 
 `pyproject.toml` provides `stardist` (TensorFlow), `cellpose` (PyTorch,
-TorchVision and Cellpose 4.2.1.1), and standalone `monai` (PyTorch and MONAI)
-extras. The base application needs no neural backend. Native installers'
-existing PyTorch/Cellpose selection installs both `cellpose` and `monai` extras;
-there is no additional installer choice. Recommend both extras together for
+TorchVision and Cellpose 4.2.1.1), standalone `monai` (PyTorch and MONAI), and `smp` (PyTorch, TorchVision,
+MONAI and segmentation-models-pytorch) extras. The base application needs no neural backend. Native installers'
+existing PyTorch/Cellpose selection installs `cellpose`, `monai` and `smp` extras;
+there is no additional installer choice. Recommend all three extras together for
 source/pip users, while retaining their independent installation choices. DINOv3 is supplied through `requirements-cellpose.txt`, pinned to an
 upstream source commit and archive SHA-256 because it is not published on PyPI.
 For pip installation, pass that requirements file alongside `exhale-xrf`; for

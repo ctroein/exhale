@@ -41,7 +41,7 @@ def main():
         code = (
             "import importlib.util, json; print(json.dumps({name: "
             "importlib.util.find_spec(name) is not None "
-            "for name in ('tensorflow', 'stardist', 'torch', 'cellpose', 'monai', 'dinov3')}))"
+            "for name in ('tensorflow', 'stardist', 'torch', 'cellpose', 'monai', 'segmentation_models_pytorch', 'dinov3')}))"
         )
         result = subprocess.run(
             [str(python), "-c", code], check=True, capture_output=True, text=True

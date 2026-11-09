@@ -86,6 +86,47 @@ def test_jobs_follow_enabled_channels_and_keep_unique_keys_despite_duplicate_nam
     assert set(result.elements) == {"P", "Fe"}
 
 
+def test_hdbscan_options_run_and_project_restore(window):
+    owner = window.clustering_controller
+    selector = window.clusteringMethodCombo
+    selector.setCurrentIndex(selector.findData("hdbscan"))
+    dialog = owner.dialog
+    assert dialog.thresholdTable.rowCount() == 3
+    dialog.minClusterSize.setValue(6)
+    dialog.densitySupport.setValue(3)
+    row = next(
+        row
+        for row in range(dialog.thresholdTable.rowCount())
+        if dialog.thresholdTable.item(row, 0).data(QtCore.Qt.UserRole) == "Fe"
+    )
+    dialog.thresholdTable.item(row, 1).setCheckState(QtCore.Qt.CheckState.Unchecked)
+    dialog.thresholdTable.cellWidget(row, 2).setText("25")
+    parameters = dialog.parameters()
+    job = jobs(window.project_data)[0]
+    owner.start((job,))
+    wait_until(lambda: owner.worker is None)
+    window.show_error.assert_not_called()
+    result = window.project_data.clustering_result(job.sample_id, "hdbscan")
+    assert result.parameters == parameters
+    assert result.xrf_sample.elements["Fe"].intensity_thresholds.tolist() == [25]
+    assert dialog.parameters() == parameters
+    assert dialog.thresholdTable.rowCount() == 3
+    path = window.project_dir / "project.xhp"
+    save_project(window.project_data, path)
+    restored = ProjectData()
+    try:
+        assert not load_project(restored, path)
+        saved = restored.clustering_result(job.sample_id, "hdbscan")
+        assert restored.clustering_method == "hdbscan"
+        assert saved.parameters == parameters
+        np.testing.assert_array_equal(
+            saved.xrf_sample.elements["Fe"].cluster_labels,
+            result.xrf_sample.elements["Fe"].cluster_labels,
+        )
+    finally:
+        restored.clear()
+
+
 def test_batch_publishes_each_completed_sample_and_continues_after_a_failure(project, tmp_path):
     queue = jobs(project)
     real_method = CLUSTERING_METHODS[0]

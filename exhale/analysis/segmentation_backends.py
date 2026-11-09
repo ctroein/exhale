@@ -183,6 +183,15 @@ def run_segmentation(
         labels = segment_monai(data, callback=callback, **parameters.method_options)
         model_id = "monai-unet-xrf"
         version = "sha256:" + _digest(monai_model_path())
+    elif method_id == "smp":
+        from .model_store import SMP_MODEL
+        from .segmentation_smp import segment_smp
+
+        labels = segment_smp(
+            data, model_path=model_path or "", callback=callback, **parameters.method_options
+        )
+        model_id = SMP_MODEL.model_id
+        version = "sha256:" + _digest(Path(model_path).expanduser().resolve())
     else:
         raise ValueError(f"Unknown segmentation method {method_id!r}")
     if np.asarray(labels).shape != data.shape:

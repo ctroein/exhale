@@ -167,6 +167,18 @@ ANALYSIS_SETTINGS_DIALOG = {
     "clusterMaxK": "Range of intensity-class counts considered for each element map.",
 }
 
+HDBSCAN_OPTIONS_DIALOG = {
+    "minClusterSize": "Minimum number of above-cutoff pixels retained as one cluster.",
+    "densitySupport": (
+        "Number of nearby pixels used to estimate density, including the pixel itself.\n"
+        "Larger values generally leave more pixels unassigned."
+    ),
+    "thresholdTable": (
+        "Automatic: compute an Otsu cutoff from each map's raw abundances.\n"
+        "Uncheck Automatic to enter a cutoff in the project's abundance units."
+    ),
+}
+
 SEGMENTATION_OPTIONS_DIALOG = {
     "monaiSeedThreshold": "Minimum interior probability for starting a segment.",
     "monaiMinSize": "Discard predicted MONAI U-Net nuclei smaller than this many pixels.",
@@ -175,6 +187,8 @@ SEGMENTATION_OPTIONS_DIALOG = {
     "cellposeMinSize": "Discard Cellpose nuclei smaller than this many pixels.",
     "flowThreshold": "Reject masks whose flow error exceeds this threshold.",
     "cellprobThreshold": "Lower values include more pixels in predicted masks.",
+    "smpSeedThreshold": "Minimum interior probability for starting a segment.",
+    "smpMinSize": "Discard predicted SMP U-Net nuclei smaller than this many pixels.",
 }
 
 SETTINGS_DIALOG = {

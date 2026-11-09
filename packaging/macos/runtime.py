@@ -17,8 +17,8 @@ from uuid import uuid4
 BACKENDS = {
     "none": (),
     "stardist": ("stardist",),
-    "cellpose": ("cellpose", "monai"),
-    "both": ("stardist", "cellpose", "monai"),
+    "cellpose": ("cellpose", "monai", "smp"),
+    "both": ("stardist", "cellpose", "monai", "smp"),
 }
 
 

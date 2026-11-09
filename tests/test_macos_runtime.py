@@ -42,6 +42,7 @@ def test_selection_installs_only_requested_extras_and_checks_before_commit(runti
     requirement = commands[1][7]
     extras = runtime_module.BACKENDS[selection]
     assert ("monai" in extras) == ("cellpose" in extras)
+    assert ("smp" in extras) == ("cellpose" in extras)
     assert (
         requirement.endswith("[" + ",".join(extras) + "]")
         if extras
@@ -194,7 +195,7 @@ def test_application_update_preserves_backends_and_bundle_and_rolls_back(runtime
             assert runtime.state()["wheel"] == state["wheel"]
             assert runtime.state()["backends"] == "both"
             assert not previous.exists()
-    assert commands[1][7] == "exhale-xrf[stardist,cellpose,monai]==2.0"
+    assert commands[1][7] == "exhale-xrf[stardist,cellpose,monai,smp]==2.0"
     assert "-r" in commands[1]
     assert len(list(runtime.root.glob("env-*"))) == 1
 
