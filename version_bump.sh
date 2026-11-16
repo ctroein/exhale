@@ -39,7 +39,7 @@ if [ "$allow_dirty" -eq 0 ] && [ -n "$(git status --porcelain)" ]; then
     die "working tree has uncommitted or untracked changes"
 fi
 
-current=$(git describe --tags --abbrev=0 2>/dev/null || true)
+current=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
 current="${current#v}"
 
 if [ -z "$current" ]; then
