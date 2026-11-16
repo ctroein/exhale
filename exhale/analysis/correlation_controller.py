@@ -15,7 +15,6 @@ from qtpy import QtCore, QtWidgets
 from ..data.plotsettings import CLUSTER_DISTANCES, ELEMENT_CORRELATIONS, SAMPLE_SIMILARITIES
 from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
 from .cluster_distances import cluster_distance_matrix, random_placement_statistics
-from .clusteringmethods import CLUSTERING_METHODS
 from .correlations import (
     CorrelationMatrix,
     SampleSimilarityMatrix,
@@ -77,6 +76,43 @@ class _NullWorker(QtCore.QThread):
             self.completed.emit(self.signature, result, None)
 
 
+class _SimilarityWorker(QtCore.QThread):
+    """Compute missing fingerprints from captured map sources."""
+
+    def __init__(self, inputs, keys, parent):
+        super().__init__(parent)
+        self.inputs = inputs
+        self.keys = keys
+        self.entries = {}
+        self.result = None
+        self.error = None
+        self.cancelled = False
+
+    def run(self):
+        matrices = []
+        try:
+            for sample_id, _, signature, sources, cached in self.inputs:
+                if self.isInterruptionRequested():
+                    return
+                if cached is None:
+                    result = correlation_matrix(
+                        tuple(source.array() for source in sources),
+                        tuple(item[2] for item in signature),
+                        self.keys,
+                    )
+                    cached = _ElementCacheEntry(signature, result)
+                    self.entries[sample_id, self.keys] = cached
+                matrices.append(cached.result)
+            if not self.isInterruptionRequested():
+                self.result = calculate_sample_similarities(
+                    matrices,
+                    tuple(item[1] for item in self.inputs),
+                    tuple(item[0] for item in self.inputs),
+                )
+        except Exception as error:
+            self.error = str(error)
+
+
 class CorrelationController(QtCore.QObject):
     """Own the independent relationship analyses and their session caches."""
 
@@ -87,6 +123,9 @@ class CorrelationController(QtCore.QObject):
         self.window = window
         self._element_cache: dict[tuple[str, tuple[str, ...]], _ElementCacheEntry] = {}
         self._similarity_cache: dict[tuple, SampleSimilarityMatrix] = {}
+        self._similarity_worker = None
+        self._similarity_request = None
+        self._similarity_running = None
         self._distance_cache: dict[tuple, object] = {}
         self._null_cache: dict[tuple, object] = {}
         self._null_workers = {}
@@ -123,6 +162,13 @@ class CorrelationController(QtCore.QObject):
             spec_factory=self._distance_spec,
         )
 
+        self._similarity_placeholder = QtWidgets.QLabel(
+            "Computing sample similarities…", window.sampleSimilarityPlotHost
+        )
+        self._similarity_placeholder.setAlignment(QtCore.Qt.AlignCenter)
+        window.sampleSimilarityPlotHost.layout().addWidget(self._similarity_placeholder)
+        self._similarity_placeholder.hide()
+
         self._distance_placeholder = QtWidgets.QLabel(
             "Computing random-placement statistics…", window.clusterDistancePlotHost
         )
@@ -150,9 +196,6 @@ class CorrelationController(QtCore.QObject):
         window.elementCorrelationSample.currentIndexChanged.connect(self._element_sample_changed)
         window.elementScatterSample.currentIndexChanged.connect(self._scatter_sample_changed)
         window.clusterDistanceSample.currentIndexChanged.connect(self._distance_sample_changed)
-        for method in CLUSTERING_METHODS:
-            window.clusterDistanceMethod.addItem(method.name, method.method_id)
-        window.clusterDistanceMethod.currentIndexChanged.connect(self._distance_sample_changed)
         window.clusterDistanceMinimum.valueChanged.connect(self._distance_options_changed)
         window.showClusterDistanceValues.toggled.connect(self._distance_options_changed)
         window.clusterDistanceValue.currentIndexChanged.connect(self._distance_presentation_changed)
@@ -199,6 +242,7 @@ class CorrelationController(QtCore.QObject):
 
     def clear_project(self) -> None:
         self._element_cache.clear()
+        self._cancel_similarity()
         self._similarity_cache.clear()
         self._cancel_null_workers()
         self._distance_cache.clear()
@@ -389,6 +433,9 @@ class CorrelationController(QtCore.QObject):
 
     def shutdown(self) -> None:
         """Stop workers before destroying their Qt owners."""
+        self._cancel_similarity()
+        if self._similarity_worker is not None:
+            self._similarity_worker.wait()
         self._cancel_null_workers()
         for worker in tuple(self._null_workers.values()):
             worker.wait()
@@ -432,7 +479,7 @@ class CorrelationController(QtCore.QObject):
         self.distance_matrix.plot.show()
         sample_id = self.window.clusterDistanceSample.currentData()
         result = self.window.project_data.clustering_result(
-            sample_id, self.window.clusterDistanceMethod.currentData()
+            sample_id, self.window.project_data.analysis_clustering_method
         )
         if result is None:
             self._distance_calculation_failed(
@@ -698,47 +745,88 @@ class CorrelationController(QtCore.QObject):
                 show_errors,
             )
             return
-        project_channels = self.window.project_data.project_channels
-        first_effective = self._effective_channels(samples[0])
-        labels = tuple(
-            project_channels[key].name if key in project_channels else first_effective[key].name
-            for key in keys
-        )
-        signature = tuple(
-            (
-                sample.sample_id,
-                sample.name,
-                tuple(
-                    (
-                        key,
-                        self._effective_channels(sample)[key].ref,
-                        id(sample.channels[key].data_source),
-                    )
-                    for key in keys
-                ),
+        inputs = []
+        for sample in samples:
+            effective = self._effective_channels(sample)
+            sources = tuple(sample.channels[key].data_source for key in keys)
+            signature = tuple(
+                (key, effective[key].ref, effective[key].name, id(source))
+                for key, source in zip(keys, sources, strict=True)
             )
-            for sample in samples
-        )
-        try:
-            result = self._similarity_cache.get(signature)
-            if result is None:
-                matrices = tuple(self._element_result(sample, keys, labels) for sample in samples)
-                result = calculate_sample_similarities(
-                    matrices,
-                    tuple(sample.name for sample in samples),
-                    tuple(sample.sample_id for sample in samples),
-                )
-                self._similarity_cache[signature] = result
-        except (OSError, RuntimeError, ValueError, KeyError) as error:
-            self._sample_calculation_failed(str(error), show_errors)
+            inputs.append((sample.sample_id, sample.name, signature, sources))
+        signature = tuple(item[:3] for item in inputs)
+        result = self._similarity_cache.get(signature)
+        if result is not None:
+            self._cancel_similarity()
+            self._show_similarity_result(result, len(samples), len(keys))
             return
+
+        self._similarity_request = (signature, inputs, keys, show_errors)
+        self.similarity_matrix.set_result(None)
+        self.similarity_matrix.plot.hide()
+        self._similarity_placeholder.show()
+        self.window.sampleSimilarityStatus.clear()
+        if self._similarity_worker is None:
+            self._start_similarity()
+
+    def _start_similarity(self):
+        request = self._similarity_request
+        if request is None:
+            return
+        signature, inputs, keys, _ = request
+        captured = []
+        for sample_id, name, fingerprint, sources in inputs:
+            cached = self._element_cache.get((sample_id, keys))
+            if cached is not None and cached.signature != fingerprint:
+                cached = None
+            captured.append((sample_id, name, fingerprint, sources, cached))
+        worker = _SimilarityWorker(captured, keys, self)
+        self._similarity_worker = worker
+        self._similarity_running = signature
+        worker.finished.connect(self._similarity_finished)
+        worker.start()
+
+    @QtCore.Slot()
+    def _similarity_finished(self):
+        worker = self._similarity_worker
+        signature = self._similarity_running
+        self._similarity_worker = self._similarity_running = None
+        worker.deleteLater()
+        if not worker.cancelled:
+            self._element_cache.update(worker.entries)
+            if worker.result is not None:
+                self._similarity_cache[signature] = worker.result
+        request = self._similarity_request
+        if request is None:
+            return
+        if request[0] != signature or worker.cancelled:
+            self._start_similarity()
+            return
+        self._similarity_request = None
+        if worker.error is not None:
+            self._sample_calculation_failed(worker.error, request[3])
+        else:
+            self._show_similarity_result(worker.result, len(request[1]), len(request[2]))
+
+    def _cancel_similarity(self):
+        self._similarity_request = None
+        if self._similarity_worker is not None:
+            self._similarity_worker.cancelled = True
+            self._similarity_worker.requestInterruption()
+        self._similarity_placeholder.hide()
+        self.similarity_matrix.plot.show()
+
+    def _show_similarity_result(self, result, sample_count, element_count):
+        self._similarity_placeholder.hide()
+        self.similarity_matrix.plot.show()
         self.similarity_matrix.set_result(result)
         self.window.sampleSimilarityStatus.setText(
-            f"{len(samples)} samples; {len(keys)} common elements; "
+            f"{sample_count} samples; {element_count} common elements; "
             f"{len(result.feature_labels)} fingerprint entries"
         )
 
     def _sample_calculation_failed(self, message: str, show_error: bool) -> None:
+        self._cancel_similarity()
         self.similarity_matrix.set_result(None)
         self.window.sampleSimilarityStatus.setText(message)
         if show_error:

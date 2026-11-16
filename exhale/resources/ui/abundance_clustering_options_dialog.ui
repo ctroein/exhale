@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>AbundanceClusteringOptionsDialog</class>
+ <widget class="QDialog" name="AbundanceClusteringOptionsDialog">
+  <property name="windowTitle"><string>Abundance clustering options</string></property>
+  <property name="minimumSize"><size><width>900</width><height>600</height></size></property>
+  <layout class="QVBoxLayout" name="mainLayout">
+   <item><layout class="QFormLayout" name="settingsLayout">
+    <item row="0" column="0"><widget class="QLabel" name="minimumLabel"><property name="text"><string>Minimum cluster size</string></property></widget></item>
+    <item row="0" column="1"><widget class="QSpinBox" name="minClusterSize"><property name="minimum"><number>2</number></property><property name="maximum"><number>100000000</number></property><property name="suffix"><string> pixels</string></property></widget></item>
+    <item row="1" column="0"><widget class="QLabel" name="radiusLabel"><property name="text"><string>Link distance</string></property></widget></item>
+    <item row="1" column="1"><widget class="QDoubleSpinBox" name="linkRadius"><property name="minimum"><double>1</double></property><property name="maximum"><double>10</double></property><property name="singleStep"><double>0.25</double></property><property name="suffix"><string> pixels</string></property></widget></item>
+    <item row="2" column="0"><widget class="QLabel" name="cutoffScaleLabel"><property name="text"><string>Fallback multiple</string></property></widget></item>
+    <item row="2" column="1"><layout class="QHBoxLayout" name="cutoffLayout"><item><widget class="QDoubleSpinBox" name="cutoffScale"><property name="minimum"><double>0</double></property><property name="maximum"><double>1000</double></property><property name="singleStep"><double>0.5</double></property><property name="suffix"><string> s</string></property></widget></item></layout></item>
+    <item row="3" column="0"><widget class="QLabel" name="prominenceLabel"><property name="text"><string>Prominence</string></property></widget></item>
+    <item row="3" column="1"><widget class="QDoubleSpinBox" name="prominence"><property name="minimum"><double>0</double></property><property name="maximum"><double>1000</double></property><property name="singleStep"><double>1</double></property><property name="suffix"><string> s</string></property></widget></item>
+   </layout></item>
+   <item><widget class="QLabel" name="thresholdExplanation"><property name="text"><string>Cutoff = median + multiple × s. The scale s comes from neighboring-pixel differences.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><layout class="QHBoxLayout" name="cutoffHeaderLayout">
+    <item><widget class="QLabel" name="cutoffHeading"><property name="text"><string>&lt;b&gt;Cutoff&lt;/b&gt; (multiples of s)</string></property></widget></item>
+    <item><spacer name="cutoffHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+    <item><widget class="QPushButton" name="restoreAuto"><property name="autoDefault"><bool>false</bool></property><property name="default"><bool>false</bool></property><property name="text"><string>Restore all Auto cutoffs</string></property></widget></item>
+   </layout></item>
+   <item><widget class="QTableWidget" name="thresholdTable">
+    <property name="tabKeyNavigation"><bool>false</bool></property>
+    <property name="selectionMode"><enum>QAbstractItemView::SingleSelection</enum></property>
+   </widget></item>
+   <item><widget class="QPlainTextEdit" name="cutoffDetails">
+    <property name="readOnly"><bool>true</bool></property>
+    <property name="minimumHeight"><number>80</number></property>
+    <property name="maximumHeight"><number>140</number></property>
+    <property name="placeholderText"><string>Auto cutoff calculation details</string></property>
+   </widget></item>
+   <item><widget class="QDialogButtonBox" name="buttonBox"><property name="standardButtons"><set>QDialogButtonBox::Close</set></property></widget></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

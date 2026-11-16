@@ -6,9 +6,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import unittest
 
-from qtpy import QtCore, QtWidgets
+from qtpy import QtCore, QtTest, QtWidgets
 
-from exhale.widgets import initialize_splitter_on_show
+from exhale.widgets import ContentDoubleSpinBox, initialize_splitter_on_show
 
 
 class SplitterInitializerTests(unittest.TestCase):
@@ -59,6 +59,54 @@ class SplitterInitializerTests(unittest.TestCase):
         available = restored.width() - 2 * restored.handleWidth()
         quarter = round(available / 4)
         self.assertEqual(restored.sizes(), [quarter, quarter, available - 2 * quarter])
+
+
+class SpinBoxSizingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    def test_width_stays_stable_while_typing_and_deleting(self):
+        host = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(host)
+        spin = ContentDoubleSpinBox()
+        spin.setRange(-1000, 1000)
+        spin.setDecimals(2)
+        layout.addWidget(spin)
+        host.show()
+        self.app.processEvents()
+        self.addCleanup(host.close)
+        width = spin.width()
+        for value in (-1000, 0, 3, 999):
+            spin.setValue(value)
+            self.app.processEvents()
+            self.assertEqual(spin.width(), width)
+        spin.setFocus()
+        spin.selectAll()
+        QtTest.QTest.keyClick(spin, QtCore.Qt.Key.Key_Backspace)
+        self.app.processEvents()
+        self.assertEqual(spin.width(), width)
+        QtTest.QTest.keyClicks(spin, "-12.5")
+        self.app.processEvents()
+        self.assertEqual(spin.width(), width)
+        self.assertGreaterEqual(
+            spin.lineEdit().width(), spin.fontMetrics().horizontalAdvance("-1000.00") + 4
+        )
+
+    def test_width_follows_configured_digits_precision_and_font(self):
+        spin = ContentDoubleSpinBox()
+        spin.setRange(-1000, 1000)
+        width = spin.sizeHint().width()
+        spin.setRange(-1000000, 1000000)
+        self.assertGreater(spin.sizeHint().width(), width)
+        width = spin.sizeHint().width()
+        spin.setDecimals(4)
+        self.assertGreater(spin.sizeHint().width(), width)
+        width = spin.sizeHint().width()
+        font = spin.font()
+        font.setPointSizeF(font.pointSizeF() * 1.5)
+        spin.setFont(font)
+        self.assertGreater(spin.sizeHint().width(), width)
 
 
 if __name__ == "__main__":

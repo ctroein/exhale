@@ -31,7 +31,7 @@ from ..project.projectmanager import EXPORT_DIRECTORY_SETTING
 from .boundaryfitting import fit_outline
 from .segmentation_options_dialog import SegmentationOptionsDialog
 from .segmentationbatch import SegmentationBatchController
-from .segmentationio import publish_segmentation
+from .segmentationio import publish_segmentation_with_status
 from .segmentationmethods import SEGMENTATION_METHODS, segmentation_method
 
 LOAD_NAPARI_EARLY = True
@@ -1285,25 +1285,21 @@ class AnalysisController(QtCore.QObject):
         self._refresh_clustering_choices()
 
     def _available_clustering_layers(self):
-        """Resolve this sample's saved method/element overlays without copying labels."""
-        from .clusteringmethods import CLUSTERING_METHODS
-
-        method_names = {method.method_id: method.name for method in CLUSTERING_METHODS}
+        """Resolve one element overlay from the project's downstream clustering method."""
         sample = self.current_sample()
         if sample is None:
             return {}
+        project = self.window.project_data
+        result = project.clustering_result(sample.sample_id, project.analysis_clustering_method)
+        if result is None:
+            return {}
         available = {}
-        results = self.window.project_data.clustering_results.get(sample.sample_id, {})
-        for method_id, result in results.items():
-            method_name = method_names.get(method_id, method_id)
-            for ref, channel in zip(
-                result.element_refs, result.xrf_sample.elements.values(), strict=True
-            ):
-                if channel.cluster_labels is None:
-                    continue
-                identity = f"clustering:{method_id}:{ref}"
-                name = f"{channel.name} — {method_name}"
-                available[identity] = (identity, name, channel.cluster_labels)
+        for ref, channel in zip(
+            result.element_refs, result.xrf_sample.elements.values(), strict=True
+        ):
+            if channel.cluster_labels is not None:
+                identity = f"clustering:{ref}"
+                available[identity] = (identity, channel.name, channel.cluster_labels)
         return available
 
     def _clustering_settings(self):
@@ -1847,7 +1843,9 @@ class AnalysisController(QtCore.QObject):
                 ),
             )
             try:
-                candidate = publish_segmentation(window.project_data, result, window.project_dir)
+                candidate, reused = publish_segmentation_with_status(
+                    window.project_data, result, window.project_dir
+                )
             except Exception as exc:
                 self._append_status("Failed to save results")
                 window.show_error("Saving segmentation results failed", str(exc))
@@ -1858,7 +1856,10 @@ class AnalysisController(QtCore.QObject):
             self._append_status("Rendering results")
             self.show_result(candidate.result)
             worker_cleanup()
-            self._append_status("Done")
+            if reused:
+                self._append_status("Result matched an existing mask and selected it")
+            else:
+                self._append_status("Done")
 
         @QtCore.Slot()
         def on_failed(details):

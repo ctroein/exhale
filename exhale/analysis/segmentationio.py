@@ -94,18 +94,29 @@ def remove_unreferenced_snapshots(project_dir: Path, retained: set[Path]) -> Non
 def publish_segmentation(
     project_data: ProjectData, result: SegmentationResult, project_dir: str | Path, *, activate=True
 ) -> SegmentationCandidate:
-    """Save before publication; optionally retain the active mask during a batch."""
+    candidate, _ = publish_segmentation_with_status(
+        project_data, result, project_dir, activate=activate
+    )
+    return candidate
+
+
+def publish_segmentation_with_status(
+    project_data: ProjectData, result: SegmentationResult, project_dir: str | Path, *, activate=True
+) -> tuple[SegmentationCandidate, bool]:
+    """Save before publication and report whether an existing mask was reused."""
+    # Save before publication; optionally retain the active mask during a batch.
     if result.sample_id not in project_data.samples:
         raise KeyError(result.sample_id)
     history = project_data.segmentation_histories.get(result.sample_id)
     if history is None:
         history = SegmentationHistory(result.sample_id)
     candidate = SegmentationCandidate.from_result(result)
-    save_candidate(history.equivalent(candidate) or candidate, project_dir)
+    existing = history.equivalent(candidate)
+    save_candidate(existing or candidate, project_dir)
     candidate = history.add_candidate(candidate, active_id=None if activate else history.active_id)
     project_data.segmentation_histories[result.sample_id] = history
     project_data.segmentation_previews.get(result.sample_id, {}).pop(result.method_id, None)
-    return candidate
+    return candidate, existing is not None
 
 
 def clustering_relative_path(sample_id: str, method_id="intensity-partition") -> Path:
@@ -248,10 +259,11 @@ def save_xrf_sample(
             _write_optional_array(tissue, "tissue_labels", sample.tissue.tissue_labels)
 
         elements = handle.create_group("elements")
-        for index, channel in enumerate(sample.elements.values()):
+        for index, (element_key, channel) in enumerate(sample.elements.items()):
             element = elements.create_group(str(index))
             element.attrs["processed"] = channel.is_processed
             element.attrs["name"] = channel.name
+            element.attrs["key"] = element_key
             _write_optional_array(element, "raw", channel.raw)
             _write_optional_array(element, "log_image", channel.log_image)
             _write_optional_array(element, "cluster_labels", channel.cluster_labels)
@@ -328,7 +340,7 @@ def load_xrf_sample(
             channel._processed = bool(
                 element_group.attrs.get("processed", handle.attrs["processed"])
             )
-            sample.elements[channel.name] = channel
+            sample.elements[str(element_group.attrs.get("key", channel.name))] = channel
 
         tables = handle["tables"]
         sample._df_nuclei = _read_dataframe(tables, "nuclei")

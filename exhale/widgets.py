@@ -44,6 +44,14 @@ class IconToolButton(QtWidgets.QToolButton):
         self.setIconSize(QtCore.QSize(extent, extent))
 
 
+class ContentDoubleSpinBox(QtWidgets.QDoubleSpinBox):
+    """Keep Qt's range-, precision- and font-based width instead of expanding in layouts."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
+
+
 class _IconCheckStyle(QtWidgets.QProxyStyle):
     """Give item-view check indicators enough room for the 24-unit SVGs."""
 

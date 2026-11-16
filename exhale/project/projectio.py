@@ -22,6 +22,7 @@ from ..data.projectdata import (
     ChannelOverride,
     ClusteringParameters,
     ClusteringResult,
+    ClusteringSettings,
     LayerPresentation,
     ProjectData,
     SegmentationLayerSettings,
@@ -496,6 +497,8 @@ def export_project_state(
             )
         ],
         "clustering_method": project_data.clustering_method,
+        "analysis_clustering_method": project_data.analysis_clustering_method,
+        "clustering_settings": asdict(project_data.clustering_settings),
         "matrix_plots": {
             key: settings.to_json()
             for key, settings in sorted(project_data.matrix_plot_settings.items())
@@ -618,6 +621,9 @@ def load_project_state(
     if not isinstance(project_data.clustering_method, str):
         project_data.clustering_method = DEFAULT_CLUSTERING_METHOD
         issues.append("Clustering method selection was reset: expected a string")
+    elif project_data.clustering_method == "hdbscan":
+        # Retired results retain their identity; only the next-run selection changes.
+        project_data.clustering_method = "cutoff-proximity"
     method = state.get("segmentation_method")
     if method is None or isinstance(method, str):
         project_data.segmentation_method = method
@@ -977,9 +983,57 @@ def load_project_state(
                     method_id=obj.get("method_id", DEFAULT_CLUSTERING_METHOD),
                     sidecar=obj["sidecar"],
                 )
+                keys = {channel.ref: channel.key for channel in sample.channels.values()}
+                result.xrf_sample.elements = dict(
+                    zip(
+                        (keys[ref] for ref in refs),
+                        result.xrf_sample.elements.values(),
+                        strict=True,
+                    )
+                )
                 project_data.set_clustering_result(result)
             except Exception as exc:
                 issues.append(f"One element-clustering result was skipped: {exc}")
+
+    project_data.analysis_clustering_method = state.get(
+        "analysis_clustering_method", project_data.clustering_method
+    )
+    config = state.get("clustering_settings")
+    if config is not None:
+        project_data.clustering_settings = ClusteringSettings(
+            intensity=ClusteringParameters(**config.get("intensity", {})),
+            abundance=config.get("abundance", ClusteringSettings().abundance),
+            cutoffs=config.get("cutoffs", {}),
+            thresholds=config.get("thresholds", {}),
+            method_cutoffs=config.get("method_cutoffs", {}),
+            minimum_sizes=config.get("minimum_sizes", {}),
+        )
+    else:
+        # The selected method wins when the example projects contain differing settings.
+        settings = project_data.clustering_settings
+        entries = sorted(
+            state.get("clustering_results", []),
+            key=lambda obj: obj.get("method_id") != project_data.clustering_method,
+        )
+        configured = False
+        for obj in entries:
+            parameters = ClusteringParameters(**obj["parameters"])
+            if obj.get("method_id", DEFAULT_CLUSTERING_METHOD) == DEFAULT_CLUSTERING_METHOD:
+                settings.intensity = parameters
+            else:
+                options = dict(parameters.method_options)
+                overrides = options.pop("cutoff_scales", {})
+                thresholds = options.pop("thresholds", {})
+                options.pop("map_defaults", None)
+                if thresholds:
+                    method = obj.get("method_id", DEFAULT_CLUSTERING_METHOD)
+                    settings.thresholds.setdefault(method, {})[obj["sample_id"]] = thresholds
+                if not configured:
+                    settings.abundance.update(options)
+                    configured = True
+                target = settings.cutoffs.setdefault(obj["sample_id"], {})
+                for key, value in overrides.items():
+                    target.setdefault(key, value)
 
     return issues
 

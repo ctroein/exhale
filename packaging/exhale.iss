@@ -18,6 +18,8 @@ WizardStyle=modern
 SetupIconFile=icons\xrf.ico
 UninstallDisplayIcon={app}\exhale.exe
 PrivilegesRequired=lowest
+; The per-user uv runtime setup inherits this mitigation and can fail on junctions.
+RedirectionGuard=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0

@@ -1,10 +1,17 @@
-"""Stable clustering method identity and immutable batch input selections."""
+"""Clustering method identity, shared abundance defaults and immutable batch inputs."""
 
 from dataclasses import dataclass
 
 from .source_refs import ElementRef
 
 DEFAULT_CLUSTERING_METHOD = "intensity-partition"
+ABUNDANCE_DEFAULTS = {
+    "min_cluster_size": 10,
+    "radius": 2.0,
+    "cutoff_scale": 3.0,
+    "auto_cutoff": True,
+    "prominence": 16.0,
+}
 
 
 @dataclass(frozen=True)

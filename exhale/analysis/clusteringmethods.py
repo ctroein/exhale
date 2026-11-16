@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 
 from ..data.clustering import DEFAULT_CLUSTERING_METHOD
 from ..data.projectdata import ClusteringParameters
@@ -49,16 +50,16 @@ def _restore(dialog, parameters):
     dialog.clusterMaxK.setValue(parameters.max_k)
 
 
-def _hdbscan(arrays, job, parameters, callback, *, progress=None):
-    from .clustering_hdbscan import compute
+def _abundance(method_id, arrays, job, parameters, callback, *, progress=None):
+    from .clustering_abundance import compute
 
-    return compute(arrays, job, parameters, callback, progress=progress)
+    return compute(arrays, job, parameters, callback, method_id=method_id, progress=progress)
 
 
-def _hdbscan_options(parent):
-    from .hdbscan_options_dialog import HdbscanOptionsDialog
+def _abundance_options(method_id, parent):
+    from .abundance_clustering_options_dialog import AbundanceClusteringOptionsDialog
 
-    return HdbscanOptionsDialog(parent)
+    return AbundanceClusteringOptionsDialog(parent, method_id=method_id)
 
 
 @dataclass(frozen=True)
@@ -86,14 +87,20 @@ CLUSTERING_METHODS = (
         _parameters,
         _restore,
     ),
-    ClusteringMethod(
-        "hdbscan",
-        "HDBSCAN",
-        _hdbscan,
-        _hdbscan_options,
-        lambda dialog: dialog.parameters(),
-        lambda dialog, parameters: dialog.set_parameters(parameters),
-        lambda dialog, project, sample: dialog.set_context(project, sample),
+    *(
+        ClusteringMethod(
+            method_id,
+            name,
+            partial(_abundance, method_id),
+            partial(_abundance_options, method_id),
+            lambda dialog: dialog.parameters(),
+            lambda dialog, parameters: dialog.set_parameters(parameters),
+            lambda dialog, project, sample: dialog.set_context(project, sample),
+        )
+        for method_id, name in (
+            ("cutoff-proximity", "Cutoff + proximity"),
+            ("tomato", "ToMATo"),
+        )
     ),
 )
 

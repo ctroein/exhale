@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -11,7 +12,7 @@ from uuid import uuid4
 
 import numpy as np
 
-from .clustering import DEFAULT_CLUSTERING_METHOD
+from .clustering import ABUNDANCE_DEFAULTS, DEFAULT_CLUSTERING_METHOD
 from .constants import CONCENTRATION_UNITS
 from .elementsettings import ElementSettingsDefaults
 from .imagesettings import ImageSettings
@@ -215,6 +216,45 @@ class ClusteringParameters:
 
 
 @dataclass
+class ClusteringSettings:
+    """Project configuration shared across runs; manual cutoffs belong to sample/element pairs."""
+
+    intensity: ClusteringParameters = field(default_factory=ClusteringParameters)
+    abundance: dict = field(default_factory=lambda: dict(ABUNDANCE_DEFAULTS))
+    cutoffs: dict[str, dict[str, float]] = field(default_factory=dict)
+
+    thresholds: dict[str, dict[str, dict[str, float | None]]] = field(default_factory=dict)
+
+    method_cutoffs: dict[str, dict[str, dict[str, float | None]]] = field(default_factory=dict)
+    minimum_sizes: dict[str, int] = field(default_factory=dict)
+
+    def parameters(self, sample_id, method_id):
+        """Capture effective options without tying editable settings to computed results."""
+        if method_id == DEFAULT_CLUSTERING_METHOD:
+            return deepcopy(self.intensity)
+        options = deepcopy(self.abundance)
+        options["auto_cutoff"] = True
+        if method_id in self.minimum_sizes:
+            options["min_cluster_size"] = self.minimum_sizes[method_id]
+        if method_id != "tomato":
+            options.pop("prominence", None)
+        options["cutoff_scales"] = dict(self.cutoffs.get(sample_id, {}))
+        thresholds = self.thresholds.get(method_id, {}).get(sample_id, {})
+        manual = {key: value for key, value in thresholds.items() if value is not None}
+        if manual:
+            options["thresholds"] = manual
+        for key in thresholds:
+            options["cutoff_scales"].pop(key, None)
+        for key, value in self.method_cutoffs.get(method_id, {}).get(sample_id, {}).items():
+            options.get("thresholds", {}).pop(key, None)
+            if value is None:
+                options["cutoff_scales"].pop(key, None)
+            else:
+                options["cutoff_scales"][key] = value
+        return ClusteringParameters(method_options=options)
+
+
+@dataclass
 class ClusteringResult:
     """The latest successful clustering for one sample and method."""
 
@@ -382,6 +422,8 @@ class ProjectData:
         self.segmentation_method: str | None = None
         self.clustering_results: dict[str, dict[str, ClusteringResult]] = {}
         self.clustering_method = DEFAULT_CLUSTERING_METHOD
+        self.analysis_clustering_method = DEFAULT_CLUSTERING_METHOD
+        self.clustering_settings = ClusteringSettings()
         self.matrix_plot_settings = {key: MatrixPlotSettings() for key in MATRIX_PLOT_KEYS}
         self.matrix_plot_settings[CLUSTER_DISTANCES] = MatrixPlotSettings(
             palette="viridis", default_palette="viridis"
@@ -911,6 +953,11 @@ class ProjectData:
         self.segmentation_edit_sessions.pop(sample_id, None)
         self.segmentation_previews.pop(sample_id, None)
         self.clustering_results.pop(sample_id, None)
+        self.clustering_settings.cutoffs.pop(sample_id, None)
+        for thresholds in self.clustering_settings.thresholds.values():
+            thresholds.pop(sample_id, None)
+        for cutoffs in self.clustering_settings.method_cutoffs.values():
+            cutoffs.pop(sample_id, None)
         self.samples.pop(sample_id, None)
         return removed
 
@@ -953,6 +1000,8 @@ class ProjectData:
         self.segmentation_method = None
         self.clustering_results.clear()
         self.clustering_method = DEFAULT_CLUSTERING_METHOD
+        self.analysis_clustering_method = DEFAULT_CLUSTERING_METHOD
+        self.clustering_settings = ClusteringSettings()
         for settings in self.matrix_plot_settings.values():
             settings.reset()
         self.matrix_publication_settings.reset()

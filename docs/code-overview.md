@@ -91,6 +91,10 @@ the first correction of a prediction retains the original as a separate mask.
 `ResolvedChannel` express local versus inherited channel state; the remaining
 data classes describe assets and analysis metadata.
 
+`ClusteringSettings` retains per-method controls and sample/element cutoff
+overrides independently of computed results. The run method and the result
+method used by the viewer and downstream analysis are persisted separately.
+
 ### `exhale/data/channeldata.py`
 
 Provides uniform access to map data. `ChannelData` defines the cache and
@@ -289,33 +293,40 @@ color control; the full layer list is not replicated.
 
 ### `exhale/data/clustering.py`
 
-Defines the default method ID and immutable sample jobs containing all enabled
+Defines the default method ID, shared abundance defaults and immutable sample
+jobs containing all enabled
 elements, captured in stable order with separate keys, display names and refs.
 
 ### `exhale/analysis/clusteringmethods.py`
 
 Registers clustering methods with numerical execution and options-dialog
-adapters for intensity partitioning and HDBSCAN. An optional context adapter
+adapters for intensity partitioning, Cutoff + proximity and ToMATo. An optional context adapter
 provides project/sample elements to a method's options dialog. Dependencies and
 model choices remain independent of segmentation.
 
-### `exhale/analysis/clustering_hdbscan.py`
+### `exhale/analysis/clustering_abundance.py`
 
-Selects finite raw abundances above automatic Otsu or per-element manual cutoffs,
-then clusters pixel positions with scikit-learn HDBSCAN. Preserves disconnected
-assignments, leaves noise/background unlabelled and measures each cluster ID as
-one region. Stores actual cutoffs using existing channel-sidecar metadata.
+Computes a robust raw-median/neighbor-difference abundance cutoff and builds a
+proximity graph on candidate pixels. Returns connected graph components or
+GUDHI ToMATo groups merged by raw-abundance prominence. Filters by assigned-pixel
+count, preserves fragmented labels and stores actual cutoffs in existing sidecars.
+Shared validation, statistics and supported-window contrast cutoff estimation
+need no native clustering imports.
 
-### `exhale/analysis/hdbscan_options_dialog.py`
+### `exhale/analysis/abundance_clustering_options_dialog.py`
 
-Edits minimum cluster size, density support and per-element abundance cutoffs.
-Retains unfinished cutoff entries across sample switches and validates them when
-capturing run parameters. Designer source is `hdbscan_options_dialog.ui`; the
-generated module has the matching `_ui.py` suffix.
+Displays a project-wide sample-by-element grid with Auto checkboxes and manual
+cutoff spinboxes. Both abundance methods share project-owned settings; ToMATo
+also exposes prominence. `CutoffEstimateWorker` computes previews off the GUI
+thread and publishes cells incrementally, with cancellation and context guards.
+The details panel exposes the selected cell's calculation as copyable text.
+Designer source is `abundance_clustering_options_dialog.ui`, with a matching
+generated `_ui.py` module.
 
 ### `exhale/analysis/clusteringbatch.py`
 
-Runs sample jobs sequentially in a background thread, reads original maps,
+Runs sample jobs sequentially in a background thread with independent captured
+parameters for each sample, reads original maps,
 saves results before publishing each completed sample, checks cancellation and
 continues after independent sample failures.
 
@@ -586,6 +597,10 @@ channel/header control rows used by the main window.
 
 Contains small general Qt helpers: square icon buttons and deferred splitter
 initialization for pages which are hidden during initial layout.
+
+`ContentDoubleSpinBox` uses Qt’s native size hint for the configured numeric
+range, decimal precision, font and style, with a fixed size policy. Its width
+stays stable during editing and follows font or format changes.
 
 ### `exhale/tooltips.py`
 

@@ -104,16 +104,18 @@ MAIN_WINDOW = {
     "analysisMinimumArea": "Remove segments smaller than this area, in pixels.",
     "analysisExpansion": "Expand (+) or shrink (−) segment boundaries before area filtering.",
     "clusteringSampleComboBox": "Select the sample whose element maps are clustered.",
-    "clusteringOptions": "Configure the selected clustering method.",
+    "clusteringOptions": "Configure clustering across the project.",
+    "clusteringAnalysisMethod": "Method displayed here and used for segmentation layers and Cluster distances.",
+    "clusteringRemove": "Clear results for this method across all samples.",
     "clusteringRun": "Cluster all enabled element maps in this sample.",
-    "clusteringMethodCombo": "Method used to cluster element maps and select saved results.",
+    "clusteringMethodCombo": "Method used by the run buttons and clustering options.",
     "clusteringBatch": "Choose samples to cluster with the current method and options.",
     "clusteringAbort": "Stop clustering and cancel remaining batch samples.",
     "clusteringElementCombo": "Element map and clusters to display.",
     "clusteringMapVisible": "Show the transformed element map.",
     "clusteringClustersVisible": "Show this element’s clusters.",
     "clusteringOpacity": "Opacity of the cluster overlay.",
-    "clusteringExport": "Export element maps, cluster labels and measurements.",
+    "clusteringExport": "Export all element maps, cluster labels and measurements for the selected sample and the method under Run clustering.",
     "clusteringSaveView": "Save current view",
     "clusteringFit": "Fit image to view",
     "analysisSaveView": "Save current view",
@@ -167,16 +169,16 @@ ANALYSIS_SETTINGS_DIALOG = {
     "clusterMaxK": "Range of intensity-class counts considered for each element map.",
 }
 
-HDBSCAN_OPTIONS_DIALOG = {
+ABUNDANCE_CLUSTERING_OPTIONS_DIALOG = {
+    "restoreAuto": "Restore automatically estimated cutoffs for every sample and element.",
     "minClusterSize": "Minimum number of above-cutoff pixels retained as one cluster.",
-    "densitySupport": (
-        "Number of nearby pixels used to estimate density, including the pixel itself.\n"
-        "Larger values generally leave more pixels unassigned."
-    ),
+    "linkRadius": "Maximum distance between linked pixels.",
+    "cutoffScale": "Multiple used when an Auto estimate is unavailable.",
+    "prominence": "Merge peaks whose abundance prominence is below this multiple of s.\nLarger values merge more groups.",
     "thresholdTable": (
-        "Automatic: compute an Otsu cutoff from each map's raw abundances.\n"
-        "Uncheck Automatic to enter a cutoff in the project's abundance units."
+        "Rows are samples; columns are elements. Clear Auto to set a manual cutoff multiple."
     ),
+    "cutoffDetails": "Calculation details for this sample. Select text to copy it.",
 }
 
 SEGMENTATION_OPTIONS_DIALOG = {

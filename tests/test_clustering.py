@@ -12,11 +12,16 @@ import numpy as np
 import pytest
 from qtpy import QtCore, QtTest, QtWidgets
 
+from exhale.analysis.clustering_abundance import estimate_cutoff
 from exhale.analysis.clustering_batch_dialog import ClusteringBatchDialog
 from exhale.analysis.clusteringbatch import ClusteringBatchWorker
 from exhale.analysis.clusteringmethods import CLUSTERING_METHODS
 from exhale.analysis.controller import AnalysisController
-from exhale.analysis.segmentationio import clustering_relative_path, save_xrf_sample
+from exhale.analysis.segmentationio import (
+    clustering_relative_path,
+    load_xrf_sample,
+    save_xrf_sample,
+)
 from exhale.data.clustering import DEFAULT_CLUSTERING_METHOD, clustering_job
 from exhale.data.projectdata import ClusteringParameters, ClusteringResult, ProjectData
 from exhale.data.source_refs import open_source
@@ -86,38 +91,39 @@ def test_jobs_follow_enabled_channels_and_keep_unique_keys_despite_duplicate_nam
     assert set(result.elements) == {"P", "Fe"}
 
 
-def test_hdbscan_options_run_and_project_restore(window):
+@pytest.mark.parametrize("method_id", ["cutoff-proximity", "tomato"])
+def test_abundance_options_run_and_project_restore(window, method_id):
     owner = window.clustering_controller
     selector = window.clusteringMethodCombo
-    selector.setCurrentIndex(selector.findData("hdbscan"))
-    dialog = owner.dialog
-    assert dialog.thresholdTable.rowCount() == 3
-    dialog.minClusterSize.setValue(6)
-    dialog.densitySupport.setValue(3)
-    row = next(
-        row
-        for row in range(dialog.thresholdTable.rowCount())
-        if dialog.thresholdTable.item(row, 0).data(QtCore.Qt.UserRole) == "Fe"
-    )
-    dialog.thresholdTable.item(row, 1).setCheckState(QtCore.Qt.CheckState.Unchecked)
-    dialog.thresholdTable.cellWidget(row, 2).setText("25")
-    parameters = dialog.parameters()
+    selector.setCurrentIndex(selector.findData(method_id))
     job = jobs(window.project_data)[0]
-    owner.start((job,))
+    window.clusteringSampleComboBox.setCurrentIndex(
+        window.clusteringSampleComboBox.findData(job.sample_id)
+    )
+    window.clusteringElementCombo.setCurrentIndex(
+        window.clusteringElementCombo.findData(job.refs[job.keys.index("Fe")])
+    )
+    owner.run()
     wait_until(lambda: owner.worker is None)
+    original = window.project_data.clustering_result(job.sample_id, method_id)
+    result_selector = window.clusteringAnalysisMethod
+    result_selector.setCurrentIndex(result_selector.findData(method_id))
+    window.clusteringAuto.setChecked(False)
+    window.clusteringCutoff.setValue(2.5)
+    wait_until(lambda: owner.worker is None and owner._pending is None)
     window.show_error.assert_not_called()
-    result = window.project_data.clustering_result(job.sample_id, "hdbscan")
-    assert result.parameters == parameters
-    assert result.xrf_sample.elements["Fe"].intensity_thresholds.tolist() == [25]
-    assert dialog.parameters() == parameters
-    assert dialog.thresholdTable.rowCount() == 3
+    result = window.project_data.clustering_result(job.sample_id, method_id)
+    parameters = result.parameters
+    assert set(result.element_refs) == set(original.element_refs)
+    assert parameters.method_options["cutoff_scales"]["Fe"] == 2.5
+    assert result.xrf_sample.elements["Fe"].intensity_thresholds.tolist() == [48.5]
     path = window.project_dir / "project.xhp"
     save_project(window.project_data, path)
     restored = ProjectData()
     try:
         assert not load_project(restored, path)
-        saved = restored.clustering_result(job.sample_id, "hdbscan")
-        assert restored.clustering_method == "hdbscan"
+        saved = restored.clustering_result(job.sample_id, method_id)
+        assert restored.clustering_method == method_id
         assert saved.parameters == parameters
         np.testing.assert_array_equal(
             saved.xrf_sample.elements["Fe"].cluster_labels,
@@ -125,6 +131,164 @@ def test_hdbscan_options_run_and_project_restore(window):
         )
     finally:
         restored.clear()
+
+
+@pytest.mark.parametrize("method_id", ["cutoff-proximity", "tomato"])
+def test_auto_cutoff_batch_estimates_each_samples_maps_and_saves_them(tmp_path, method_id):
+    model = ProjectData()
+    rng = np.random.default_rng(48)
+    expected = {}
+    parameters = ClusteringParameters(method_options={"auto_cutoff": True})
+    try:
+        for index in range(2):
+            path = tmp_path / f"sample{index}.h5"
+            maps = {}
+            with h5py.File(path, "w") as handle:
+                handle.attrs["default"] = "entry"
+                group = handle.create_group("entry/plotselect")
+                for channel_index, key in enumerate(("Fe", "Zn")):
+                    raw = rng.normal(10, 1 + index, (32, 32))
+                    raw[8:16, 8:16] += 10 * (1 + 3 * index + channel_index)
+                    group[key] = raw
+                    maps[key] = raw
+            sample = model.register_source(open_source(str(path)))
+            for key in maps:
+                model.add_project_channel_from_sample(sample.sample_id, key)
+            expected[sample.sample_id] = {
+                key: estimate_cutoff(raw, 10).cutoff for key, raw in maps.items()
+            }
+        completed, failures = [], []
+        worker = ClusteringBatchWorker(jobs(model), model.sources, method_id, parameters, tmp_path)
+        worker.sample_finished.connect(completed.append)
+        worker.sample_failed.connect(lambda job, error: failures.append(error))
+        worker.execute()
+        assert not failures
+        assert len(completed) == 2
+        for result in completed:
+            assert result.parameters.method_options["auto_cutoff"] is True
+            restored = load_xrf_sample(
+                tmp_path / clustering_relative_path(result.sample_id, method_id),
+                expected_method_id=method_id,
+            )
+            for key, cutoff in expected[result.sample_id].items():
+                assert result.xrf_sample.elements[key].intensity_thresholds[0] == pytest.approx(
+                    cutoff
+                )
+                assert restored.elements[key].intensity_thresholds[0] == pytest.approx(cutoff)
+        assert expected[completed[0].sample_id]["Fe"] != expected[completed[1].sample_id]["Fe"]
+    finally:
+        model.clear()
+
+
+def test_batch_keeps_sample_cutoffs_and_removal_retains_configuration(window):
+    owner = window.clustering_controller
+    selector = window.clusteringMethodCombo
+    selector.setCurrentIndex(selector.findData("cutoff-proximity"))
+    queue = jobs(window.project_data)
+    settings = window.project_data.clustering_settings
+    settings.thresholds["cutoff-proximity"] = {
+        job.sample_id: {"Fe": value} for job, value in zip(queue[:2], (2.0, 5.0), strict=True)
+    }
+    owner.start(queue)
+    wait_until(lambda: owner.worker is None)
+    window.show_error.assert_not_called()
+    for job, value in zip(queue[:2], (2.0, 5.0), strict=True):
+        result = window.project_data.clustering_result(job.sample_id, "cutoff-proximity")
+        assert result.parameters.method_options["thresholds"] == {"Fe": value}
+    result_selector = window.clusteringAnalysisMethod
+    result_selector.setCurrentIndex(result_selector.findData("cutoff-proximity"))
+    with patch.object(owner, "start") as start:
+        owner.run_batch()
+    start.assert_not_called()
+    with patch.object(QtWidgets.QMessageBox, "question", return_value=QtWidgets.QMessageBox.Yes):
+        owner.remove_result()
+    assert not window.project_data.clustering_results
+    assert settings.thresholds["cutoff-proximity"][queue[0].sample_id] == {"Fe": 2}
+    path = window.project_dir / "project.xhp"
+    save_project(window.project_data, path)
+    restored = ProjectData()
+    try:
+        assert not load_project(restored, path)
+        assert restored.clustering_settings.thresholds == settings.thresholds
+        assert restored.clustering_result(queue[0].sample_id, "cutoff-proximity") is None
+    finally:
+        restored.clear()
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_cutoff_grid_applies_only_on_accept(window, apply):
+    from exhale.analysis.abundance_clustering_options_dialog import (
+        AbundanceClusteringOptionsDialog,
+    )
+
+    owner = window.clustering_controller
+    selector = window.clusteringMethodCombo
+    method = "cutoff-proximity"
+    selector.setCurrentIndex(selector.findData(method))
+    job = jobs(window.project_data)[0]
+    settings = window.project_data.clustering_settings
+
+    def edit(dialog):
+        cell = dialog._cells[job.sample_id, "Fe"]
+        cell.auto.setChecked(False)
+        cell.multiple.setValue(4)
+        dialog.minClusterSize.setValue(8)
+        assert not settings.method_cutoffs
+        assert not settings.minimum_sizes
+        return QtWidgets.QDialog.Accepted if apply else QtWidgets.QDialog.Rejected
+
+    with patch.object(AbundanceClusteringOptionsDialog, "exec", edit):
+        owner.show_options()
+    if apply:
+        assert settings.method_cutoffs[method][job.sample_id] == {"Fe": 4}
+        assert settings.minimum_sizes[method] == 8
+    else:
+        assert not settings.method_cutoffs
+        assert not settings.minimum_sizes
+
+
+def test_downstream_method_is_separate_and_layer_names_are_elements(window):
+    project = window.project_data
+    job = jobs(project)[0]
+    arrays = [project.sources[ref.source_id].load_array(ref) for ref in job.refs]
+    for method in CLUSTERING_METHODS[1:]:
+        output = method.compute(
+            arrays,
+            job,
+            project.clustering_settings.parameters(job.sample_id, method.method_id),
+            lambda text: None,
+        )
+        project.set_clustering_result(
+            ClusteringResult(
+                job.sample_id, job.refs, ClusteringParameters(), output, method_id=method.method_id
+            )
+        )
+    window.clusteringMethodCombo.setCurrentIndex(
+        window.clusteringMethodCombo.findData("cutoff-proximity")
+    )
+    consumer = SimpleNamespace(window=window, current_sample=lambda: project.samples[job.sample_id])
+    identities = None
+    for method_id in ("cutoff-proximity", "tomato"):
+        window.clusteringAnalysisMethod.setCurrentIndex(
+            window.clusteringAnalysisMethod.findData(method_id)
+        )
+        assert window.clusteringMethodCombo.currentData() == "cutoff-proximity"
+        assert project.analysis_clustering_method == method_id
+        available = AnalysisController._available_clustering_layers(consumer)
+        assert {name for _identity, name, _data in available.values()} == {"Fe", "P", "Zn"}
+        if identities is not None:
+            assert set(available) == identities
+        identities = set(available)
+        result = project.clustering_result(job.sample_id, method_id)
+        for ref, channel in zip(
+            result.element_refs, result.xrf_sample.elements.values(), strict=True
+        ):
+            assert available[f"clustering:{ref}"][2] is channel.cluster_labels
+    assert not hasattr(window, "clusterDistanceMethod")
+    state = projectio.export_project_state(project)
+    restored = ProjectData()
+    assert not projectio.load_project_state(restored, state, open_files=False)
+    assert restored.analysis_clustering_method == "tomato"
 
 
 def test_batch_publishes_each_completed_sample_and_continues_after_a_failure(project, tmp_path):

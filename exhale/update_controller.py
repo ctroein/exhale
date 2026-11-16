@@ -118,7 +118,7 @@ class UpdateController(QtCore.QObject):
                 QtWidgets.QMessageBox.information(
                     self.window,
                     "Exhale updates",
-                    "No newer stable release supports this Python version.",
+                    "No Exhale update is available for this installation.",
                 )
             return
         if not self._manual and version == self.settings.value(updates.NOTIFIED_VERSION_KEY, ""):

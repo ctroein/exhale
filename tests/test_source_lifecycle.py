@@ -97,14 +97,14 @@ class SourceLifecycleTests(unittest.TestCase):
             self.app.processEvents()
             self.app.processEvents()
             initial_height = tabs.height()
-            initial_split = self.win.analysisLeftSplitter.sizes()
+            initial_layers_height = self.win.analysisLayersWidget.height()
             initial_hints = [tabs.widget(i).sizeHint().height() for i in range(tabs.count())]
             for index in (1, 2, 0, 1):
                 tabs.setCurrentIndex(index)
                 self.app.processEvents()
                 self.app.processEvents()
                 self.assertEqual(tabs.height(), initial_height)
-                self.assertEqual(self.win.analysisLeftSplitter.sizes(), initial_split)
+                self.assertEqual(self.win.analysisLayersWidget.height(), initial_layers_height)
                 self.assertEqual(tabs.widget(index).sizeHint().height(), initial_hints[index])
 
     def test_tabs_and_file_actions(self):
@@ -166,6 +166,41 @@ class SourceLifecycleTests(unittest.TestCase):
 
         self.win.correlationModes.setCurrentWidget(self.win.sampleSimilarityTab)
         self.assertIs(self.win.correlation_controller.element_matrix.result, result)
+
+    def test_sample_similarity_shows_placeholder_until_background_result(self):
+        files = []
+        for index in range(2):
+            filename = str(Path(self.temp.name) / f"similarity-{index}.h5")
+            with h5py.File(filename, "w") as handle:
+                handle.attrs["default"] = "entry"
+                group = handle.create_group("entry/plotselect")
+                for key, values in (
+                    ("Fe", self.data),
+                    ("Zn", self.data * 2),
+                    ("P", self.data.T.reshape(3, 4)),
+                ):
+                    group.create_dataset(key, data=values)
+            files.append(filename)
+        self.win.source_manager.open_files(files)
+        sample_id = next(iter(self.win.project_data.samples))
+        for key in ("Fe", "Zn", "P"):
+            self.win.project_data.add_project_channel_from_sample(sample_id, key)
+        self.win.channelsChanged.emit()
+
+        controller = self.win.correlation_controller
+        self.addCleanup(controller.shutdown)
+        controller.calculate_samples(show_errors=False)
+        self.assertIsNone(controller.similarity_matrix.result)
+        self.assertFalse(controller._similarity_placeholder.isHidden())
+        worker = controller._similarity_worker
+        self.assertTrue(worker.wait(5000))
+        self.app.processEvents()
+        result = controller.similarity_matrix.result
+        self.assertEqual(result.values.shape, (2, 2))
+        self.assertTrue(controller._similarity_placeholder.isHidden())
+        controller.calculate_samples(show_errors=False)
+        self.assertIs(controller.similarity_matrix.result, result)
+        self.assertIsNone(controller._similarity_worker)
 
     def test_active_tab_is_restored_from_global_settings_without_dirtying_project(self):
         settings = self.win.settings

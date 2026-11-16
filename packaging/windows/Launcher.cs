@@ -193,15 +193,17 @@ internal sealed class RuntimeSetup
             if (extras.Contains("cellpose")) command.AddRange(new[] { "-r", Path.Combine(payload, "requirements-cellpose.txt") });
             Execute(uv, command.ToArray(), false);
             if (version != null)
+            {
                 Execute(Path.Combine(environment, "Scripts", "python.exe"), new[] {
                     "-c", "import sys; from importlib.metadata import version; from packaging.version import Version; " +
                     "assert Version(version('exhale-xrf')) == Version(sys.argv[1]), 'Installed version does not match requested update'", version }, true);
-            Execute(Path.Combine(environment, "Scripts", "python.exe"), new[] { "-m", "exhale", "--startup-check" }, true);
+                Execute(Path.Combine(environment, "Scripts", "python.exe"), new[] { "-m", "exhale", "--startup-check" }, true);
+            }
             var pending = new Dictionary<string, string> {
                 { "environment", Path.GetFileName(environment) }, { "wheel", config["wheel"] }, { "backends", selection } };
             if (version != null) pending["version"] = version;
             Write(Path.Combine(runtime, "pending.json"), pending);
-            log("Runtime validated. Ready to finish installation.");
+            log("Runtime prepared. Ready to finish installation.");
         }
         catch
         {
@@ -339,7 +341,7 @@ internal sealed class RuntimeSetup
                     string before = File.ReadAllText(Path.Combine(home, "runtime", "installed.json"));
                     setup.Execute = (exe, args, check) => {
                         if (args[0] == "venv") Directory.CreateDirectory(args[3]);
-                        if (check) throw new InvalidOperationException("simulated startup failure");
+                        if (args[0] == "pip") throw new InvalidOperationException("simulated package installation failure");
                     };
                     try { setup.Prepare(selection); throw new Exception("Failed setup was accepted."); }
                     catch (InvalidOperationException) { }

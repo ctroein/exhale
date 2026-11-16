@@ -360,30 +360,82 @@ keeps completed results. Sample and element viewing remain available during a
 batch, and completed jobs do not change the selected sample. A project generation
 guard rejects callbacks from cleared projects.
 
-`clusteringmethods` registers execution and options adapters for deterministic
-intensity partitioning and spatial HDBSCAN. Results are indexed by sample and method;
-a rerun replaces only that pair. Sidecars live under `element-clusters/<method>/`.
-Cluster distances select a clustering method explicitly. Clustering inputs and
-results remain independent of segmentation masks.
+`clusteringmethods` registers execution and options adapters for intensity
+partitioning, Cutoff + proximity and ToMATo. Results are indexed by sample and
+method; a rerun replaces only that pair. Sidecars live under
+`element-clusters/<method>/`. The Result method selects the viewer output, Cluster distances and
+segmentation clustering overlays. Run method independently selects which
+algorithm the run controls and options act on. Downstream
+layers use element-only names and method-independent identities, preserving
+presentation when switching the downstream method. A missing result for that
+method supplies no layers or distances for the sample.
 
-HDBSCAN selects finite raw-abundance pixels strictly above a per-element cutoff.
-Automatic cutoffs use a 256-bin Otsu histogram; constant maps have no pixels above
-their automatic cutoff. Manual cutoffs are stored by element key and reused for
-that element across a batch. No smoothing, display transformation or gap filling
-is applied. The estimator sees only pixel positions with Euclidean distance:
-abundance is neither a coordinate nor a point weight. With the current square
-pixels, uniform physical scaling does not change this hierarchy. Independent
-minimum cluster size (default 20 pixels) and density support (default 5, including
-the point itself) control retention and local density. Stability-based `eom`
-selection allows a single cluster and applies no distance-based merging cutoff.
+`ClusteringSettings` stores editable configuration independently of results:
+intensity-class bounds, per-method minimum sizes and manual cutoff multiples
+indexed by method, sample ID and element key. The cutoff grid stages edits
+until Apply. Inline cutoff edits debounce a single-map run and retain one
+pending request. Project runs for cutoff methods skip maps with matching
+execution settings.
+Each result retains an execution snapshot. Editing configuration marks a displayed
+result as needing recalculation by comparing that snapshot; existing output stays
+available until rerun. Batch captures a separate settings snapshot for every job,
+so sample-specific manual cutoffs survive batch completion and cancellation.
+"Remove result" drops only the displayed sample/method output and retains all
+configured options. Its sidecar becomes unreferenced and can be overwritten on a
+later run. Clustering inputs and results remain independent of segmentation.
 
-One cluster ID may cover disconnected pixels. Measurements operate on those IDs
-directly, so area counts only assigned pixels and centroids cover the full cluster;
-connected-component relabelling would destroy the result. Noise and invalid pixels
-remain background. Existing clustering sidecars retain labels, measurements and
-each actual abundance cutoff in `intensity_thresholds`; project parameters retain
-manual overrides. Cancellation is checked around each estimator fit and between
-elements; scikit-learn does not support interruption inside one HDBSCAN fit.
+The two abundance methods use finite raw abundances without smoothing or display
+transformations. A cutoff is the raw median plus its chosen multiple of s;
+3s is the fallback when Auto cannot estimate a multiple. Here s is the median absolute deviation of finite
+horizontal/vertical neighbor differences, divided by 0.6744897501960817 * sqrt(2).
+This describes local variation, including real structure; it is not a calibrated
+uncertainty or a significance test. Constant maps have s=0 and no pixels strictly
+above their automatic cutoff. Manual overrides are multiples of s, stored by
+sample ID and element key, and applied relative to that sample’s median and
+variation scale. Actual abundance cutoffs
+are saved in `intensity_thresholds`. Earlier saved absolute cutoffs retain their
+original parameter key for numerical reproduction.
+
+The options overview has samples as rows and enabled elements as columns. Each
+available cell selects Auto or an explicit manual cutoff. Checkbox labels and
+per-cell unit suffixes are implicit in the table heading; spinbox widths follow
+the configured range, precision and font, and stay stable during editing. "Restore all Auto cutoffs" clears project-wide manual overrides and
+restores cached estimates. Missing elements have
+disabled empty cells. Auto estimates cutoffs independently for each sample and
+element, including batch jobs. B is the finite abundance median. H is the
+highest finite mean in a near-square sliding window covering at least the minimum
+cluster size; window dimensions adapt to narrow maps. A window must contain at
+least that many finite pixels. The contrast cutoff is B + 0.10 × (H − B). Its
+equivalent multiple of s is bounded to 2–15, so the effective cutoff is
+B + clamp(0.10 × (H − B), 2 × s, 15 × s). A zero s or insufficient supported contrast uses
+the saved shared multiple as a fallback. Per-element manual overrides take
+precedence over Auto. Both the mode and overrides are captured in method options;
+actual abundance cutoffs remain in the sidecar. The read-only details panel
+provides copyable B, H, s, window size, unbounded estimate, bounds and effective cutoff.
+Preview estimates are computed on a QThread while the dialog is visible and
+published incrementally to the grid. Context tokens reject queued results from
+previous projects or minimum-size settings. Readers are stopped and joined when
+the dialog closes or the project changes. Execution always computes from that
+job’s raw map.
+
+Only above-cutoff pixels enter a graph linking observations at Euclidean distance
+at most 2 pixels by default. Intervening pixels are not added. Cutoff + proximity
+returns this graph's connected components. ToMATo gives GUDHI this same graph and
+unmodified abundances as manual weights; it uses no density estimator. Peaks
+with prominence below a configurable multiple of s (default 16) are merged.
+Both methods then discard groups with fewer than 10 retained pixels by default,
+without reassigning rejected pixels. A fixed 3s cutoff with these spatial and prominence settings reproduces the
+33–36 sample prototype: Ca_K/Cl_K/Cu_K give 201/440/14 proximity groups and 275/440/14 ToMATo groups.
+
+One cluster ID can cover disconnected pixels in the image. Measurements use
+these IDs directly: area counts only assigned pixels and the centroid covers
+all assigned pixels. Connected-component relabelling on the pixel grid would
+destroy this result. Non-finite pixels remain background. Cancellation is
+checked during graph construction and around native grouping calls; a native
+call may finish before Stop takes effect. GUDHI is a lightweight base dependency
+with no trained models or runtime downloads. Imports remain lazy for saved-data
+viewing. HDBSCAN is retired from the method chooser; old results keep their
+identity and sidecars, while its saved next-run selection becomes Cutoff + proximity.
 
 The lightweight clustering viewer uses the common Napari integration with only
 the selected map and cluster overlays. It previews transformed maps before a run,

@@ -12,6 +12,7 @@ _PACKAGE_DISTRIBUTIONS = (
     ("QtPy", "QtPy"),
     ("NumPy", "numpy"),
     ("SciPy", "scipy"),
+    ("GUDHI", "gudhi"),
     ("pandas", "pandas"),
     ("h5py", "h5py"),
     ("tifffile", "tifffile"),

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from qtpy import QtCore, QtWidgets
 
-from . import appearance, icons, updates
+from . import icons, updates
 from .analysis.model_store import MODEL_DIRECTORY_SETTING
 from .model_settings import default_model_directory, model_directory
 from .project.projectstatemanager import PROJECT_AUTOSAVE_KEY, PROJECT_SAVE_ON_EXIT_KEY
@@ -20,10 +20,6 @@ class SettingsDialog(QtWidgets.QDialog, Ui_SettingsDialog):
         super().__init__(parent)
         self.setupUi(self)
         self.settings = settings
-        scheme = settings.value(appearance.COLOR_SCHEME_KEY, "system")
-        if scheme not in appearance.COLOR_SCHEMES:
-            scheme = "system"
-        self.colourSchemeComboBox.setCurrentIndex(appearance.COLOR_SCHEMES.index(scheme))
         self.autosaveProjectCheckBox.setChecked(
             settings.value(PROJECT_AUTOSAVE_KEY, True, type=bool)
         )
@@ -73,11 +69,8 @@ class SettingsDialog(QtWidgets.QDialog, Ui_SettingsDialog):
         self.settings.setValue(
             updates.AUTOMATIC_CHECKS_KEY, self.automaticUpdatesCheckBox.isChecked()
         )
-        scheme = appearance.COLOR_SCHEMES[self.colourSchemeComboBox.currentIndex()]
-        self.settings.setValue(appearance.COLOR_SCHEME_KEY, scheme)
         self.settings.setValue(PROJECT_AUTOSAVE_KEY, self.autosaveProjectCheckBox.isChecked())
         self.settings.setValue(PROJECT_SAVE_ON_EXIT_KEY, self.saveProjectOnExitCheckBox.isChecked())
-        appearance.manager().set_scheme(scheme)
         parent = self.parent()
         if parent is not None and hasattr(parent, "project_state_manager"):
             parent.project_state_manager.autosave_setting_changed()

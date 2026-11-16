@@ -10,7 +10,7 @@ from ..data.projectdata import SegmentationLayerSettings, SegmentationResult
 from ..data.segmentation import SegmentationPostprocessing
 from ..model_settings import model_directory
 from .analysisworker import AnalysisWorker
-from .segmentationio import publish_segmentation
+from .segmentationio import publish_segmentation_with_status
 
 
 class BatchSegmentationWorker(AnalysisWorker):
@@ -71,6 +71,7 @@ class SegmentationBatchController(QtCore.QObject):
         self.project = self.window.project_data
         self.project_dir = Path(self.window.project_dir)
         self.completed, self.failures = [], []
+        self.reused_count = 0
         self.active, self.stopping = True, False
         generation = self._generation = object()
         thread = self.thread = QtCore.QThread(self.window)
@@ -142,7 +143,9 @@ class SegmentationBatchController(QtCore.QObject):
             reference_refs=presentation.reference_refs if presentation else (),
         )
         try:
-            publish_segmentation(self.project, result, self.project_dir, activate=False)
+            _, reused = publish_segmentation_with_status(
+                self.project, result, self.project_dir, activate=False
+            )
         except Exception as exc:
             self._failed_sample(job, f"Saving the segmentation failed: {exc}")
             return
@@ -155,7 +158,11 @@ class SegmentationBatchController(QtCore.QObject):
                 self.owner.sample_changed()
             else:
                 self.owner._refresh_masks(incremental=True)
-        self.owner._append_status(f"Saved segmentation for {job.sample_name}")
+        if reused:
+            self.reused_count += 1
+            self.owner._append_status(f"Reused an existing mask for {job.sample_name}")
+        else:
+            self.owner._append_status(f"Saved segmentation for {job.sample_name}")
 
     def _failed_sample(self, job, details):
         self.failures.append(f"{job.sample_name}: {details}")
@@ -175,22 +182,23 @@ class SegmentationBatchController(QtCore.QObject):
         done, total = len(self.completed), len(self.jobs)
         stopped = self.stopping or done + len(self.failures) < total
         text = f"{'Stopped' if stopped else 'Batch complete'} — {done} of {total} completed"
-        if self.failures:
-            text += f", {len(self.failures)} failed"
+        text += (
+            f" ({done - self.reused_count} new, {self.reused_count} reused), "
+            f"{len(self.failures)} failed"
+        )
         self.window.analysisBatchStatus.setText(text)
         self.owner._append_status(text)
         self.owner.set_busy(False, preserve_view=True)
+        message = QtWidgets.QMessageBox(self.window)
+        message.setIcon(
+            QtWidgets.QMessageBox.Warning if self.failures else QtWidgets.QMessageBox.Information
+        )
+        message.setWindowTitle("Batch segmentation")
+        message.setText(text)
         if self.failures:
-            message = QtWidgets.QMessageBox(self.window)
-            message.setIcon(QtWidgets.QMessageBox.Warning)
-            message.setWindowTitle("Batch segmentation")
-            message.setText(text)
-            message.setInformativeText(
-                ("Completed masks are available." if self.completed else "No new masks were saved.")
-                + " See the details for failures."
-            )
             message.setDetailedText("\n\n".join(self.failures))
-            message.exec()
+        message.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
+        message.open()
 
     def abort(self):
         """Cancel the current inference cooperatively and discard the remaining queue."""

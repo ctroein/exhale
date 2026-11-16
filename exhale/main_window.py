@@ -55,6 +55,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.source_manager = SourceManager(self)
         self.setupUi(self)
         self.setWindowTitle(application_title)
+        self._configure_view_menu()
         self._configure_tooltips()
         self.sampleElementsHelp.clicked.connect(self.show_element_selection_help)
         self.projectElementsHelp.clicked.connect(self.show_element_selection_help)
@@ -101,6 +102,46 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         geometry = self.settings.value(WINDOW_GEOMETRY_SETTINGS_KEY)
         if isinstance(geometry, QtCore.QByteArray):
             self.restoreGeometry(geometry)
+
+    def _configure_view_menu(self):
+        view = QtWidgets.QMenu("&View", self)
+        self.menuBar.insertMenu(self.menuHelp.menuAction(), view)
+        theme = view.addMenu("&Theme")
+        schemes = QtGui.QActionGroup(theme)
+        for scheme in appearance.COLOR_SCHEMES:
+            action = theme.addAction(scheme.capitalize())
+            action.setCheckable(True)
+            action.setChecked(scheme == self.appearance.scheme)
+            action.triggered.connect(
+                lambda checked, scheme=scheme: self.appearance.select_scheme(scheme)
+            )
+            schemes.addAction(action)
+
+        view.addSeparator()
+        current = view.addAction("")
+        current.setEnabled(False)
+        increase = view.addAction("Increase Font Size")
+        decrease = view.addAction("Decrease Font Size")
+        reset = view.addAction("Reset Font Size")
+        increase.setShortcuts([QtGui.QKeySequence("Ctrl++"), QtGui.QKeySequence("Ctrl+=")])
+        decrease.setShortcut(QtGui.QKeySequence("Ctrl+-"))
+        reset.setShortcut(QtGui.QKeySequence("Ctrl+0"))
+
+        def update_menu():
+            scale = self.appearance.font_scale
+            current.setText(f"Font Size ({scale}%)")
+            increase.setEnabled(scale < 200)
+            decrease.setEnabled(scale > 50)
+            reset.setEnabled(scale != 100)
+
+        def change_scale(percent):
+            self.appearance.set_font_scale(percent)
+            update_menu()
+
+        increase.triggered.connect(lambda: change_scale(self.appearance.font_scale + 10))
+        decrease.triggered.connect(lambda: change_scale(self.appearance.font_scale - 10))
+        reset.triggered.connect(lambda: change_scale(100))
+        update_menu()
 
     def update_window_title(self):
         project_name = self.project_dir.name if self.project_dir is not None else "Untitled"
@@ -153,7 +194,6 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             "project_data": (self.project_tab.splitter, self.projectDataTab, (2, 1)),
             "splitter": (self.splitter, self.dataTab, (1, 1, 2)),
             "analysis": (self.analysisSplitter, self.analysisTab, (180, 400, 200)),
-            "analysis_left": (self.analysisLeftSplitter, self.analysisTab, (2, 1)),
             "analysis_right": (self.analysisRightSplitter, self.analysisTab, (2, 1)),
             "clustering": (self.clusteringSplitter, self.clusteringTab, (180, 400, 200)),
             "clustering_right": (self.clusteringRightSplitter, self.clusteringTab, (2, 1)),
@@ -263,6 +303,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.clusteringRun.setIcon(icons.icon(icons.IconName.START))
         self.clusteringBatch.setIcon(icons.icon(icons.IconName.BATCH))
         self.clusteringAbort.setIcon(icons.icon(icons.IconName.STOP))
+        self.clusteringRemove.set_icon_name(icons.IconName.DELETE)
         self.clusteringSaveView.set_icon_name(icons.IconName.SCREENSHOT)
         self.clusteringFit.set_icon_name(icons.IconName.MAXIMIZE)
         for button in self.findChildren(IconToolButton):

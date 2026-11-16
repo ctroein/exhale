@@ -190,7 +190,12 @@ consumer's chosen input to determine whether output is outdated; do not infer th
 input from whichever mask is currently displayed. Resolve the recorded revision
 without substituting another mask, and never silently recompute stored output.
 The current element clustering does not consume segmentation.
-Clustering results belong to a sample/method pair. Run and Batch capture all
+Clustering results belong to a sample/method pair. Editable clustering settings
+belong to the project; per-element manual cutoffs are keyed by sample ID and
+element key and shared by the two abundance methods. Batch captures each sample’s
+configuration independently and never restores editable options from results.
+Run/view method selection is separate from the project-wide downstream method.
+Run and Batch capture all
 effective enabled sample elements; display selection does not select inputs.
 Publish only successfully saved results, retain completed batch jobs on Stop,
 and never change the user's selected sample when another job completes.
@@ -566,9 +571,12 @@ needed. Default installation is under `%LOCALAPPDATA%/Programs/Exhale`.
 
 Inno's component page selects StarDist, Cellpose, both or neither. Before copying
 launcher files, `PrepareToInstall` extracts the bundled payload to a temporary
-directory and calls `--prepare-install`. The launcher uses uv to build and check
-a new environment in `{app}/runtime/env-UUID`; it records it as pending only after
-`--startup-check` passes. `--activate-install` atomically publishes that record
+directory and calls `--prepare-install`. The launcher uses uv to build
+a new environment in `{app}/runtime/env-UUID` and records it as pending after
+dependency installation succeeds. CI runs `--startup-check` after setup.
+The installer sets `RedirectionGuard=no` because uv inherits the process
+mitigation during this per-user setup and can fail to open redirected paths.
+`--activate-install` atomically publishes the pending record
 after files are copied. Failed/cancelled preparation discards pending environments,
 leaving the previous installed record intact. A fresh failed installation also
 cleans its unused private runtime; `runtime.log` is retained for diagnostics.

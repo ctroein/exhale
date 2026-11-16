@@ -6,6 +6,7 @@ from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtWidgets import QApplication
 
 COLOR_SCHEME_KEY = "appearance/color_scheme"
+FONT_SCALE_KEY = "appearance/font_scale"
 COLOR_SCHEMES = ("system", "light", "dark")
 _manager = None
 
@@ -69,7 +70,35 @@ class AppearanceManager(QtCore.QObject):
         self._scheme = "system"
         self._applying = False
         QApplication.instance().paletteChanged.connect(self._application_palette_changed)
+        self._base_font = QApplication.font()
+        self.font_scale = 100
         self.apply_configured_scheme()
+        try:
+            scale = int(settings.value(FONT_SCALE_KEY, 100))
+        except (TypeError, ValueError):
+            scale = 100
+        self.set_font_scale(scale)
+
+    @property
+    def scheme(self) -> str:
+        return self._scheme
+
+    def set_font_scale(self, percent: int) -> None:
+        percent = min(200, max(50, round(percent / 10) * 10))
+        if percent == self.font_scale:
+            return
+        self.font_scale = percent
+        font = QtGui.QFont(self._base_font)
+        if font.pixelSize() > 0:
+            font.setPixelSize(max(1, round(font.pixelSize() * percent / 100)))
+        else:
+            font.setPointSizeF(font.pointSizeF() * percent / 100)
+        QApplication.setFont(font)
+        self.settings.setValue(FONT_SCALE_KEY, percent)
+
+    def select_scheme(self, scheme: str) -> None:
+        self.set_scheme(scheme)
+        self.settings.setValue(COLOR_SCHEME_KEY, scheme)
 
     def apply_configured_scheme(self) -> None:
         self.set_scheme(self.settings.value(COLOR_SCHEME_KEY, "system"))
