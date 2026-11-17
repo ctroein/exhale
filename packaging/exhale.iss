@@ -52,9 +52,12 @@ Source: "..\dist\windows-payload\*"; DestDir: "{app}"; Excludes: "release.iss"; 
 [Icons]
 Name: "{group}\EXHALE"; Filename: "{app}\exhale.exe"; WorkingDir: "{app}"
 Name: "{autodesktop}\EXHALE"; Filename: "{app}\exhale.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\EXHALE (Software OpenGL)"; Filename: "{app}\exhale.exe"; Parameters: "--software-opengl"; WorkingDir: "{app}"; Tasks: softwareopengl
+Name: "{autodesktop}\EXHALE (Software OpenGL)"; Filename: "{app}\exhale.exe"; Parameters: "--software-opengl"; WorkingDir: "{app}"; Tasks: desktopicon and softwareopengl
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop icon"; Flags: unchecked
+Name: "softwareopengl"; Description: "Add an EXHALE (Software OpenGL) shortcut"; Flags: unchecked; Check: IsQemuGuest
 
 [Run]
 Filename: "{app}\exhale.exe"; Description: "Launch EXHALE"; Flags: nowait postinstall skipifsilent; Check: RuntimeActivated
@@ -62,6 +65,8 @@ Filename: "{app}\exhale.exe"; Description: "Launch EXHALE"; Flags: nowait postin
 [InstallDelete]
 ; Obsolete PyInstaller runtime from older installations; never user data.
 Type: filesandordirs; Name: "{app}\_internal"
+Type: files; Name: "{group}\EXHALE (Software OpenGL).lnk"; Tasks: not softwareopengl
+Type: files; Name: "{autodesktop}\EXHALE (Software OpenGL).lnk"; Tasks: not (desktopicon and softwareopengl)
 
 [UninstallDelete]
 Type: files; Name: "{app}\runtime.lock"
@@ -73,6 +78,14 @@ var
   Activated: Boolean;
   PreparedSelection: String;
   SetupFailed: Boolean;
+
+function IsQemuGuest: Boolean;
+var
+  Manufacturer: String;
+begin
+  Result := RegQueryStringValue(HKLM, 'HARDWARE\DESCRIPTION\System\BIOS',
+    'SystemManufacturer', Manufacturer) and (CompareText(Manufacturer, 'QEMU') = 0);
+end;
 
 function SelectedBackends: String;
 begin

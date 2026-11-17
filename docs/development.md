@@ -544,6 +544,15 @@ Gatekeeper behavior must be checked on a real download, not inferred from CI.
 
 ## Windows uv installer
 
+On Windows guests without hardware OpenGL, launch Exhale with
+`--software-opengl` or set `QT_OPENGL=software` in the launching process.
+When the firmware reports QEMU, the installer offers an optional
+**EXHALE (Software OpenGL)** Start menu shortcut. It also creates a software
+OpenGL desktop shortcut if the desktop icon task is selected. Exhale uses Qt's bundled
+`opengl32sw.dll` for both Qt contexts and the PyOpenGL and VisPy calls used by
+Napari. The headless startup check skips the viewer. To verify software
+rendering, open the Analysis tab and display an image.
+
 `packaging/win_build.py` builds an Inno Setup installer from a local EXHALE wheel,
 a checksum-verified uv 0.13.7 executable and the native C# launcher in
 `packaging/windows/Launcher.cs`. Building needs Windows, the .NET Framework C#

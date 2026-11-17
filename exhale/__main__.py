@@ -104,6 +104,27 @@ def _recompile_ui(uipath, pypath):
         f.write(clean_code)
 
 
+def _configure_windows_software_opengl() -> None:
+    """Bind Qt, PyOpenGL and VisPy to the same software OpenGL library."""
+    import ctypes
+
+    from OpenGL import platform
+    from qtpy import QtCore
+
+    qt_bin = Path(QtCore.QLibraryInfo.path(QtCore.QLibraryInfo.LibraryPath.BinariesPath))
+    library_path = qt_bin / "opengl32sw.dll"
+    if not library_path.is_file():
+        raise RuntimeError(f"Qt software OpenGL library is missing: {library_path}")
+    library = ctypes.WinDLL(str(library_path))
+    os.environ["QT_OPENGL_DLL"] = str(library_path)
+    # VisPy's desktop backend looks up opengl32 through this ctypes loader.
+    ctypes.windll.opengl32 = library
+    # Build a fresh platform so its cached WGL entry points use the same DLL.
+    backend = type(platform.PLATFORM)()
+    backend.GL = library
+    backend.install(vars(platform))
+
+
 def _run_application():
     "Run the Exhale Qt application"
 
@@ -147,6 +168,12 @@ def _run_application():
         action="store_true",
         help="construct the application and verify runtime imports without opening a window",
     )
+    if sys.platform == "win32":
+        parser.add_argument(
+            "--software-opengl",
+            action="store_true",
+            help="render with software OpenGL for this launch",
+        )
     desktop_actions = parser.add_mutually_exclusive_group()
     desktop_actions.add_argument(
         "--install-desktop",
@@ -164,6 +191,8 @@ def _run_application():
     windowparams = {}
     parser.add_argument("--version", action="version", version=application_title)
     args = parser.parse_args()
+    if sys.platform == "win32" and args.software_opengl and not args.startup_check:
+        os.environ["QT_OPENGL"] = "software"
     windowparams = {k: args.__dict__[k] for k in parameters}
 
     if args.install_desktop or args.remove_desktop:
@@ -206,6 +235,13 @@ def _run_application():
             return 0
 
     from qtpy import QtCore, QtGui, QtWidgets
+
+    if (
+        sys.platform == "win32"
+        and os.environ.get("QT_OPENGL") == "software"
+        and not args.startup_check
+    ):
+        _configure_windows_software_opengl()
 
     app = QtWidgets.QApplication.instance()
     if not app:
