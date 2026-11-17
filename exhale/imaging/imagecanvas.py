@@ -16,6 +16,7 @@ from .imagecomposer import (
     RectanglePrimitive,
     TextPrimitive,
     _outline_color,
+    _qt_text_path,
 )
 
 
@@ -34,11 +35,7 @@ class _CompositionTextItem(QtWidgets.QGraphicsPathItem):
         self.update_primitive(primitive)
 
     def update_primitive(self, primitive):
-        font = QtGui.QFont(primitive.font_family)
-        font.setPixelSize(max(1, round(primitive.font_size)))
-        metrics = QtGui.QFontMetricsF(font)
-        path = QtGui.QPainterPath()
-        path.addText(0, metrics.ascent(), font, primitive.text)
+        path = _qt_text_path(primitive.text, primitive.font_size, primitive.font_family)
         self.prepareGeometryChange()
         self.setPath(path)
         self._fill = _qcolor(primitive.fill)

@@ -12,6 +12,7 @@ from .imagecomposer import (
     TextPrimitive,
     _array_to_rgba,
     _outline_color,
+    _qt_text_path,
 )
 
 
@@ -52,11 +53,7 @@ def _draw_rectangle(painter, primitive):
 
 
 def _text_path(primitive):
-    font = QtGui.QFont(primitive.font_family)
-    font.setPixelSize(max(1, round(primitive.font_size)))
-    metrics = QtGui.QFontMetricsF(font)
-    path = QtGui.QPainterPath()
-    path.addText(0, metrics.ascent(), font, primitive.text)
+    path = _qt_text_path(primitive.text, primitive.font_size, primitive.font_family)
     bounds = path.boundingRect()
     horizontal = primitive.anchor[0]
     x = primitive.xy[0]

@@ -40,12 +40,23 @@ def _resize_rgba(array, size):
 
 def _font(size):
     size = max(1, int(round(size)))
-    for name in ("DejaVuSans.ttf", "Arial.ttf"):
+    for name in ("DejaVuSans.ttf", "arial.ttf"):
         try:
             return ImageFont.truetype(name, size=size)
         except OSError:
             pass
-    return ImageFont.load_default()
+    return ImageFont.load_default(size=size)
+
+
+def _qt_text_path(text, font_size, font_family):
+    """Build the glyph path at the same ascender origin used by Pillow."""
+    from qtpy import QtGui
+
+    font = QtGui.QFont(font_family)
+    font.setPixelSize(max(1, round(font_size)))
+    path = QtGui.QPainterPath()
+    path.addText(0, QtGui.QFontMetricsF(font).ascent(), font, text)
+    return path
 
 
 def _outline_color(rgb):
@@ -159,7 +170,7 @@ class ColoredRasterPrimitive:
 class RectanglePrimitive:
     """A filled or outlined rectangle in composition coordinates."""
 
-    box: tuple[int, int, int, int]
+    box: tuple[float, float, float, float]
     fill: tuple[int, int, int, int] | None = None
     outline: tuple[int, int, int, int] | None = None
     width: int = 1
@@ -169,7 +180,7 @@ class RectanglePrimitive:
 class TextPrimitive:
     """Anchored text in composition coordinates."""
 
-    xy: tuple[int, int]
+    xy: tuple[float, float]
     text: str
     font_size: float
     fill: tuple[int, int, int, int]
@@ -182,7 +193,7 @@ class TextPrimitive:
 class LinePrimitive:
     """A solid line in composition coordinates."""
 
-    xy: tuple[tuple[int, int], tuple[int, int]]
+    xy: tuple[tuple[float, float], tuple[float, float]]
     fill: tuple[int, int, int, int]
     width: int
 
@@ -273,7 +284,7 @@ class ImageComposer:
             self.coord_mapping = None
             canvas.clear_image()
             return
-        description = self.describe(image, additive=True)
+        description = self.describe(image, additive=True, qt_text=True)
         self.coord_mapping = description.mapping
         canvas.set_composition(description, reset_view=reset_view)
 
@@ -373,7 +384,7 @@ class ImageComposer:
         )
 
     @staticmethod
-    def _scale_bar_primitives(image, geometry, font_size):
+    def _scale_bar_primitives(image, geometry, font_size, *, qt_text=False):
         """Describe a physical scale bar when resolution and placement permit it."""
         if image.scalebar == Scalebars.NONE:
             return ()
@@ -392,11 +403,20 @@ class ImageComposer:
         padding = max(1, int(round(font_size * 0.7)))
         text_gap = max(1, int(round(font_size * 0.25)))
         label = _format_length(physical_length, units)
-        font = _font(font_size)
-        measure = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-        bbox = measure.textbbox((0, 0), label, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
+        color = _rgb255(image.scalebarColor)
+        text = TextPrimitive((0, 0), label, font_size, color, "ma")
+        if qt_text:
+            bounds = _qt_text_path(text.text, text.font_size, text.font_family).boundingRect()
+            text_left = -bounds.width() / 2
+            text_right = bounds.width() / 2
+            text_top = bounds.top()
+            text_height = bounds.height()
+        else:
+            measure = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+            text_left, text_top, text_right, text_bottom = measure.textbbox(
+                (0, 0), label, font=_font(font_size), anchor=text.anchor
+            )
+            text_height = text_bottom - text_top
 
         if image.scalebar in (Scalebars.LL, Scalebars.UL):
             x0 = geometry.merged_x + padding
@@ -409,11 +429,12 @@ class ImageComposer:
             text_y = geometry.merged_y + padding
             line_y = text_y + text_height + text_gap
         x1 = x0 + bar_width
+        text_x = x0 + bar_width // 2
 
         primitives = []
         if image.scalebarBgAlpha is not None:
-            box_x0 = min(x0, x0 + (bar_width - text_width) // 2) - padding // 2
-            box_x1 = max(x1, x0 + (bar_width + text_width) // 2) + padding // 2
+            box_x0 = min(x0, text_x + text_left) - padding // 2
+            box_x1 = max(x1, text_x + text_right) + padding // 2
             box_y0 = min(text_y, line_y) - padding // 2
             box_y1 = max(text_y + text_height, line_y + line_width) + padding // 2
             primitives.append(
@@ -426,11 +447,10 @@ class ImageComposer:
                 )
             )
 
-        color = _rgb255(image.scalebarColor)
         primitives.append(LinePrimitive(((x0, line_y), (x1, line_y)), fill=color, width=line_width))
         primitives.append(
             TextPrimitive(
-                (x0 + bar_width // 2, text_y),
+                (text_x, text_y - text_top),
                 label,
                 font_size,
                 color,
@@ -521,7 +541,9 @@ class ImageComposer:
         else:
             Image.fromarray(array, mode="RGBA").save(savename)
 
-    def describe(self, image: ImageSettings, *, additive=False) -> CompositionDescription:
+    def describe(
+        self, image: ImageSettings, *, additive=False, qt_text=False
+    ) -> CompositionDescription:
         """Build the shared arrays, geometry, annotations, and coordinate mapping."""
         if not image.elements:
             raise ValueError("No elements to compose")
@@ -656,7 +678,7 @@ class ImageComposer:
                     outlined=True,
                 ),
             )
-        primitives.extend(self._scale_bar_primitives(image, geometry, font_size))
+        primitives.extend(self._scale_bar_primitives(image, geometry, font_size, qt_text=qt_text))
 
         mapping = ComposedImageMapping(
             x=geometry.merged_x,
@@ -679,6 +701,8 @@ class ImageComposer:
         description = self.describe(image)
         result = np.asarray(self._render_description(description), dtype=np.uint8).copy()
         if savename is not None:
+            if Path(savename).suffix.lower() == ".pdf":
+                description = self.describe(image, qt_text=True)
             self._save(result, image, savename, description)
 
         self.coord_mapping = description.mapping

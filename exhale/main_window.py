@@ -3,8 +3,11 @@
 
 import os
 import re
+import sys
+import traceback
 from pathlib import Path
 
+from OpenGL.error import GLError
 from qtpy import QtCore, QtGui, QtWidgets
 
 from . import appearance, application_name, application_title, icons
@@ -90,7 +93,19 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.element_controller.setup()
         self.image_controller.setup()
         self.element_controller.refresh_sample_selector()
-        self.analysis_controller.setup(initialize_view=initialize_analysis_view)
+        self.analysis_controller.setup(initialize_view=False)
+        if initialize_analysis_view:
+            try:
+                self.analysis_controller.initialize_view()
+            except GLError:
+                if sys.platform != "win32":
+                    raise
+                traceback.print_exc()
+                for tab in (self.analysisTab, self.clusteringTab):
+                    self.tabWidget.setTabEnabled(self.tabWidget.indexOf(tab), False)
+                self.statusBar().showMessage(
+                    "Analysis and clustering viewers are unavailable because OpenGL failed."
+                )
         self.correlation_controller.setup()
         self._configure_splitter_persistence()
         self.tabWidget.setCurrentIndex(0)
@@ -243,7 +258,8 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             return
         for index in range(self.tabWidget.count()):
             if self.tabWidget.widget(index).objectName() == object_name:
-                self.tabWidget.setCurrentIndex(index)
+                if self.tabWidget.isTabEnabled(index):
+                    self.tabWidget.setCurrentIndex(index)
                 return
 
     def quit_without_confirmation(self):

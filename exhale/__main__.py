@@ -299,17 +299,46 @@ def _run_application():
     return result
 
 
-def main():
-    "Run the Exhale GUI"
+def _show_fatal_error(error: Exception, details: str) -> None:
+    """Wait for dismissal when the current launch has an interactive Qt application."""
+    if "--startup-check" in sys.argv:
+        return
+    if sys.platform == "win32" and os.environ.get("EXHALE_NATIVE_INSTALLATION"):
+        # The Windows launcher waits for acknowledgement and displays the log path.
+        return
 
-    res = 1
+    from qtpy import QtWidgets
+
+    app = QtWidgets.QApplication.instance()
+    if not isinstance(app, QtWidgets.QApplication) or app.platformName() in {"offscreen", "minimal"}:
+        return
+
+    from .exceptiondialog import ExceptionDetailsDialog
+
+    for widget in app.topLevelWidgets():
+        if isinstance(widget, QtWidgets.QSplashScreen):
+            widget.hide()
+    dialog = ExceptionDetailsDialog(app.activeWindow())
+    dialog.show_exception(
+        title=f"{application_title} – Fatal error",
+        summary=f"{type(error).__name__}: {error}",
+        details=details,
+    )
+
+
+def main():
+    """Run the Exhale GUI and exit with its status."""
     try:
         res = _run_application()
-    except Exception:
-        traceback.print_exc()
-        if "--startup-check" not in sys.argv:
-            print("Press enter to quit")
-            input()
+    except Exception as error:
+        details = traceback.format_exc()
+        print(details, file=sys.stderr, end="", flush=True)
+        res = 1
+        try:
+            _show_fatal_error(error, details)
+        except Exception:
+            # Reporting must preserve the original failure and exit status.
+            traceback.print_exc()
     sys.exit(res)
 
 
