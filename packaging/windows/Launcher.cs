@@ -140,16 +140,29 @@ internal sealed class RuntimeSetup
         if (startupCheck) info.EnvironmentVariables["QT_QPA_PLATFORM"] = "offscreen";
         using (var process = new Process())
         {
+            var output = new Queue<string>();
+            Action<string> receive = line => {
+                if (line == null) return;
+                log(line);
+                lock (output)
+                {
+                    output.Enqueue(line);
+                    if (output.Count > 200) output.Dequeue();
+                }
+            };
             process.StartInfo = info;
-            process.OutputDataReceived += (s, e) => { if (e.Data != null) log(e.Data); };
-            process.ErrorDataReceived += (s, e) => { if (e.Data != null) log(e.Data); };
+            process.OutputDataReceived += (s, e) => receive(e.Data);
+            process.ErrorDataReceived += (s, e) => receive(e.Data);
             process.Start();
             process.StandardInput.Close();
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
             process.WaitForExit();
             if (process.ExitCode != 0)
-                throw new InvalidOperationException(Path.GetFileName(executable) + " failed (exit " + process.ExitCode + "). See the installation log.");
+                throw new InvalidOperationException(
+                    Path.GetFileName(executable) + " failed (exit " + process.ExitCode + ")." +
+                    Environment.NewLine + Environment.NewLine +
+                    String.Join(Environment.NewLine, output));
         }
     }
     internal void Discard(bool removeUnusedRuntime = false)
@@ -408,6 +421,31 @@ internal sealed class RuntimeSetup
 
 internal static class Launcher
 {
+    internal static void ShowFailure(Exception error, string logPath)
+    {
+        Application.EnableVisualStyles();
+        using (var form = new Form {
+            Text = "EXHALE could not start",
+            Width = 900, Height = 650,
+            MinimumSize = new System.Drawing.Size(600, 400),
+            StartPosition = FormStartPosition.CenterScreen
+        })
+        {
+            var details = new TextBox {
+                Multiline = true, ReadOnly = true, WordWrap = false,
+                ScrollBars = ScrollBars.Both, Dock = DockStyle.Fill,
+                Text = error.Message + Environment.NewLine + Environment.NewLine + "Log: " + logPath
+            };
+            var close = new Button {
+                Text = "Close", Dock = DockStyle.Bottom, DialogResult = DialogResult.Cancel
+            };
+            form.Controls.Add(details);
+            form.Controls.Add(close);
+            form.CancelButton = close;
+            form.ShowDialog();
+        }
+    }
+
     [STAThread]
     static int Main(string[] args)
     {
@@ -471,7 +509,7 @@ internal static class Launcher
         catch (Exception error)
         {
             try { File.AppendAllText(logPath, error.ToString() + Environment.NewLine); } catch (Exception) { }
-            if (!quiet && !args.Contains("--prepare-install")) MessageBox.Show(error.Message + "\n\nLog: " + logPath, "EXHALE", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            if (!quiet && !args.Contains("--prepare-install")) ShowFailure(error, logPath);
             return 1;
         }
     }

@@ -70,6 +70,7 @@ def main():
             "/target:winexe",
             "/platform:x64",
             "/reference:System.Windows.Forms.dll",
+            "/reference:System.Drawing.dll",
             "/reference:System.Web.Extensions.dll",
             f"/win32icon:{ROOT / 'packaging/icons/xrf.ico'}",
             f"/out:{payload / 'exhale.exe'}",

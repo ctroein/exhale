@@ -592,7 +592,11 @@ cleans its unused private runtime; `runtime.log` is retained for diagnostics.
 Rerunning setup updates the application and can change the selected extras.
 
 The launcher forwards ordinary arguments to its private `python -m exhale`,
-streams output to `{app}/runtime.log`, and reports launch failures. An exclusive
+streams output to `{app}/runtime.log`, and reports launch failures.
+Launch failures show a resizable, copyable dialog with the final 200 lines of
+output from the failed process and the log path. Headless checks and quiet
+operations report through their exit status and log without opening a dialog.
+An exclusive
 runtime file lock protects setup and launch; an application mutex also prevents
 Inno setup/uninstall while EXHALE is running. Before removing the launcher and shortcuts, Inno calls `--remove-runtime` to
 delete the private runtime using extended paths. A cleanup failure aborts
