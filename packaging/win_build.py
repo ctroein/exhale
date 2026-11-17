@@ -54,6 +54,10 @@ def main():
     shutil.copy2(ROOT / "requirements-cellpose.txt", payload / "requirements-cellpose.txt")
     shutil.copy2(ROOT / "LICENSE", payload / "LICENSE.txt")
     (payload / "setup.json").write_text(json.dumps({"wheel": wheel.name}))
+    assembly_info = payload / "LauncherVersion.cs"
+    assembly_info.write_text(
+        "[assembly: System.Reflection.AssemblyInformationalVersion(" + json.dumps(version) + ")]\n"
+    )
     (payload / "release.iss").write_text(
         f'#define MyAppVersion "{version}"\n#define WheelFile "{wheel.name}"\n'
     )
@@ -75,10 +79,12 @@ def main():
             f"/win32icon:{ROOT / 'packaging/icons/xrf.ico'}",
             f"/out:{payload / 'exhale.exe'}",
             str(ROOT / "packaging/windows/Launcher.cs"),
+            str(assembly_info),
         ],
         check=True,
     )
     subprocess.run([str(payload / "exhale.exe"), "--self-test"], check=True)
+    assembly_info.unlink()
     iscc = args.iscc or shutil.which("iscc")
     if not iscc:
         candidate = Path(os.environ["ProgramFiles(x86)"]) / "Inno Setup 6/ISCC.exe"

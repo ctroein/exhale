@@ -111,8 +111,12 @@ Use the Start menu or optional desktop shortcut to launch EXHALE.
 
 Settings offers daily update checks, Check now, and Update now. Application
 updates preserve the selected backends and validate a new runtime before
-switching to it. You can also download and run a newer installer; use that to
-update the launcher/setup tools, change backends, or repair the installation.
+switching to it. Open **EXHALE Setup** from the Start menu to change backend
+dependencies or repair the runtime while keeping the installed Exhale version.
+Close Exhale before applying changes. Model weights download on first use.
+Download and run a newer installer to update the launcher/setup tools.
+About and the setup window show the launcher/setup version. If a future release
+requires a newer launcher, the update dialog directs you to its installer.
 Uninstall through Windows Settings; the private runtime and shortcuts are
 removed while projects, trained models and application settings are retained.
 

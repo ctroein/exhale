@@ -635,7 +635,9 @@ modal widget; `ExceptionDialog` installs the top-level exception hook.
 
 Identifies native-managed runtimes and writable Linux uv tool installations,
 filters PyPI releases for the current Python, and stages update requests. Native
-requests go to the parent launcher with an instance token after GUI shutdown;
+launcher compatibility uses per-release minima from `launcher_requirements.json`,
+checked against the parent descriptor during update discovery and startup.
+Native requests go to the parent launcher with an instance token after GUI shutdown;
 Linux uv tools use a detached standard-library helper. Process
 lifetime and installation locks protect the running environment. The helper
 uses uv's recorded requirements, verifies the resulting version and startup,
@@ -709,6 +711,8 @@ and produces an ad-hoc-signed app and DMG for the build machine's architecture.
 
 AppKit setup interface and launcher. Offers supported backend choices, streams
 setup output, starts the private Python driver, and exposes runtime removal.
+Shows the bundle's launcher/setup version in setup and preserves the current
+application release when reconfiguring a runtime belonging to that bundle.
 Its `--setup-check` entry point exercises the setup driver on GitHub runners.
 Headless `--update-runtime` and `--startup-check` entry points exercise updates
 and subsequent launches through that same driver.
@@ -720,6 +724,8 @@ extras from the bundled wheel, checks startup before activation, preserves a
 previous environment on failure, and locks setup against a running application.
 Consumes application update requests after process exit, installs the requested
 PyPI version with the existing backends, records the result, and reopens Exhale.
+Its configure operation changes backend dependencies or repairs an environment
+at the currently installed version, retaining previous application updates.
 
 
 ## Native Windows distribution
@@ -742,6 +748,9 @@ and invokes Inno Setup.
 Native launcher and private runtime manager. Prepares selected backends with uv,
 checks startup, activates pending environments, rolls back unfinished setup and
 forwards application arguments. Supplies runtime locking and installation logs.
+The `--setup` entry offers backend selection and repair through the installed uv;
+`--configure-backends` exercises the same version-preserving operation without
+the selection dialog. The executable embeds and reports its launcher/setup version.
 Passes native runtime identity to the application and consumes update requests
 after it exits. Validates new runtimes before activation and reopens the working
 application after either success or rejected preparation.

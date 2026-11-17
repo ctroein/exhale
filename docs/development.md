@@ -544,6 +544,34 @@ Gatekeeper behavior must be checked on a real download, not inferred from CI.
 
 ## Windows uv installer
 
+The Start menu's **EXHALE Setup** entry invokes the installed launcher's
+`--setup` window. It restores the `backends` choice from `runtime/installed.json`
+and uses bundled uv to build a replacement environment for that selection.
+`--configure-backends none|stardist|cellpose|both` provides the same operation
+without the selection window. Both paths hold the runtime lock, pin the installed
+application version, run its startup check, and activate only after success.
+Legacy records recover the application version from the bundled wheel filename;
+records from application updates carry an explicit `version`. Reconfiguration
+after an update fetches that exact version instead of reinstalling the older
+bundled wheel. The grouped PyTorch choice remains Cellpose, MONAI and SMP.
+
+Native launcher/setup versions identify the release which built the native
+component and remain independent of application updates. The Windows builder
+embeds the version in the executable; the Mac builder records it in the app's
+setup configuration. Both pass it to the app and candidate startup checks, print
+it in operation logs, and display it in setup. About reads the parent launcher's
+descriptor. Older launchers report an unknown version in About and compare as
+version zero for compatibility.
+
+`exhale/launcher_requirements.json` declares minimum Windows and Mac launcher
+versions for each application release. Zero retains compatibility with existing
+installations. Raise the relevant minimum when a release needs new native
+behavior. Release checks fetch this file from the target `vVERSION` tag before
+offering Update now; releases without the file have no minimum. A failed metadata
+check directs users to the installer. Candidate startup checks enforce the
+packaged requirement before activation, and ordinary native launches check it
+again. Source and Linux uv installations have no native launcher requirement.
+
 On Windows guests without hardware OpenGL, launch Exhale with
 `--software-opengl` or set `QT_OPENGL=software` in the launching process.
 When the firmware reports QEMU, the installer offers an optional

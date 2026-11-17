@@ -31,6 +31,12 @@ class ReleaseCheck(QtCore.QThread):
                 result["error"] = "This is a development version. Update it through Git."
             else:
                 result["version"] = updates.check_release(exhale_version)
+                if result["version"] and result["installation"]:
+                    try:
+                        updates.check_release_launcher(result["installation"], result["version"])
+                    except Exception as error:
+                        result["reason"] = str(error)
+                        result["installation"] = None
         except Exception as error:
             result["error"] = f"Could not check for updates: {error}"
         self.completed.emit(result)

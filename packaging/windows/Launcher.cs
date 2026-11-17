@@ -134,9 +134,12 @@ internal sealed class RuntimeSetup
         info.EnvironmentVariables["UV_NO_PROGRESS"] = "1";
         info.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
         info.EnvironmentVariables["QT_API"] = "pyqt6";
+        info.EnvironmentVariables["EXHALE_LAUNCHER_VERSION"] = Launcher.Version;
+        info.EnvironmentVariables["EXHALE_LAUNCHER_KIND"] = "windows";
         if (!startupCheck && launchToken != null && arguments.Contains("exhale"))
             info.EnvironmentVariables["EXHALE_NATIVE_INSTALLATION"] = json.Serialize(new {
-                protocol = "1", kind = "windows", root = root, token = launchToken });
+                protocol = "1", kind = "windows", root = root, token = launchToken,
+                launcher_version = Launcher.Version });
         if (startupCheck) info.EnvironmentVariables["QT_QPA_PLATFORM"] = "offscreen";
         using (var process = new Process())
         {
@@ -210,8 +213,8 @@ internal sealed class RuntimeSetup
                 Execute(Path.Combine(environment, "Scripts", "python.exe"), new[] {
                     "-c", "import sys; from importlib.metadata import version; from packaging.version import Version; " +
                     "assert Version(version('exhale-xrf')) == Version(sys.argv[1]), 'Installed version does not match requested update'", version }, true);
-                Execute(Path.Combine(environment, "Scripts", "python.exe"), new[] { "-m", "exhale", "--startup-check" }, true);
             }
+            Execute(Path.Combine(environment, "Scripts", "python.exe"), new[] { "-m", "exhale", "--startup-check" }, true);
             var pending = new Dictionary<string, string> {
                 { "environment", Path.GetFileName(environment) }, { "wheel", config["wheel"] }, { "backends", selection } };
             if (version != null) pending["version"] = version;
@@ -278,6 +281,32 @@ internal sealed class RuntimeSetup
         var state = Read(Path.Combine(runtime, "installed.json"));
         if (state == null) throw new InvalidOperationException("No installed runtime to update.");
         Prepare(state["backends"], version, wheel);
+        Activate();
+    }
+
+    internal Dictionary<string, string> InstalledState()
+    {
+        return Read(Path.Combine(runtime, "installed.json"));
+    }
+
+    internal static string InstalledVersion(Dictionary<string, string> state)
+    {
+        // Original installer records have only the bundled wheel filename.
+        return state.ContainsKey("version") ? state["version"] : state["wheel"].Split('-')[1];
+    }
+
+    internal void Configure(string selection)
+    {
+        var state = InstalledState();
+        if (state == null) throw new InvalidOperationException("Please install EXHALE first.");
+        string version = InstalledVersion(state);
+        if (!Regex.IsMatch(version, @"\A[0-9][A-Za-z0-9.!+_-]*\z"))
+            throw new InvalidDataException("Invalid installed application version.");
+        string bundledWheel = Path.Combine(payload, state["wheel"]);
+        // After an application update the bundled wheel may be an older release.
+        string[] wheelParts = state["wheel"].Split('-');
+        string wheelVersion = wheelParts.Length > 1 ? wheelParts[1] : null;
+        Prepare(selection, version, version == wheelVersion && File.Exists(bundledWheel) ? bundledWheel : null);
         Activate();
     }
     internal static void SelfTest()
@@ -404,6 +433,28 @@ internal sealed class RuntimeSetup
                         if (failUpdate && priorState != File.ReadAllText(Path.Combine(home, "runtime", "installed.json")))
                             throw new Exception("Failed requested update replaced the working runtime.");
                     }
+                    string installedVersion = InstalledVersion(setup.InstalledState());
+                    calls.Clear();
+                    setup.Execute = (exe, args, check) => {
+                        calls.Add(args);
+                        if (args[0] == "venv") Directory.CreateDirectory(args[3]);
+                    };
+                    setup.Configure("none");
+                    var configured = setup.InstalledState();
+                    if (configured["version"] != installedVersion || configured["backends"] != "none")
+                        throw new Exception("Setup changed the application version or lost the backend selection.");
+                    if (!calls[1].Contains("exhale-xrf==" + installedVersion) ||
+                        !calls.Any(a => a.Contains("--startup-check")))
+                        throw new Exception("Setup did not pin and validate the installed release.");
+                    string configuredRecord = File.ReadAllText(Path.Combine(home, "runtime", "installed.json"));
+                    setup.Execute = (exe, args, check) => {
+                        if (args[0] == "venv") Directory.CreateDirectory(args[3]);
+                        if (args.Contains("--startup-check")) throw new InvalidOperationException("simulated startup failure");
+                    };
+                    try { setup.Configure("both"); throw new Exception("Failed reconfiguration was accepted."); }
+                    catch (InvalidOperationException) { }
+                    if (configuredRecord != File.ReadAllText(Path.Combine(home, "runtime", "installed.json")))
+                        throw new Exception("Failed setup replaced the working environment.");
                     string userFile = Path.Combine(home, "user-project.h5");
                     File.WriteAllText(userFile, "user data");
                     string deepCache = Path.Combine(home, "runtime", "cache", new string('c', 120), new string('d', 120));
@@ -421,6 +472,66 @@ internal sealed class RuntimeSetup
 
 internal static class Launcher
 {
+    internal static string Version
+    {
+        get
+        {
+            var attribute = (System.Reflection.AssemblyInformationalVersionAttribute)
+                Attribute.GetCustomAttribute(typeof(Launcher).Assembly,
+                    typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+            return attribute == null ? "0" : attribute.InformationalVersion;
+        }
+    }
+
+    static string SelectBackends(RuntimeSetup setup)
+    {
+        var state = setup.InstalledState();
+        if (state == null) throw new InvalidOperationException("Please install EXHALE first.");
+        using (var form = new Form {
+            Text = "EXHALE Setup", Width = 640, Height = 300,
+            StartPosition = FormStartPosition.CenterScreen,
+            FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false
+        })
+        {
+            var content = new FlowLayoutPanel {
+                Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown,
+                Padding = new Padding(16), WrapContents = false
+            };
+            content.Controls.Add(new Label {
+                AutoSize = true, Text = "EXHALE " + RuntimeSetup.InstalledVersion(state) +
+                    "     Launcher/setup " + Version
+            });
+            content.Controls.Add(new Label {
+                AutoSize = true, Text = "Choose dependency packages. Model weights download on first use."
+            });
+            var starDist = new CheckBox {
+                AutoSize = true, Text = "StarDist (TensorFlow)",
+                Checked = state["backends"] == "stardist" || state["backends"] == "both"
+            };
+            var pytorch = new CheckBox {
+                AutoSize = true, Text = "Cellpose, MONAI U-Net and SMP U-Net (PyTorch and DINOv3)",
+                Checked = state["backends"] == "cellpose" || state["backends"] == "both"
+            };
+            content.Controls.Add(starDist);
+            content.Controls.Add(pytorch);
+            content.Controls.Add(new Label {
+                AutoSize = true, Text = "Close EXHALE before applying. Internet access may be required."
+            });
+            var apply = new Button { Text = "Apply / Repair", AutoSize = true, DialogResult = DialogResult.OK };
+            var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel };
+            var buttons = new FlowLayoutPanel { AutoSize = true };
+            buttons.Controls.Add(apply);
+            buttons.Controls.Add(cancel);
+            content.Controls.Add(buttons);
+            form.Controls.Add(content);
+            form.AcceptButton = apply;
+            form.CancelButton = cancel;
+            if (form.ShowDialog() != DialogResult.OK) return null;
+            return starDist.Checked ? (pytorch.Checked ? "both" : "stardist") :
+                (pytorch.Checked ? "cellpose" : "none");
+        }
+    }
+
     internal static void ShowFailure(Exception error, string logPath)
     {
         Application.EnableVisualStyles();
@@ -468,10 +579,20 @@ internal static class Launcher
                 stream.AutoFlush = true;
                 Action<string> log = text => { lock (stream) stream.WriteLine(text); };
                 var setup = new RuntimeSetup(root, payload, log);
+                log("Launcher/setup version: " + Version);
+                string selection = null;
+                if (args.Contains("--setup"))
+                {
+                    Application.EnableVisualStyles();
+                    selection = SelectBackends(setup);
+                    if (selection == null) return 0;
+                }
                 Func<int> operation = () => {
                     using (setup.Lock())
                     {
-                        if (args.Contains("--prepare-install")) setup.Prepare(args[Array.IndexOf(args, "--prepare-install") + 1]);
+                        if (args.Contains("--setup")) setup.Configure(selection);
+                        else if (args.Contains("--configure-backends")) setup.Configure(args[Array.IndexOf(args, "--configure-backends") + 1]);
+                        else if (args.Contains("--prepare-install")) setup.Prepare(args[Array.IndexOf(args, "--prepare-install") + 1]);
                         else if (args.Contains("--activate-install")) setup.Activate();
                         else if (args.Contains("--discard-install")) setup.Discard(true);
                         else if (args.Contains("--remove-runtime")) setup.Remove();
@@ -482,7 +603,7 @@ internal static class Launcher
                     }
                     return 0;
                 };
-                if (!quiet && args.Contains("--prepare-install"))
+                if (!quiet && (args.Contains("--prepare-install") || args.Contains("--setup")))
                 {
                     Application.EnableVisualStyles();
                     var form = new Form { Text = "Installing EXHALE", Width = 760, Height = 440, StartPosition = FormStartPosition.CenterScreen };
@@ -501,6 +622,8 @@ internal static class Launcher
                     });
                     Application.Run(form);
                     if (failure != null) throw failure;
+                    if (args.Contains("--setup")) MessageBox.Show("EXHALE setup completed.", "EXHALE Setup",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return 0;
                 }
                 return operation();

@@ -62,7 +62,14 @@ def test_builder_uses_local_wheel_and_compiles_native_launcher(tmp_path, monkeyp
         builder.urllib.request, "urlopen", lambda *_a, **_kw: io.BytesIO(b"uv license")
     )
     commands = []
-    monkeypatch.setattr(builder.subprocess, "run", lambda command, **_kw: commands.append(command))
+
+    def run(command, **kwargs):
+        commands.append(command)
+        if "/target:winexe" in command:
+            version_source = Path(command[-1]).read_text()
+            assert 'AssemblyInformationalVersion("1.2.3")' in version_source
+
+    monkeypatch.setattr(builder.subprocess, "run", run)
     builder.main()
     payload = root / "dist/windows-payload"
     assert json.loads((payload / "setup.json").read_text()) == {"wheel": wheel.name}

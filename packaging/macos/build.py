@@ -68,9 +68,6 @@ def main():
         shutil.copy2(ROOT / name, resources / name)
     shutil.copy2(ROOT / "packaging/macos/runtime.py", resources / "runtime.py")
     shutil.copy2(ROOT / "packaging/icons/xrf.icns", resources / "xrf.icns")
-    (resources / "setup.json").write_text(
-        json.dumps({"wheel": wheel.name, "architecture": architecture})
-    )
     with ZipFile(wheel) as archive:
         metadata_file = next(
             name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
@@ -79,6 +76,9 @@ def main():
     if metadata["Name"] != "exhale-xrf":
         parser.error("wheel must contain exhale-xrf")
     version = (args.version or metadata["Version"]).removeprefix("v")
+    (resources / "setup.json").write_text(
+        json.dumps({"wheel": wheel.name, "architecture": architecture, "launcher_version": version})
+    )
     bundle_version = re.match(r"\d+(?:\.\d+){0,2}", version)
     if bundle_version is None:
         parser.error("version must start with a numeric release version")

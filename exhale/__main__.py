@@ -236,6 +236,10 @@ def _run_application():
 
     from qtpy import QtCore, QtGui, QtWidgets
 
+    from .updates import check_running_launcher
+
+    check_running_launcher()
+
     if (
         sys.platform == "win32"
         and os.environ.get("QT_OPENGL") == "software"
@@ -346,7 +350,10 @@ def _show_fatal_error(error: Exception, details: str) -> None:
     from qtpy import QtWidgets
 
     app = QtWidgets.QApplication.instance()
-    if not isinstance(app, QtWidgets.QApplication) or app.platformName() in {"offscreen", "minimal"}:
+    if not isinstance(app, QtWidgets.QApplication) or app.platformName() in {
+        "offscreen",
+        "minimal",
+    }:
         return
 
     from .exceptiondialog import ExceptionDetailsDialog

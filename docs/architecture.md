@@ -603,6 +603,19 @@ and provides setup rollback. Python 3.11, downloaded dependencies and installati
 records belong to `{app}/runtime`; user projects and trained models do not.
 Inno coordinates uninstallation, and native runtime locks protect active processes.
 
+The installed Windows launcher also owns the Start menu's EXHALE Setup window.
+Reconfiguration uses the same private uv and transactional runtime manager while
+pinning the installed application version. Mac setup uses its runtime driver's
+configure operation to retain application updates when changing backends or
+repairing an existing runtime.
+
+Both native distributions expose their launcher/setup release version separately
+from the runtime application version. The launcher passes its version to normal
+launches and candidate startup checks. Application release requirements live in
+`exhale/launcher_requirements.json`; release checks compare the target tag's
+requirements before offering an update, and the candidate checks its packaged
+requirements before activation. Linux uv tool installations use their own updater.
+
 Segmentation editing help lives in a separate nonmodal, scrollable dialog. The
 viewer resolves right-button brush inversion using the selected tool’s size. The
 controller remembers separate drawing and erasing diameters for the shared input.

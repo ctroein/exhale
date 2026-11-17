@@ -53,6 +53,8 @@ class Runtime:
             QT_API="pyqt6",
         )
         self.env.pop("EXHALE_NATIVE_INSTALLATION", None)
+        self.env["EXHALE_LAUNCHER_KIND"] = "macos"
+        self.env["EXHALE_LAUNCHER_VERSION"] = self.config.get("launcher_version", "0")
 
     @contextlib.contextmanager
     def locked(self):
@@ -91,6 +93,7 @@ class Runtime:
                         "kind": "macos",
                         "root": str(self.home.resolve()),
                         "token": self.launch_token,
+                        "launcher_version": self.config.get("launcher_version", "0"),
                     }
                 ),
             )
@@ -219,6 +222,18 @@ class Runtime:
             raise RuntimeError("No installed runtime to update.")
         self.install(state["backends"], version=version, update_wheel=wheel)
 
+    def configure(self, selection):
+        """Change dependencies or repair while preserving the installed release."""
+        state = self.state()
+        if state is None or state["wheel"] != self.config["wheel"]:
+            self.install(selection)
+            return
+        version = state.get("version") or state["wheel"].split("-")[1]
+        wheel = self.resources / state["wheel"]
+        if version != state["wheel"].split("-")[1] or not wheel.is_file():
+            wheel = None
+        self.install(selection, version=version, update_wheel=wheel)
+
     def remove(self):
         if self.root.exists():
             shutil.rmtree(self.root)
@@ -229,17 +244,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--resources", type=Path, required=True)
     parser.add_argument("--home", type=Path, required=True)
-    parser.add_argument("action", choices=("install", "launch", "remove", "update"))
+    parser.add_argument("action", choices=("install", "configure", "launch", "remove", "update"))
     parser.add_argument("--update-wheel", type=Path)
     parser.add_argument("--startup-check", action="store_true")
     parser.add_argument("arguments", nargs="*")
     args = parser.parse_args()
     runtime = Runtime(args.resources, args.home)
+    print(f"Launcher/setup version: {runtime.config.get('launcher_version', '0')}", flush=True)
     with runtime.locked():
-        if args.action == "install":
+        if args.action in ("install", "configure"):
             if len(args.arguments) != 1 or args.arguments[0] not in BACKENDS:
                 parser.error("install requires none, stardist, cellpose, or both")
-            runtime.install(args.arguments[0])
+            if args.action == "configure":
+                runtime.configure(args.arguments[0])
+            else:
+                runtime.install(args.arguments[0])
         elif args.action == "launch":
             runtime.launch(args.arguments + (["--startup-check"] if args.startup_check else []))
         elif args.action == "update":

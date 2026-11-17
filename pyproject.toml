@@ -71,6 +71,7 @@ describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--match",
 
 [tool.setuptools.package-data]
 "exhale" = [
+  "launcher_requirements.json",
   "resources/icons/*.svg",
   "resources/icons/*.png",
   "resources/icons/*.txt",

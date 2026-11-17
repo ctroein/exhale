@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 from html import escape
 from importlib import metadata
@@ -46,6 +48,9 @@ def runtime_environment() -> tuple[tuple[str, str], ...]:
         ("Qt", QtCore.qVersion()),
         (API_NAME, _distribution_version(API_NAME)),
     ]
+    if os.environ.get("EXHALE_NATIVE_INSTALLATION"):
+        descriptor = json.loads(os.environ["EXHALE_NATIVE_INSTALLATION"])
+        entries.append(("Launcher/setup", descriptor.get("launcher_version", "unknown")))
     entries.extend(
         (label, _distribution_version(distribution))
         for label, distribution in _PACKAGE_DISTRIBUTIONS

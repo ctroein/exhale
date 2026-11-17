@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import traceback
+import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -26,6 +27,60 @@ UPDATE_COMMAND = f"uv tool upgrade {PACKAGE}"
 # Keep pipe writers open until process exit, including while Python tears down Qt.
 _exit_pipes = []
 _application_locks = []
+
+
+def require_launcher(kind, launcher_version, requirements):
+    """Reject a release requiring a newer native launcher before activation."""
+    from packaging.version import Version
+
+    minimum = requirements[kind]
+    if Version(launcher_version) < Version(minimum):
+        raise ValueError(
+            f"This release requires launcher/setup {minimum} or later. "
+            f"Installed launcher/setup: {launcher_version}. Download and run the newer installer "
+            "from https://github.com/ctroein/exhale/releases."
+        )
+
+
+def check_running_launcher():
+    """Validate the parent launcher during startup, including candidate runtime checks."""
+    descriptor = json.loads(os.environ.get("EXHALE_NATIVE_INSTALLATION", "{}"))
+    kind = descriptor.get("kind") or os.environ.get("EXHALE_LAUNCHER_KIND")
+    if not kind and "UV_PYTHON_INSTALL_DIR" in os.environ:
+        # Earlier native launchers supply private uv paths during startup checks,
+        # but no descriptor or launcher version. Treat their version as zero.
+        prefix = Path(sys.prefix).resolve()
+        python_root = Path(os.environ["UV_PYTHON_INSTALL_DIR"]).resolve()
+        if prefix.name.startswith("env-") and python_root == prefix.parent / "python":
+            kind = {"win32": "windows", "darwin": "macos"}.get(sys.platform)
+    if kind not in ("windows", "macos"):
+        return
+    version = descriptor.get("launcher_version") or os.environ.get("EXHALE_LAUNCHER_VERSION", "0")
+    requirements = json.loads(Path(__file__).with_name("launcher_requirements.json").read_text())
+    require_launcher(kind, version, requirements)
+
+
+def check_release_launcher(installation, version):
+    """Read the target release's native launcher requirements before offering Update now."""
+    if installation.get("kind") not in ("windows", "macos"):
+        return
+    url = (
+        f"https://raw.githubusercontent.com/ctroein/exhale/v{version}/"
+        "exhale/launcher_requirements.json"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=15) as response:
+            payload = response.read(4097)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            # Releases predating the requirements file have no minimum.
+            return
+        raise
+    if len(payload) > 4096:
+        raise ValueError("The launcher requirements response is too large.")
+    require_launcher(
+        installation["kind"], installation.get("launcher_version", "0"), json.loads(payload)
+    )
 
 
 def native_installation():
@@ -60,6 +115,7 @@ def native_installation():
         "token": descriptor["token"],
         "environment": name,
         "state": state_text,
+        "launcher_version": descriptor.get("launcher_version", "0"),
     }
 
 

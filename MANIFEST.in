@@ -4,6 +4,7 @@ include MANIFEST.in
 include run_exhale.py
 
 recursive-include exhale *.py
+include exhale/launcher_requirements.json
 recursive-include exhale/resources/icons *.png *.svg *.txt
 recursive-include exhale/resources/linux *.desktop
 recursive-include exhale/resources/licenses *

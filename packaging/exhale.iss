@@ -51,6 +51,7 @@ Source: "..\dist\windows-payload\*"; DestDir: "{app}"; Excludes: "release.iss"; 
 
 [Icons]
 Name: "{group}\EXHALE"; Filename: "{app}\exhale.exe"; WorkingDir: "{app}"
+Name: "{group}\EXHALE Setup"; Filename: "{app}\exhale.exe"; Parameters: "--setup"; WorkingDir: "{app}"
 Name: "{autodesktop}\EXHALE"; Filename: "{app}\exhale.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 Name: "{group}\EXHALE (Software OpenGL)"; Filename: "{app}\exhale.exe"; Parameters: "--software-opengl"; WorkingDir: "{app}"; Tasks: softwareopengl
 Name: "{autodesktop}\EXHALE (Software OpenGL)"; Filename: "{app}\exhale.exe"; Parameters: "--software-opengl"; WorkingDir: "{app}"; Tasks: desktopicon and softwareopengl

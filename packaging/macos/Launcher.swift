@@ -63,7 +63,7 @@ class SetupDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow!
     let starDist = NSButton(checkboxWithTitle: "StarDist — TensorFlow", target: nil, action: nil)
     let cellpose = NSButton(checkboxWithTitle: "Cellpose, MONAI U-Net and SMP U-Net — PyTorch and DINOv3", target: nil, action: nil)
-    let install = NSButton(title: "Install and Open", target: nil, action: nil)
+    let install = NSButton(title: "Apply / Repair and Open", target: nil, action: nil)
     let remove = NSButton(title: "Remove Runtime…", target: nil, action: nil)
     let open = NSButton(title: "Open EXHALE", target: nil, action: nil)
     let status = NSTextField(labelWithString: "Choose the segmentation backends to install.")
@@ -98,6 +98,7 @@ class SetupDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.title = "EXHALE Setup"
         window.delegate = self
         window.center()
+        let version = NSTextField(labelWithString: "Launcher/setup \(config["launcher_version"] ?? "unknown")")
         let heading = NSTextField(wrappingLabelWithString:
             "EXHALE downloads a private Python environment and the selected packages. Internet access is required. Selecting neither backend installs viewing and composition only.")
         starDist.state = .on
@@ -123,7 +124,7 @@ class SetupDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         log.autoresizingMask = [.width]
         log.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         log.textContainer?.widthTracksTextView = true
-        let stack = NSStackView(views: [heading, starDist, cellpose, status, buttons, scroll])
+        let stack = NSStackView(views: [version, heading, starDist, cellpose, status, buttons, scroll])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
@@ -204,7 +205,7 @@ class SetupDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let selection = starDist.state == .on
             ? (cellpose.state == .on ? "both" : "stardist")
             : (cellpose.state == .on ? "cellpose" : "none")
-        perform("install", [selection]) { self.launch() }
+        perform("configure", [selection]) { self.launch() }
     }
     @objc func openClicked() { launch() }
     func launch() {

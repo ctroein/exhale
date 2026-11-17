@@ -85,6 +85,24 @@ def test_remove_is_private_and_preserves_projects(runtime):
     assert not runtime.root.exists()
 
 
+def test_configure_preserves_updated_version_with_older_bundled_wheel(runtime):
+    runtime.root.mkdir(parents=True)
+    runtime.state_path.write_text(
+        json.dumps(
+            {
+                "environment": "env-active",
+                "wheel": runtime.config["wheel"],
+                "backends": "both",
+                "version": "2.0",
+            }
+        )
+    )
+    calls = []
+    runtime.install = lambda selection, **kwargs: calls.append((selection, kwargs))
+    runtime.configure("stardist")
+    assert calls == [("stardist", {"version": "2.0", "update_wheel": None})]
+
+
 def test_second_process_cannot_modify_active_runtime(runtime):
     with runtime.locked(), pytest.raises(RuntimeError, match="already running"):
         with runtime.locked():
