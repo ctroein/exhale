@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtWidgets import QApplication
 
@@ -69,6 +71,7 @@ class AppearanceManager(QtCore.QObject):
         self.settings = settings
         self._scheme = "system"
         self._applying = False
+        self._system_style = QApplication.instance().style().objectName()
         QApplication.instance().paletteChanged.connect(self._application_palette_changed)
         self._base_font = QApplication.font()
         self.font_scale = 100
@@ -113,8 +116,31 @@ class AppearanceManager(QtCore.QObject):
         self._applying = True
         try:
             app = QApplication.instance()
-            if scheme == "system" and getattr(self, "_initialized", False):
-                app.setPalette(app.style().standardPalette())
+            native_palette = False
+            if sys.platform == "win32":
+                set_color_scheme = getattr(app.styleHints(), "setColorScheme", None)
+                if set_color_scheme is not None:
+                    # Native Windows controls also consult the platform theme.
+                    # A palette override alone leaves their drawing out of sync.
+                    set_color_scheme(
+                        {
+                            "system": QtCore.Qt.ColorScheme.Unknown,
+                            "light": QtCore.Qt.ColorScheme.Light,
+                            "dark": QtCore.Qt.ColorScheme.Dark,
+                        }[scheme]
+                    )
+                    native_palette = True
+                else:
+                    # Qt 6.7 cannot override the native color scheme. Fusion
+                    # honors our explicit palettes; System restores the style.
+                    style = self._system_style if scheme == "system" else "fusion"
+                    if app.style().objectName().casefold() != style.casefold():
+                        app.setStyle(style)
+                        _install_splitter_style(app)
+            if scheme == "system" or native_palette:
+                # An unresolved palette removes application overrides and lets
+                # Qt supply the current platform palette, including OS changes.
+                app.setPalette(QtGui.QPalette())
             elif scheme == "light":
                 app.setPalette(_light_palette())
             elif scheme == "dark":
@@ -155,8 +181,11 @@ def is_dark() -> bool:
 
 
 def _light_palette() -> QtGui.QPalette:
-    style = QtWidgets.QStyleFactory.create("Fusion")
-    return style.standardPalette()
+    # Fusion's standardPalette follows the OS scheme on recent Qt versions.
+    # Derive a light palette from an explicit light button/background color.
+    palette = QtGui.QPalette(QtGui.QColor("#efefef"))
+    palette.setColor(QtGui.QPalette.Accent, palette.color(QtGui.QPalette.Highlight))
+    return palette
 
 
 def _dark_palette() -> QtGui.QPalette:
@@ -173,11 +202,13 @@ def _dark_palette() -> QtGui.QPalette:
     palette.setColor(QtGui.QPalette.ToolTipBase, QtGui.QColor("#f0f0f0"))
     palette.setColor(QtGui.QPalette.ToolTipText, QtGui.QColor("#202020"))
     palette.setColor(QtGui.QPalette.Text, QtGui.QColor("#f0f0f0"))
+    palette.setColor(QtGui.QPalette.PlaceholderText, QtGui.QColor("#909090"))
     palette.setColor(QtGui.QPalette.Button, QtGui.QColor("#383838"))
     palette.setColor(QtGui.QPalette.ButtonText, QtGui.QColor("#f0f0f0"))
     palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor("#ffffff"))
     palette.setColor(QtGui.QPalette.Link, QtGui.QColor("#bfa3f9"))
     palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor("#60469a"))
+    palette.setColor(QtGui.QPalette.Accent, QtGui.QColor("#60469a"))
     palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor("#ffffff"))
     disabled = QtGui.QColor("#808080")
     for role in (QtGui.QPalette.WindowText, QtGui.QPalette.Text, QtGui.QPalette.ButtonText):

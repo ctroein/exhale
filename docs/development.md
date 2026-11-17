@@ -132,6 +132,13 @@ Access Qt through `qtpy` so the application remains independent of a specific
 Qt binding.
 
 The packaged binding is PyQt6 (Qt 6.7 or newer), required by Napari 0.10.
+On Windows, native widget drawing must use the same color scheme as the palette.
+Qt 6.8+ supports the application color-scheme override; use its matching platform
+palette so checkboxes, progress bars and other native controls retain their accent
+colors. Qt 6.7 uses Fusion for explicit light/dark palettes. Returning to System
+clears palette overrides instead of installing a style's `standardPalette()`,
+which can differ from the active platform theme. Fusion's standard palette can
+itself be dark and must not be used as an unconditional light palette.
 The launcher and dependency-trial tool default `QT_API` to `pyqt6` so older
 bindings left in a development environment are not selected accidentally.
 When running pytest directly in such an environment, use `QT_API=pyqt6`.

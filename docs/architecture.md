@@ -16,6 +16,13 @@ Qt is accessed through `qtpy`. Layouts are authored in Qt Designer `.ui`
 files. The corresponding `*_ui.py` modules are generated build products and
 contain no application policy.
 
+`AppearanceManager` owns application color-scheme selection and palette changes.
+On Windows with Qt 6.8+, the native scheme override and matching platform palette
+are applied together, including native controls and accent colors. Older Qt uses
+Fusion for explicit light/dark choices. System selection clears application
+palette overrides and follows platform changes. Custom palette resources are
+refreshed through the manager's change signal.
+
 `UpdateController` owns desktop release-check scheduling, its worker and update
 confirmation. Application preferences store the daily-check setting and last
 attempt. `updates` identifies the running uv tool using its environment path and

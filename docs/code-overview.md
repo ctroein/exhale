@@ -612,7 +612,9 @@ State-dependent tooltips remain beside the behavior which changes them.
 
 Owns light, dark, and system palette selection. `AppearanceManager` applies
 the persistent choice and emits palette changes; `SplitterGripStyle` provides
-the shared Fusion splitter grip.
+the shared Fusion splitter grip. Windows uses Qt's native color-scheme override
+and platform palette on Qt 6.8+, with Fusion and explicit palettes for older Qt.
+System selection clears palette overrides so later OS changes are reflected.
 
 ### `exhale/icons.py`
 
