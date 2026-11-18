@@ -43,12 +43,13 @@ class ClusteringController(QtCore.QObject):
         for method in CLUSTERING_METHODS:
             window.clusteringMethodCombo.addItem(method.name, method.method_id)
             window.clusteringAnalysisMethod.addItem(method.name, method.method_id)
-            if method.method_id == DEFAULT_CLUSTERING_METHOD:
-                dialog = method.create_options(window)
-                dialog.buttonBox.rejected.connect(dialog.hide)
-                dialog.clusterMinK.valueChanged.connect(self._options_changed)
-                dialog.clusterMaxK.valueChanged.connect(self._options_changed)
-                self._dialogs[method.method_id] = dialog
+        page = window.clusteringIntensityOptions
+        page.clusterMinK, page.clusterMaxK = window.clusterMinK, window.clusterMaxK
+        self._dialogs[DEFAULT_CLUSTERING_METHOD] = page
+        window.clusterMinK.valueChanged.connect(self._options_changed)
+        window.clusterMaxK.valueChanged.connect(self._options_changed)
+        window.clusteringMinimum.valueChanged.connect(self._minimum_changed)
+        window.clusteringRunSample.currentIndexChanged.connect(self._run_sample_changed)
         self.dialog = self._dialogs.get(self.run_method_id())
         self.color_editor = LayerColorEditor(parent=window.clusteringColorHost)
         window.clusteringColorLayout.addWidget(self.color_editor.color_button)
@@ -93,10 +94,35 @@ class ClusteringController(QtCore.QObject):
             method_id = self.run_method_id()
             if method_id == DEFAULT_CLUSTERING_METHOD:
                 clustering_method(method_id).restore_options(
-                    self.dialog, self.window.project_data.clustering_settings.intensity
+                    self._dialogs[method_id], self.window.project_data.clustering_settings.intensity
                 )
+            else:
+                settings = self.window.project_data.clustering_settings
+                self.window.clusteringMinimum.setValue(
+                    settings.parameters(None, method_id).method_options["min_cluster_size"]
+                )
+            self.window.clusteringOptionsStack.setCurrentIndex(
+                0 if method_id == DEFAULT_CLUSTERING_METHOD else 1
+            )
+            self.window.clusteringOptions.setVisible(method_id != DEFAULT_CLUSTERING_METHOD)
         finally:
             self._configuring_options = False
+
+    def _minimum_changed(self):
+        if self._configuring_options or self.run_method_id() == DEFAULT_CLUSTERING_METHOD:
+            return
+        self.window.project_data.clustering_settings.minimum_sizes[self.run_method_id()] = (
+            self.window.clusteringMinimum.value()
+        )
+        self._options_changed()
+        self._selection_changed()
+
+    def _run_sample_changed(self):
+        self.window.clusteringSampleComboBox.setCurrentIndex(
+            self.window.clusteringSampleComboBox.findData(
+                self.window.clusteringRunSample.currentData()
+            )
+        )
 
     def _options_changed(self):
         if self._configuring_options:
@@ -115,11 +141,6 @@ class ClusteringController(QtCore.QObject):
         self.show_result()
 
     def show_options(self):
-        if self.dialog is not None:
-            self._configure_options()
-            self.dialog.show()
-            self.dialog.raise_()
-            return
         method = self.run_method_id()
         project = self.window.project_data
         settings = project.clustering_settings
@@ -134,7 +155,12 @@ class ClusteringController(QtCore.QObject):
             method, settings.abundance["min_cluster_size"]
         )
         dialog = clustering_method(method).create_options(self.window)
-        for control in (dialog.linkRadius, dialog.cutoffScale, dialog.prominence):
+        for control in (
+            dialog.minClusterSize,
+            dialog.linkRadius,
+            dialog.cutoffScale,
+            dialog.prominence,
+        ):
             dialog.settingsLayout.setRowVisible(control, False)
         dialog.buttonBox.setStandardButtons(
             QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
@@ -142,7 +168,7 @@ class ClusteringController(QtCore.QObject):
         dialog.buttonBox.button(QtWidgets.QDialogButtonBox.Ok).setText("Apply")
         dialog.buttonBox.accepted.connect(dialog.accept)
         dialog.buttonBox.rejected.connect(dialog.reject)
-        dialog.setWindowTitle(f"{clustering_method(method).name} options")
+        dialog.setWindowTitle(f"Edit cutoffs — {clustering_method(method).name}")
         dialog.set_context(draft, self._sample())
         accepted = dialog.exec() == QtWidgets.QDialog.Accepted
         dialog.stop_estimates()
@@ -160,6 +186,7 @@ class ClusteringController(QtCore.QObject):
             if minimum != settings.parameters(None, method).method_options["min_cluster_size"]:
                 settings.minimum_sizes[method] = minimum
             self._options_changed()
+            self._configure_options()
             self._selection_changed()
 
     def _method_results(self, method=None):
@@ -271,19 +298,29 @@ class ClusteringController(QtCore.QObject):
             selector.setCurrentIndex(
                 max(0, selector.findData(selected)) if selector.count() else -1
             )
+        run_sample = self.window.clusteringRunSample
+        with QtCore.QSignalBlocker(run_sample):
+            run_sample.clear()
+            for index in range(selector.count()):
+                run_sample.addItem(selector.itemText(index), selector.itemData(index))
+            run_sample.setCurrentIndex(selector.currentIndex())
         self.sample_changed()
 
     def method_changed(self):
         self.window.project_data.clustering_method = self.run_method_id()
-        if self.dialog is not None:
-            self.dialog.hide()
         self.dialog = self._dialogs.get(self.run_method_id())
         self._configure_options()
         self._update_cutoff()
         self.window.project_state_manager.project_changed()
 
     def sample_changed(self):
-        """Select enabled elements and restore this sample/method's saved options."""
+        """Synchronize sample selectors and restore the selected map controls."""
+        with QtCore.QSignalBlocker(self.window.clusteringRunSample):
+            self.window.clusteringRunSample.setCurrentIndex(
+                self.window.clusteringRunSample.findData(
+                    self.window.clusteringSampleComboBox.currentData()
+                )
+            )
         sample = self._sample()
         combo = self.window.clusteringElementCombo
         previous = combo.currentData()
@@ -306,6 +343,23 @@ class ClusteringController(QtCore.QObject):
     def _selection_changed(self, *_unused):
         self._update_cutoff(reset=True)
         self.show_result()
+        sample = self._sample()
+        ref = self.window.clusteringElementCombo.currentData()
+        result = self._result()
+        if (
+            sample is not None
+            and ref is not None
+            and result is not None
+            and ref in result.element_refs
+            and self.current_method_id() != DEFAULT_CLUSTERING_METHOD
+            and self._live_failed != self._map_selection()
+        ):
+            key = next(c.key for c in sample.channels.values() if c.ref == ref)
+            parameters = self.window.project_data.clustering_settings.parameters(
+                sample.sample_id, self.current_method_id()
+            )
+            if not self._map_matches(result, parameters, ref, key):
+                self._queue_cutoff()
 
     def show_result(self, *_unused):
         """Reuse two pooled overlays; element changes leave camera position unchanged."""
@@ -518,8 +572,7 @@ class ClusteringController(QtCore.QObject):
             self.window.project_state_manager.project_changed()
 
     def set_busy(self, busy):
-        if self.dialog is not None:
-            self.dialog.setEnabled(not busy)
+        self.window.clusteringOptionsStack.setEnabled(not busy)
         self._update_cutoff()
         for widget in (
             self.window.clusteringRun,
@@ -545,7 +598,7 @@ class ClusteringController(QtCore.QObject):
 
     def run(self):
         """Cluster all enabled maps of the selected sample."""
-        sample = self._sample()
+        sample = self.window.project_data.samples.get(self.window.clusteringRunSample.currentData())
         if sample is None:
             self.window.show_error("Select a sample first.")
             return
@@ -572,16 +625,13 @@ class ClusteringController(QtCore.QObject):
             window.clusteringCutoffLabel,
             window.clusteringAuto,
             window.clusteringCutoff,
-            window.clusteringCutoffStatus,
         ):
             widget.setVisible(abundance)
-        intensity = self.run_method_id() == DEFAULT_CLUSTERING_METHOD
-        window.clusteringRun.setVisible(intensity)
         can_edit = valid and (self.worker is None or self._live is not None)
         window.clusteringAuto.setEnabled(can_edit)
         if not valid:
             window.clusteringCutoff.setEnabled(False)
-            window.clusteringCutoffStatus.clear()
+            window.clusteringBusy.setText(" ")
             return
         selection = method, sample_id, ref
         settings = window.project_data.clustering_settings
@@ -589,7 +639,6 @@ class ClusteringController(QtCore.QObject):
         options = parameters.method_options
         key = next(channel.key for channel in sample.channels.values() if channel.ref == ref)
         result = self._result()
-        status = "No result"
         multiple = options.get("cutoff_scales", {}).get(key)
         automatic = multiple is None and key not in options.get("thresholds", {})
         shown = -0.01 if multiple is None else multiple
@@ -602,7 +651,6 @@ class ClusteringController(QtCore.QObject):
             None,
         )
         if result is not None and ref in result.element_refs:
-            status = "" if self._map_matches(result, parameters, ref, key) else "Out of date"
             if reset and multiple is None:
                 channel = tuple(result.xrf_sample.elements.values())[result.element_refs.index(ref)]
                 thresholds = channel.intensity_thresholds
@@ -613,15 +661,10 @@ class ClusteringController(QtCore.QObject):
                 )
                 if stats is not None and stats[1] > 0:
                     shown = max(0, (thresholds[0] - stats[0]) / stats[1])
-        if not automatic and multiple is None and status != "No result":
-            status = "Saved with an absolute cutoff" + (f" · {status}" if status else "")
         if queued is not None:
-            status = "Updating…"
             automatic = queued[1] is None
             if not automatic:
                 shown = queued[1]
-        elif self._live_failed == selection:
-            status = "Update failed"
         if reset:
             with (
                 QtCore.QSignalBlocker(window.clusteringAuto),
@@ -629,12 +672,16 @@ class ClusteringController(QtCore.QObject):
             ):
                 window.clusteringAuto.setChecked(automatic)
                 window.clusteringCutoff.setValue(shown)
+                self._display_multiple = shown
         window.clusteringCutoff.setEnabled(can_edit and not window.clusteringAuto.isChecked())
-        window.clusteringCutoffStatus.setText(status)
+        window.clusteringBusy.setText("◌" if queued is not None else " ")
+        window.clusteringBusy.setToolTip("Clustering this element" if queued is not None else "")
 
     def _map_matches(self, result, parameters, ref, key):
         if result is None or ref not in result.element_refs:
             return False
+        if result.method_id == DEFAULT_CLUSTERING_METHOD:
+            return result.parameters == parameters
         stored = result.parameters.method_options
         return stored.get("map_defaults", {}).get(
             key, self._global_options(result.parameters)
@@ -659,6 +706,10 @@ class ClusteringController(QtCore.QObject):
         value = (
             None if window.clusteringAuto.isChecked() else max(0, window.clusteringCutoff.value())
         )
+        if value is not None:
+            displayed = getattr(self, "_display_multiple", value)
+            if value == round(displayed, window.clusteringCutoff.decimals()):
+                value = displayed
         self._pending = (selection, value)
         self._live_failed = None
         self._cutoff_timer.start()
@@ -688,7 +739,6 @@ class ClusteringController(QtCore.QObject):
         )
         if self.worker is None:
             self._live = None
-            self._live_failed = request[0]
             self._update_cutoff(reset=True)
 
     def run_batch(self):
@@ -760,8 +810,28 @@ class ClusteringController(QtCore.QObject):
             options.get("thresholds", {}).pop(key, None)
             if cutoff is not None:
                 options["cutoff_scales"][key] = cutoff
+        filtered = []
+        for job in jobs:
+            previous = project.clustering_result(job.sample_id, method)
+            parameters = sample_parameters[job.sample_id]
+            missing = [
+                (ref, name, key)
+                for ref, name, key in zip(job.refs, job.names, job.keys, strict=True)
+                if not self._map_matches(previous, parameters, ref, key)
+            ]
+            if missing:
+                refs, names, keys = zip(*missing, strict=True)
+                filtered.append(
+                    job
+                    if len(refs) == len(job.refs)
+                    else replace(job, refs=refs, names=names, keys=keys)
+                )
+        jobs = filtered
+        if not jobs:
+            self._append_status("Selected maps already have results with these parameters.")
+            return
         previous_results = {}
-        if method != DEFAULT_CLUSTERING_METHOD:
+        if jobs:
             for job in jobs:
                 previous = project.clustering_result(job.sample_id, method)
                 if previous is not None and set(previous.element_refs) <= {
@@ -886,7 +956,7 @@ class ClusteringController(QtCore.QObject):
         for dialog in set(self._dialogs.values()):
             if hasattr(dialog, "stop_estimates"):
                 dialog.stop_estimates()
-            dialog.close()
+
         if self.worker is not None:
             self._generation += 1
             self.worker.abort()

@@ -571,16 +571,6 @@ class LayerListWidget(QtWidgets.QListWidget):
         self.helper = None
         self.remove_width = 0
         self._initialize_column_widths()
-        margins = [
-            max(0, self.style().pixelMetric(metric, None, self))
-            for metric in (
-                QtWidgets.QStyle.PM_LayoutLeftMargin,
-                QtWidgets.QStyle.PM_LayoutTopMargin,
-                QtWidgets.QStyle.PM_LayoutRightMargin,
-                QtWidgets.QStyle.PM_LayoutBottomMargin,
-            )
-        ]
-        self.setViewportMargins(*margins)
         self.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.setDragEnabled(True)
         self.setAcceptDrops(True)

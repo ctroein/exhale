@@ -137,6 +137,55 @@ class IconCheckDelegateTests(unittest.TestCase):
             self.assertEqual(item.checkState(), check_state)
             self.assertEqual(delegate.indicator_icon_name(index, check_state), icon_name)
 
+    def test_project_and_sample_cells_share_geometry_and_selection_painting(self):
+        project = QtWidgets.QTreeWidget()
+        self.addCleanup(project.deleteLater)
+        project.setRootIsDecorated(False)
+        project.setColumnCount(1)
+        project_delegate = IconCheckDelegate(project)
+        project.setItemDelegate(project_delegate)
+        project_item = QtWidgets.QTreeWidgetItem(["Fe"])
+        project_item.setCheckState(0, QtCore.Qt.Checked)
+        project.addTopLevelItem(project_item)
+        sample = ElementListWidget()
+        self.addCleanup(sample.deleteLater)
+        sample.use_sample_check_delegate()
+        sample_item = sample.addSampleChannel(
+            "Fe", "Fe", None, "override", deferred=False, project_enabled=True
+        )
+        cells = (
+            (project, project_delegate, project.indexFromItem(project_item)),
+            (sample, sample.itemDelegate(), sample.indexFromItem(sample_item)),
+        )
+        for scale in (1, 1.5):
+            heights, indicators, images = [], [], []
+            for view, delegate, index in cells:
+                font = QtGui.QFont(self.app.font())
+                font.setPointSizeF(font.pointSizeF() * scale)
+                view.setFont(font)
+                option = QtWidgets.QStyleOptionViewItem()
+                option.initFrom(view)
+                option.widget = view
+                option.rect = QtCore.QRect(0, 0, 220, 40)
+                option.state = (
+                    QtWidgets.QStyle.State_Enabled
+                    | QtWidgets.QStyle.State_Active
+                    | QtWidgets.QStyle.State_Selected
+                )
+                delegate.initStyleOption(option, index)
+                heights.append(delegate.sizeHint(option, index).height())
+                indicators.append(delegate.indicator_rect(option, index))
+                image = QtGui.QImage(220, 40, QtGui.QImage.Format_ARGB32)
+                image.fill(option.palette.color(QtGui.QPalette.Base))
+                painter = QtGui.QPainter(image)
+                delegate.paint(painter, option, index)
+                painter.end()
+                images.append(image)
+            self.assertEqual(heights[0], heights[1])
+            self.assertGreaterEqual(heights[0], 24)
+            self.assertEqual(indicators[0], indicators[1])
+            self.assertEqual(images[0], images[1])
+
 
 if __name__ == "__main__":
     unittest.main()

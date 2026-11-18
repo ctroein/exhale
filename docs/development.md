@@ -153,6 +153,14 @@ When running pytest directly in such an environment, use `QT_API=pyqt6`.
 
 Establish sorting and grouping when a list or selector is populated, then keep
 item positions stable while the user selects, checks, activates, or edits items.
+Project and sample element checks share `IconCheckDelegate` and its native cell
+geometry. Sample rows add space only for explicit group dividers. Keep sizing,
+painting and check hit-testing on the same shared style path; do not compensate
+for platform list padding with a separate fixed row height.
+Windows 11 list/tree selection markers share the viewport's leading edge, even
+for indented tree rows. Keep the native marker and reserve its gutter consistently
+through `ItemViewStyle`. Ordinary image/file decorations use native icon sizes;
+larger custom checkbox glyphs and embedded controls determine their own row needs.
 
 Main content splitters use an 8-pixel handle width, as established on the
 Project data and Element maps tabs. This provides the extra space needed for a

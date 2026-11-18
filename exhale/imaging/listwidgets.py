@@ -48,20 +48,11 @@ class _GroupDividerMixin:
         return size
 
 
-class _ListRowDelegate(QtWidgets.QStyledItemDelegate):
-    """Keep map and image rows compact across native desktop styles."""
-
-    def sizeHint(self, option, index):
-        size = super().sizeHint(option, index)
-        size.setHeight(max(24, option.fontMetrics.height()) + 4)
-        return size
-
-
-class _ElementItemDelegate(_GroupDividerMixin, _ListRowDelegate):
+class _ElementItemDelegate(_GroupDividerMixin, QtWidgets.QStyledItemDelegate):
     """Draw ordinary element-list rows with optional group dividers."""
 
 
-class SampleElementCheckDelegate(_GroupDividerMixin, IconCheckDelegate, _ListRowDelegate):
+class SampleElementCheckDelegate(_GroupDividerMixin, IconCheckDelegate):
     """Render sample-channel states while retaining standard checkbox interaction."""
 
     def indicator_icon_name(self, index, state):
@@ -83,11 +74,6 @@ class ExhaleListWidget(QtWidgets.QListWidget):
     "Base class for the lists below"
 
     itemUnwanted = QtCore.Signal(QtWidgets.QListWidgetItem)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setIconSize(QtCore.QSize(24, 24))
-        self.setItemDelegate(_ListRowDelegate(self))
 
     def keyPressEvent(self, event):
         if event.matches(QtGui.QKeySequence.Delete) or event.matches(QtGui.QKeySequence.Backspace):

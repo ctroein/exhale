@@ -57,7 +57,14 @@ class ClusteringBatchWorker(AnalysisTask):
                 progress(0, len(job.refs), "Loading maps")
                 arrays = [self.sources[ref.source_id].load_array(ref) for ref in job.refs]
                 parameters = self.sample_parameters.get(job.sample_id, self.parameters)
-                output = method.compute(arrays, job, parameters, self.report, progress=progress)
+                reuse = (
+                    {"previous": self.previous_results.get(job.sample_id)}
+                    if self.method_id != "intensity-partition"
+                    else {}
+                )
+                output = method.compute(
+                    arrays, job, parameters, self.report, progress=progress, **reuse
+                )
                 refs = job.refs
                 previous = self.previous_results.get(job.sample_id)
                 if previous is not None:
@@ -70,24 +77,25 @@ class ClusteringBatchWorker(AnalysisTask):
                     ]
                     output.elements.update((key, channel) for key, channel, _ in retained)
                     refs += tuple(ref for _, _, ref in retained)
-                    old_options = previous.parameters.method_options
-                    old_defaults = {
-                        key: value
-                        for key, value in old_options.items()
-                        if key not in ("thresholds", "cutoff_scales", "map_defaults")
-                    }
-                    if retained:
-                        parameters.method_options["map_defaults"] = {
-                            key: old_options.get("map_defaults", {}).get(key, old_defaults)
-                            for key, _, _ in retained
+                    if self.method_id != "intensity-partition":
+                        old_options = previous.parameters.method_options
+                        old_defaults = {
+                            key: value
+                            for key, value in old_options.items()
+                            if key not in ("thresholds", "cutoff_scales", "map_defaults")
                         }
-                    for field in ("thresholds", "cutoff_scales"):
-                        old = previous.parameters.method_options.get(field, {})
-                        values = parameters.method_options.setdefault(field, {})
-                        for key, _, _ in retained:
-                            values.pop(key, None)
-                            if key in old:
-                                values[key] = old[key]
+                        if retained:
+                            parameters.method_options["map_defaults"] = {
+                                key: old_options.get("map_defaults", {}).get(key, old_defaults)
+                                for key, _, _ in retained
+                            }
+                        for field in ("thresholds", "cutoff_scales"):
+                            old = previous.parameters.method_options.get(field, {})
+                            values = parameters.method_options.setdefault(field, {})
+                            for key, _, _ in retained:
+                                values.pop(key, None)
+                                if key in old:
+                                    values[key] = old[key]
                 self.report(f"Saving {job.sample_name}")
                 self.work_progress.emit(
                     completed_work + len(job.refs), total_work, f"{job.sample_name}: Saving"

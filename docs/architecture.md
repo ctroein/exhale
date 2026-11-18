@@ -31,6 +31,15 @@ Fusion for explicit light/dark choices. System selection clears application
 palette overrides and follows platform changes. Custom palette resources are
 refreshed through the manager's change signal.
 
+`ItemViewStyle` in `appearance` shares compact cell geometry across Windows 11
+lists and trees, preserving the native selection marker at the viewport's leading
+edge independently of tree indentation. Fusion uses the same cell geometry without
+adding a marker. Other platform styles retain their native conventions. Images
+and file rows use native decoration sizes. Project and sample element checks
+share the SVG interaction delegate in `widgets`, with extra space only for sample
+group dividers. Per-view styles follow application palette and style changes,
+including native color caches.
+
 `UpdateController` owns desktop release-check scheduling, its worker and update
 confirmation. Application preferences store the daily-check setting and last
 attempt. `updates` identifies the running uv tool using its environment path and
@@ -371,7 +380,9 @@ downstream references retain their own exact IDs and become outdated. Resolution
 of an unavailable old revision fails rather than substituting current pixels.
 
 The Element clusters tab precedes Segmentation and has independent method/options
-and Run/Batch/Stop controls. It processes all effective enabled sample elements;
+and Cluster sample/Batch/Stop controls. Run and Display sample selectors are
+synchronized. Method options are embedded in a small stack; abundance cutoff
+grids open through Edit cutoffs. It processes all effective enabled sample elements;
 there is no second element-inclusion checklist. `ClusteringBatchWorker` captures
 jobs and parameters, runs samples sequentially using raw intensities, saves each
 sample before publication, and continues after independent input failures. Stop
@@ -393,7 +404,10 @@ method supplies no layers or distances for the sample.
 intensity-class bounds, per-method minimum sizes and manual cutoff multiples
 indexed by method, sample ID and element key. The cutoff grid stages edits
 until Apply. Inline cutoff edits debounce a single-map run and retain one
-pending request. Project runs for cutoff methods skip maps with matching
+pending request. Viewing an existing result with stale settings schedules an
+update. A fixed-size indicator beside the element chooser shows pending work.
+Equivalent effective thresholds reuse clusters even when switching between
+automatic and manual cutoffs. Project runs for cutoff methods skip maps with matching
 execution settings.
 Each result retains an execution snapshot. Editing configuration marks a displayed
 result as needing recalculation by comparing that snapshot; existing output stays

@@ -20,7 +20,7 @@ from exhale.analysis.clustering_abundance import (
 from exhale.analysis.clusteringmethods import CLUSTERING_METHODS
 from exhale.analysis.segmentationio import load_xrf_sample, save_xrf_sample
 from exhale.data.channeldata import ArrayChannelData
-from exhale.data.projectdata import Channel, ClusteringParameters, ProjectData
+from exhale.data.projectdata import Channel, ClusteringParameters, ClusteringResult, ProjectData
 from exhale.data.source_refs import ElementRef
 from exhale.project.projectio import export_project_state, load_project_state
 
@@ -499,3 +499,28 @@ def test_retired_hdbscan_selection_becomes_cutoff_proximity():
     state["clustering_method"] = "hdbscan"
     assert not load_project_state(project, state, open_files=False)
     assert project.clustering_method == "cutoff-proximity"
+
+
+@pytest.mark.parametrize("method_id", METHODS)
+def test_switching_auto_to_same_manual_cutoff_reuses_clusters(method_id, monkeypatch):
+    rng = np.random.default_rng(12)
+    raw = rng.normal(10, 1, (30, 30))
+    raw[10:20, 10:20] += 30
+    ref = ElementRef("test", "Fe")
+    job = SimpleNamespace(sample_name="test", keys=("Fe",), names=("Fe",), refs=(ref,))
+    parameters = ClusteringParameters(method_options={"auto_cutoff": True})
+    output = compute([raw], job, parameters, lambda _: None, method_id=method_id)
+    previous = ClusteringResult("test", (ref,), parameters, output, method_id=method_id)
+    multiple = estimate_cutoff(raw, 10).multiple
+    manual = ClusteringParameters(
+        method_options={"auto_cutoff": True, "cutoff_scales": {"Fe": multiple}}
+    )
+
+    def unexpected_clustering(*args, **kwargs):
+        pytest.fail("Unchanged effective cutoff must reuse the saved clusters")
+
+    monkeypatch.setattr(
+        "exhale.analysis.clustering_abundance.cluster_channel", unexpected_clustering
+    )
+    reused = compute([raw], job, manual, lambda _: None, method_id=method_id, previous=previous)
+    assert reused.elements["Fe"] is output.elements["Fe"]

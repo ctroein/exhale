@@ -247,6 +247,25 @@ def test_cutoff_grid_applies_only_on_accept(window, apply):
         assert not settings.minimum_sizes
 
 
+def test_run_sample_selection_tracks_display_and_options_are_embedded(window):
+    queue = jobs(window.project_data)
+    window.clusteringRunSample.setCurrentIndex(
+        window.clusteringRunSample.findData(queue[1].sample_id)
+    )
+    assert window.clusteringSampleComboBox.currentData() == queue[1].sample_id
+    window.clusteringSampleComboBox.setCurrentIndex(
+        window.clusteringSampleComboBox.findData(queue[0].sample_id)
+    )
+    assert window.clusteringRunSample.currentData() == queue[0].sample_id
+    for method in CLUSTERING_METHODS:
+        window.clusteringMethodCombo.setCurrentIndex(
+            window.clusteringMethodCombo.findData(method.method_id)
+        )
+        assert not window.clusteringRun.isHidden()
+        assert window.clusteringRun.text() == "Cluster sample"
+        assert window.clusteringOptions.isHidden() == (method.method_id == "intensity-partition")
+
+
 def test_downstream_method_is_separate_and_layer_names_are_elements(window):
     project = window.project_data
     job = jobs(project)[0]

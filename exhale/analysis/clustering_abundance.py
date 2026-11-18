@@ -247,7 +247,7 @@ def cluster_channel(raw, name, options, *, method_id, threshold=None, callback=l
     return channel
 
 
-def compute(arrays, job, parameters, callback, *, method_id, progress=None):
+def compute(arrays, job, parameters, callback, *, method_id, progress=None, previous=None):
     """Process each captured element independently and retain actual abundance cutoffs."""
     from ..xrf_refcopy.xrf_sample_class import XRFSample
 
@@ -267,14 +267,41 @@ def compute(arrays, job, parameters, callback, *, method_id, progress=None):
                 estimate = estimate_cutoff(raw, options["min_cluster_size"])
                 if estimate is not None and estimate.multiple is not None:
                     multiple = estimate.multiple
-            sample.elements[key] = cluster_channel(
-                raw,
-                name,
-                {**options, "cutoff_scale": multiple},
-                method_id=method_id,
-                threshold=threshold,
-                callback=callback,
-            )
+            effective_threshold = threshold
+            statistics = abundance_statistics(raw)
+            if effective_threshold is None and statistics is not None:
+                effective_threshold = statistics[0] + multiple * statistics[1]
+            reusable = None
+            if previous is not None and job.refs[index] in previous.element_refs:
+                old_options = previous.parameters.method_options
+                old_options = old_options.get("map_defaults", {}).get(key, old_options)
+                old_options = validate_options(old_options, tomato=method_id == "tomato")
+                old_channel = tuple(previous.xrf_sample.elements.values())[
+                    previous.element_refs.index(job.refs[index])
+                ]
+                old_thresholds = old_channel.intensity_thresholds
+                if (
+                    all(
+                        old_options.get(field) == options.get(field)
+                        for field in ("min_cluster_size", "radius", "prominence")
+                    )
+                    and old_thresholds is not None
+                    and len(old_thresholds) == 1
+                    and effective_threshold == old_thresholds[0]
+                ):
+                    reusable = old_channel
+            if reusable is not None:
+                callback(f"{name}: reusing clusters with the same parameters")
+                sample.elements[key] = reusable
+            else:
+                sample.elements[key] = cluster_channel(
+                    raw,
+                    name,
+                    {**options, "cutoff_scale": multiple},
+                    method_id=method_id,
+                    threshold=threshold,
+                    callback=callback,
+                )
         except ValueError as error:
             raise ValueError(f"{name} ({key}): {error}") from error
         if progress is not None:

@@ -607,6 +607,11 @@ channel/header control rows used by the main window.
 Contains small general Qt helpers: square icon buttons and deferred splitter
 initialization for pages which are hidden during initial layout.
 
+`IconCheckDelegate` supplies the shared SVG checkbox rendering and interaction
+for project and sample elements. Its proxy extends the shared `ItemViewStyle`
+with the SVG indicator size and follows application style and palette changes,
+including native drawing colors cached separately from the widget palette.
+
 `ContentDoubleSpinBox` uses Qt’s native size hint for the configured numeric
 range, decimal precision, font and style, with a fixed size policy. Its width
 stays stable during editing and follows font or format changes.
@@ -624,6 +629,10 @@ the persistent choice and emits palette changes; `SplitterGripStyle` provides
 the shared Fusion splitter grip. Windows uses Qt's native color-scheme override
 and platform palette on Qt 6.8+, with Fusion and explicit palettes for older Qt.
 System selection clears palette overrides so later OS changes are reflected.
+`ItemViewStyle` supplies compact Windows 11/Fusion list and tree cell geometry.
+It reserves the same leading gutter for the Windows 11 native marker in every
+list, including hierarchical and multi-column trees. Tables retain native cell
+geometry. Image and file decorations use native sizes instead of fixed list sizes.
 
 ### `exhale/icons.py`
 

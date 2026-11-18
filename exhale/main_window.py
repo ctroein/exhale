@@ -438,12 +438,12 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         information = QtWidgets.QLabel(
             f"""
-<p>{application_name} was created for the<br>
-{application_name} project at Lund University and MAX IV,
-<a href="https://www.vr.se/english/swecris.html?project=2023-02821_Vinnova#/">
-funded by Vinnova</a>.</p>
+<p>{application_name} was created at Lund University and MAX IV.</p>
 <p>© 2023–2026 Carl Troein, Tom Delaire, Bryan Falcones &amp; Emanuel Larsson.<br>
 Licensed under the MIT License.</p>
+<p><a href="https://github.com/ctroein/exhale">Project page on GitHub</a> –
+<a href="https://www.vr.se/english/swecris.html?project=2023-02821_Vinnova#/"
+>Original Vinnova project</a></b>
 <b>Runtime environment</b>{runtime_environment_html()}
 """,
             dialog,

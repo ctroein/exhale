@@ -13,7 +13,89 @@ COLOR_SCHEMES = ("system", "light", "dark")
 _manager = None
 
 
-class SplitterGripStyle(QtWidgets.QProxyStyle):
+class ItemViewStyle(QtWidgets.QProxyStyle):
+    """Share compact cell geometry and native selection markers across item views."""
+
+    MARKER_GUTTER = 8
+
+    def __init__(self, style_name):
+        super().__init__(style_name)
+        self.setObjectName(style_name.casefold())
+
+    def _has_native_marker(self):
+        return (
+            self.baseStyle().objectName().casefold() == "windows11"
+            and QApplication.styleHints().colorScheme() != QtCore.Qt.ColorScheme.Unknown
+        )
+
+    @staticmethod
+    def _cell_widget(widget):
+        return (
+            widget.viewport()
+            if isinstance(widget, (QtWidgets.QListView, QtWidgets.QTreeView))
+            else widget
+        )
+
+    def _cell_option(self, option, widget):
+        cell = QtWidgets.QStyleOptionViewItem(option)
+        if self._has_native_marker() and isinstance(
+            widget, (QtWidgets.QListView, QtWidgets.QTreeView)
+        ):
+            if cell.direction == QtCore.Qt.RightToLeft:
+                if cell.rect.right() >= widget.viewport().width() - 1:
+                    cell.rect.adjust(0, 0, -self.MARKER_GUTTER, 0)
+            elif cell.rect.left() <= 0:
+                cell.rect.adjust(self.MARKER_GUTTER, 0, 0, 0)
+        return cell
+
+    def _draw_marker(self, option, painter, widget):
+        marker = QtWidgets.QStyleOptionViewItem(option)
+        marker.rect.setLeft(0)
+        marker.rect.setRight(widget.viewport().width() - 1)
+        marker.features = QtWidgets.QStyleOptionViewItem.ViewItemFeature.None_
+        # Ask the native style to draw its own marker, without tree decorations
+        # or alternate-row fill. Its position is relative to the whole viewport.
+        super().drawPrimitive(
+            QtWidgets.QStyle.PE_PanelItemViewRow, marker, painter, widget.viewport()
+        )
+
+    def drawControl(self, element, option, painter, widget=None):
+        if element != QtWidgets.QStyle.CE_ItemViewItem:
+            return super().drawControl(element, option, painter, widget)
+        cell = self._cell_option(option, widget)
+        super().drawControl(element, cell, painter, self._cell_widget(widget))
+        if self._has_native_marker() and isinstance(
+            widget, (QtWidgets.QListView, QtWidgets.QTreeView)
+        ):
+            self._draw_marker(option, painter, widget)
+
+    def drawPrimitive(self, element, option, painter, widget=None):
+        if (
+            element == QtWidgets.QStyle.PE_PanelItemViewRow
+            and self._has_native_marker()
+            and isinstance(widget, QtWidgets.QTreeView)
+        ):
+            row = QtWidgets.QStyleOptionViewItem(option)
+            row.rect.setLeft(0)
+            row.rect.setRight(widget.viewport().width() - 1)
+            super().drawPrimitive(element, row, painter, widget)
+            self._draw_marker(option, painter, widget)
+            return
+        super().drawPrimitive(element, option, painter, widget)
+
+    def subElementRect(self, element, option, widget=None):
+        if isinstance(option, QtWidgets.QStyleOptionViewItem):
+            option = self._cell_option(option, widget)
+            widget = self._cell_widget(widget)
+        return super().subElementRect(element, option, widget)
+
+    def sizeFromContents(self, contents_type, option, size, widget=None):
+        if contents_type == QtWidgets.QStyle.CT_ItemViewItem:
+            widget = self._cell_widget(widget)
+        return super().sizeFromContents(contents_type, option, size, widget)
+
+
+class SplitterGripStyle(ItemViewStyle):
     """A restrained, palette-aware splitter grip for Fusion only."""
 
     def __init__(self):
@@ -51,13 +133,19 @@ class SplitterGripStyle(QtWidgets.QProxyStyle):
         painter.restore()
 
 
-def _install_splitter_style(app) -> None:
-    # An explicit allowlist: leave untested and native platform styles alone.
+def _install_application_style(app) -> None:
+    # Other platform styles retain their native item-view conventions.
     if app.style().objectName().casefold() == "fusion" and not isinstance(
         app.style(), SplitterGripStyle
     ):
         palette = app.palette()
         app.setStyle(SplitterGripStyle())
+        app.setPalette(palette)
+    elif app.style().objectName().casefold() == "windows11" and not isinstance(
+        app.style(), ItemViewStyle
+    ):
+        palette = app.palette()
+        app.setStyle(ItemViewStyle("windows11"))
         app.setPalette(palette)
 
 
@@ -136,7 +224,7 @@ class AppearanceManager(QtCore.QObject):
                     style = self._system_style if scheme == "system" else "fusion"
                     if app.style().objectName().casefold() != style.casefold():
                         app.setStyle(style)
-                        _install_splitter_style(app)
+                        _install_application_style(app)
             if scheme == "system" or native_palette:
                 # An unresolved palette removes application overrides and lets
                 # Qt supply the current platform palette, including OS changes.
@@ -164,7 +252,7 @@ def initialize(
         app = QApplication.instance()
         if app is None:
             raise RuntimeError("Create QApplication before appearance manager")
-        _install_splitter_style(app)
+        _install_application_style(app)
         _manager = AppearanceManager(settings, app)
     return _manager
 

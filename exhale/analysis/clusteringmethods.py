@@ -50,10 +50,12 @@ def _restore(dialog, parameters):
     dialog.clusterMaxK.setValue(parameters.max_k)
 
 
-def _abundance(method_id, arrays, job, parameters, callback, *, progress=None):
+def _abundance(method_id, arrays, job, parameters, callback, *, progress=None, previous=None):
     from .clustering_abundance import compute
 
-    return compute(arrays, job, parameters, callback, method_id=method_id, progress=progress)
+    return compute(
+        arrays, job, parameters, callback, method_id=method_id, progress=progress, previous=previous
+    )
 
 
 def _abundance_options(method_id, parent):

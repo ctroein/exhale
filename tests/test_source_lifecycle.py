@@ -64,7 +64,7 @@ class SourceLifecycleTests(unittest.TestCase):
         rgb_data = np.stack((self.data, self.data * 2, self.data * 3), axis=-1).astype(np.uint8)
         Image.fromarray(rgb_data).save(self.multichannel_tiff)
         with patch.object(AnalysisController, "setup", lambda controller, **_kwargs: None):
-            self.win = MainWindow()
+            self.win = MainWindow(initialize_analysis_view=False)
         self.addCleanup(self.dispose_window)
 
     def dispose_window(self):

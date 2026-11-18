@@ -3,6 +3,7 @@
 from qtpy import QtCore, QtGui, QtWidgets
 
 from . import icons
+from .appearance import ItemViewStyle
 
 
 class IconToolButton(QtWidgets.QToolButton):
@@ -52,10 +53,28 @@ class ContentDoubleSpinBox(QtWidgets.QDoubleSpinBox):
         self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
 
 
-class _IconCheckStyle(QtWidgets.QProxyStyle):
-    """Give item-view check indicators enough room for the 24-unit SVGs."""
+class _IconCheckStyle(ItemViewStyle):
+    """Use consistent native cell geometry and 24-unit SVG check indicators."""
 
     INDICATOR_SIZE = 24
+
+    def __init__(self, view):
+        super().__init__(QtWidgets.QApplication.style().objectName())
+        self.setParent(view)
+        view.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QtCore.QEvent.Type.PaletteChange, QtCore.QEvent.Type.StyleChange):
+            application_style = QtWidgets.QApplication.style().objectName()
+            if self.baseStyle().objectName() != application_style:
+                base = QtWidgets.QStyleFactory.create(application_style)
+                if base is not None:
+                    self.setBaseStyle(base)
+            # Native styles cache drawing colors in polish(), separately from
+            # the widget palette. Application palette changes do not polish
+            # per-widget proxy styles automatically.
+            self.polish(QtGui.QPalette(watched.palette()))
+        return super().eventFilter(watched, event)
 
     def drawPrimitive(self, element, option, painter, widget=None):
         # The delegate supplies the SVG after the style paints the complete row.
@@ -87,8 +106,7 @@ class IconCheckDelegate(QtWidgets.QStyledItemDelegate):
         if isinstance(parent, QtWidgets.QAbstractItemView) and not isinstance(
             parent.style(), _IconCheckStyle
         ):
-            indicator_style = _IconCheckStyle()
-            indicator_style.setParent(parent)
+            indicator_style = _IconCheckStyle(parent)
             parent.setStyle(indicator_style)
 
     def indicator_icon_name(self, index, state):
