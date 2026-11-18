@@ -5,10 +5,11 @@ from pathlib import Path
 
 from qtpy import QtCore, QtWidgets
 
-from . import icons, updates
+from . import SHOW_SPLASH_KEY, icons, updates
 from .analysis.model_store import MODEL_DIRECTORY_SETTING
 from .model_settings import default_model_directory, model_directory
 from .project.projectstatemanager import PROJECT_AUTOSAVE_KEY, PROJECT_SAVE_ON_EXIT_KEY
+from .rendering import SOFTWARE_OPENGL_KEY, software_rendering_supported
 from .settings_dialog_ui import Ui_SettingsDialog
 from .tooltips import SETTINGS_DIALOG, apply_tooltips
 
@@ -20,6 +21,11 @@ class SettingsDialog(QtWidgets.QDialog, Ui_SettingsDialog):
         super().__init__(parent)
         self.setupUi(self)
         self.settings = settings
+        self.showSplashCheckBox.setChecked(settings.value(SHOW_SPLASH_KEY, True, type=bool))
+        self.softwareOpenGLCheckBox.setVisible(software_rendering_supported())
+        self.softwareOpenGLCheckBox.setChecked(
+            settings.value(SOFTWARE_OPENGL_KEY, False, type=bool)
+        )
         self.autosaveProjectCheckBox.setChecked(
             settings.value(PROJECT_AUTOSAVE_KEY, True, type=bool)
         )
@@ -65,6 +71,8 @@ class SettingsDialog(QtWidgets.QDialog, Ui_SettingsDialog):
                 self, "Invalid model directory", "Choose a directory for the trained models."
             )
             return
+        self.settings.setValue(SHOW_SPLASH_KEY, self.showSplashCheckBox.isChecked())
+        self.settings.setValue(SOFTWARE_OPENGL_KEY, self.softwareOpenGLCheckBox.isChecked())
         self.settings.setValue(MODEL_DIRECTORY_SETTING, str(directory))
         self.settings.setValue(
             updates.AUTOMATIC_CHECKS_KEY, self.automaticUpdatesCheckBox.isChecked()

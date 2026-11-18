@@ -8,6 +8,8 @@ from importlib.metadata import version as package_version
 from importlib.resources import files
 from pathlib import Path
 
+SHOW_SPLASH_KEY = "appearance/show_splash"
+
 
 def _version_from_git(repository: Path) -> str | None:
     """Return a concise version for a source checkout, if Git can describe it."""

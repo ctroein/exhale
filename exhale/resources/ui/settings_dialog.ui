@@ -9,6 +9,11 @@
   <property name="modal"><bool>true</bool></property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
+    <widget class="QCheckBox" name="showSplashCheckBox">
+     <property name="text"><string>Show splash screen at startup</string></property>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="projectGroupBox">
      <property name="title"><string>Project</string></property>
      <layout class="QVBoxLayout" name="projectLayout">
@@ -41,6 +46,11 @@
        <widget class="QToolButton" name="modelDirectoryBrowse"/>
       </item>
      </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="softwareOpenGLCheckBox">
+     <property name="text"><string>Use software OpenGL (requires restart)</string></property>
     </widget>
    </item>
    <item>

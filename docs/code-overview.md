@@ -260,8 +260,14 @@ Provides the generated controls as a focused modal image-settings dialog; the
 
 ### `exhale/settings_dialog.py`
 
-Edits persistent application preferences in `QSettings`, currently appearance
-and project autosave behavior.
+Edits persistent application preferences in `QSettings`, including model storage, update checks,
+project autosave behavior, and software rendering.
+
+### `exhale/rendering.py`
+
+Applies the application-wide software-rendering preference before Qt application
+creation and presents viewer initialization failures with explicit quit,
+temporary degraded-operation, and save-for-restart choices.
 
 ## Analysis
 

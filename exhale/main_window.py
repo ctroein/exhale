@@ -7,7 +7,6 @@ import sys
 import traceback
 from pathlib import Path
 
-from OpenGL.error import GLError
 from qtpy import QtCore, QtGui, QtWidgets
 
 from . import appearance, application_name, application_title, icons
@@ -24,6 +23,7 @@ from .project.project_tab import ProjectTab
 from .project.projectmanager import ProjectManager
 from .project.projectstatemanager import ProjectStateManager
 from .project.sourcemanager import SourceManager
+from .rendering import RenderingFailureDialog
 from .runtimeinfo import runtime_environment_html
 from .settings_dialog import SettingsDialog
 from .tooltips import (
@@ -97,15 +97,28 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         if initialize_analysis_view:
             try:
                 self.analysis_controller.initialize_view()
-            except GLError:
-                if sys.platform != "win32":
-                    raise
-                traceback.print_exc()
+            except Exception:
+                details = traceback.format_exc()
+                print(details, file=sys.stderr, end="", flush=True)
+                for widget in QtWidgets.QApplication.topLevelWidgets():
+                    if isinstance(widget, QtWidgets.QSplashScreen):
+                        widget.hide()
+                dialog = RenderingFailureDialog(self.settings, details, self)
+                if not dialog.allow_degraded_session():
+                    raise SystemExit(0) from None
                 for tab in (self.analysisTab, self.clusteringTab):
                     self.tabWidget.setTabEnabled(self.tabWidget.indexOf(tab), False)
-                self.statusBar().showMessage(
-                    "Analysis and clustering viewers are unavailable because OpenGL failed."
+                warning = QtWidgets.QPushButton(
+                    "Segmentation and clustering unavailable. Show error details", self
                 )
+                warning.clicked.connect(
+                    lambda: self._exception_dialog.show_exception(
+                        title="Image viewer initialization failed",
+                        summary="Segmentation and clustering are disabled for this session.",
+                        details=details,
+                    )
+                )
+                self.statusBar().addPermanentWidget(warning, 1)
         self.correlation_controller.setup()
         self._configure_splitter_persistence()
         self.tabWidget.setCurrentIndex(0)

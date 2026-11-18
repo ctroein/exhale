@@ -13,6 +13,7 @@ import traceback
 from pathlib import Path
 
 from . import (
+    SHOW_SPLASH_KEY,
     application_icon_filename,
     application_name,
     application_title,
@@ -236,9 +237,15 @@ def _run_application():
 
     from qtpy import QtCore, QtGui, QtWidgets
 
+    from .rendering import configure_rendering
     from .updates import check_running_launcher
 
     check_running_launcher()
+    if not args.startup_check:
+        configure_rendering(
+            QtCore.QSettings("CIPA", application_name),
+            software=getattr(args, "software_opengl", False),
+        )
 
     if (
         sys.platform == "win32"
@@ -249,7 +256,6 @@ def _run_application():
 
     app = QtWidgets.QApplication.instance()
     if not app:
-        #        QApplication.setAttribute(Qt.AA_UseSoftwareOpenGL, True) # why?
         app = QtWidgets.QApplication(sys.argv)
     if sys.platform.startswith("linux"):
         app.setDesktopFileName(DESKTOP_ID)
@@ -259,7 +265,9 @@ def _run_application():
             hold_application_lock()
 
     qt_splash = None
-    if not args.startup_check:
+    if not args.startup_check and QtCore.QSettings("CIPA", application_name).value(
+        SHOW_SPLASH_KEY, True, type=bool
+    ):
         splash_color = QtGui.QColor("#e0c000")
         pixmap = QtGui.QPixmap(str(resdir.joinpath("xrf_splash.jpg")))
         qt_splash = QtWidgets.QSplashScreen(pixmap)

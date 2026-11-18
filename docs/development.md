@@ -101,6 +101,14 @@ reasons, invariants, and external constraints.
 For generated `*_ui.py` modules, document the corresponding Designer file or
 controller.
 
+## Error handling
+
+Do not silently disable functionality, hide failures, or substitute different
+behavior after an error. Explain the failure and its consequences, retain the
+original error details, and require an explicit user choice before continuing
+with reduced functionality. A status-bar message or disabled control alone is
+not sufficient notification.
+
 ## Scope of changes
 
 Prefer small, local changes over architectural rewrites. Preserve existing
@@ -579,11 +587,20 @@ check directs users to the installer. Candidate startup checks enforce the
 packaged requirement before activation, and ordinary native launches check it
 again. Source and Linux uv installations have no native launcher requirement.
 
-On Windows guests without hardware OpenGL, launch Exhale with
-`--software-opengl` or set `QT_OPENGL=software` in the launching process.
-When the firmware reports QEMU, the installer offers an optional
-**EXHALE (Software OpenGL)** Start menu shortcut. It also creates a software
-OpenGL desktop shortcut if the desktop icon task is selected. Exhale uses Qt's bundled
+The application-wide **Use software OpenGL** preference is read before creating
+`QApplication` or any OpenGL context and takes effect after restarting Exhale.
+It is available on Windows and Linux; Linux requests Mesa software rendering
+through `LIBGL_ALWAYS_SOFTWARE`. Exhale does not provide this switch on macOS.
+Viewer initialization failures open a dialog with Quit selected initially.
+The user can explicitly continue without segmentation and clustering for that
+session, or save the software-rendering preference and quit for a manual restart.
+Continuing leaves a persistent warning with access to the original error details.
+The software option is unavailable if software rendering already failed.
+
+On Windows, `--software-opengl` or `QT_OPENGL=software` can override rendering
+for one launch during troubleshooting. The installer creates the normal Exhale
+shortcuts and removes obsolete dedicated software-rendering shortcuts on upgrade.
+Rendering selection belongs to the application. Exhale uses Qt's bundled
 `opengl32sw.dll` for both Qt contexts and the PyOpenGL and VisPy calls used by
 Napari. The headless startup check skips the viewer. To verify software
 rendering, open the Analysis tab and display an image.
