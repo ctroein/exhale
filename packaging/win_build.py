@@ -2,6 +2,7 @@
 """Build the Windows uv payload, native launcher and Inno Setup installer."""
 
 import argparse
+import ast
 import email
 import hashlib
 import io
@@ -16,6 +17,51 @@ from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parent.parent
 UV_VERSION = "0.13.7"
+
+
+def model_metadata():
+    """Read model IDs and download sizes without importing the application."""
+    tree = ast.parse((ROOT / "exhale/analysis/model_store.py").read_text(encoding="utf-8"))
+    models = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "TrainedModel"
+        ):
+            models[node.targets[0].id] = {
+                keyword.arg: ast.literal_eval(keyword.value) for keyword in node.value.keywords
+            }
+    return models
+
+
+def space_definitions(models, payload_bytes):
+    """Convert measured runtime footprints into additive Inno component estimates."""
+    data = json.loads((ROOT / "packaging/windows/space-estimates.json").read_text())
+    sizes = data["selections"]
+    core = sizes["none"]["extra_bytes"]
+    star = max(0, sizes["stardist"]["extra_bytes"] - core)
+    pytorch = max(
+        0,
+        sizes["cellpose"]["extra_bytes"] - core,
+        sizes["both"]["extra_bytes"] - sizes["stardist"]["extra_bytes"],
+    )
+    values = {"SpaceCore": core, "SpaceStarDist": star, "SpacePyTorch": pytorch}
+    for selection, label in (
+        ("none", "None"),
+        ("stardist", "StarDist"),
+        ("cellpose", "PyTorch"),
+        ("both", "Both"),
+    ):
+        values["Runtime" + label] = (
+            sizes[selection]["python_bytes"] + sizes[selection]["environment_bytes"] + payload_bytes
+        )
+    values["ModelsStarDist"] = models["STARDIST_MODEL"]["size"]
+    values["ModelsPyTorch"] = sum(
+        models[name]["size"] for name in ("CELLPOSE_MODEL", "MONAI_MODEL", "SMP_MODEL")
+    )
+    return "".join(f"#define {name} {value}\n" for name, value in values.items())
 
 
 def download_uv(destination):
@@ -53,13 +99,15 @@ def main():
     shutil.copy2(wheel, payload / wheel.name)
     shutil.copy2(ROOT / "requirements-cellpose.txt", payload / "requirements-cellpose.txt")
     shutil.copy2(ROOT / "LICENSE", payload / "LICENSE.txt")
-    (payload / "setup.json").write_text(json.dumps({"wheel": wheel.name}))
+    models = model_metadata()
+    (payload / "setup.json").write_text(
+        json.dumps(
+            {"wheel": wheel.name, "model_ids": ";".join(m["model_id"] for m in models.values())}
+        )
+    )
     assembly_info = payload / "LauncherVersion.cs"
     assembly_info.write_text(
         "[assembly: System.Reflection.AssemblyInformationalVersion(" + json.dumps(version) + ")]\n"
-    )
-    (payload / "release.iss").write_text(
-        f'#define MyAppVersion "{version}"\n#define WheelFile "{wheel.name}"\n'
     )
     download_uv(payload / "uv.exe")
     with urllib.request.urlopen(
@@ -85,6 +133,11 @@ def main():
     )
     subprocess.run([str(payload / "exhale.exe"), "--self-test"], check=True)
     assembly_info.unlink()
+    payload_bytes = sum(path.stat().st_size for path in payload.iterdir() if path.is_file())
+    (payload / "release.iss").write_text(
+        f'#define MyAppVersion "{version}"\n#define WheelFile "{wheel.name}"\n'
+        + space_definitions(models, payload_bytes)
+    )
     iscc = args.iscc or shutil.which("iscc")
     if not iscc:
         candidate = Path(os.environ["ProgramFiles(x86)"]) / "Inno Setup 6/ISCC.exe"

@@ -43,7 +43,7 @@ For native Windows/macOS installations, the parent launcher supplies a runtime
 identity and a token for the launched application. Exhale writes a request when
 quitting; the parent consumes it after process exit while retaining its runtime
 lock. The parent stages a fresh environment with the selected backends, checks
-its version and startup, publishes it atomically, and reopens Exhale with a saved
+its version and launcher requirements using metadata, publishes it atomically, and reopens Exhale with a saved
 result. Failed preparation retains the working environment. The installed record's
 `wheel` identifies the installer baseline; `version` records an application update
 without making the existing launcher demand its bundled application again.
@@ -605,7 +605,7 @@ the explicit startup-check mode validates their imports without fetching weights
 The Mac distribution uses a native AppKit setup/launcher and a private uv runtime,
 separate from ordinary uv tool installations. The read-only app bundle contains
 uv, the application wheel, a requirements file and the setup driver.
-`packaging/macos/runtime.py` owns environment creation, startup validation, atomic
+`packaging/macos/runtime.py` owns environment creation, metadata verification, atomic
 activation and removal under the current user's Application Support directory.
 `Launcher.swift` owns backend selection and setup feedback. Installed inference
 libraries and Python stay outside the bundle. Project/model storage is independent
@@ -616,7 +616,7 @@ of runtime removal. Builds use ad-hoc signing and are not Apple-notarized.
 
 Inno Setup owns the per-user installation, native launcher, shortcuts and private
 runtime directory. `packaging/windows/Launcher.cs` creates a pending uv environment
-from the bundled wheel and selected extras, validates startup, and activates it
+from the bundled wheel and selected extras, verifies package metadata, and activates it
 only when Inno finishes copying files. It also launches the installed application
 and provides setup rollback. Python 3.11, downloaded dependencies and installation
 records belong to `{app}/runtime`; user projects and trained models do not.
@@ -630,7 +630,7 @@ repairing an existing runtime.
 
 Both native distributions expose their launcher/setup release version separately
 from the runtime application version. The launcher passes its version to normal
-launches and candidate startup checks. Application release requirements live in
+launches and candidate metadata checks. Application release requirements live in
 `exhale/launcher_requirements.json`; release checks compare the target tag's
 requirements before offering an update, and the candidate checks its packaged
 requirements before activation. Linux uv tool installations use their own updater.

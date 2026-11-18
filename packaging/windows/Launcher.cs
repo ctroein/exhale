@@ -183,11 +183,53 @@ internal sealed class RuntimeSetup
         if (removeUnusedRuntime && active == null && Directory.Exists(runtime))
             DeleteTree(runtime);
     }
-    internal void Remove()
+    internal string ModelDirectory()
     {
+        string configured = Microsoft.Win32.Registry.GetValue(
+            @"HKEY_CURRENT_USER\Software\CIPA\Exhale\segmentation", "model_directory", "") as string;
+        return Path.GetFullPath(String.IsNullOrWhiteSpace(configured)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Exhale", "models")
+            : configured);
+    }
+
+    internal string[] ModelPaths(string directory)
+    {
+        var config = Read(Path.Combine(payload, "setup.json"));
+        if (config == null || !config.ContainsKey("model_ids")) return new string[0];
+        return config["model_ids"].Split(';').Select(id => {
+            if (String.IsNullOrWhiteSpace(id) || id == "." || id == ".." || Path.GetFileName(id) != id)
+                throw new InvalidDataException("Invalid downloaded-model directory name.");
+            return Path.Combine(Path.GetFullPath(directory), id);
+        }).ToArray();
+    }
+
+    internal void RemoveDownloadedModels(string directory)
+    {
+        foreach (string path in ModelPaths(directory))
+        {
+            if (!Directory.Exists(path)) continue;
+            log("Removing downloaded model: " + path);
+            DeleteTree(path);
+        }
+    }
+
+    internal void Remove(bool removeModels = false, bool promptModels = false)
+    {
+        string modelDirectory = ModelDirectory();
+        if (promptModels && ModelPaths(modelDirectory).Any(Directory.Exists))
+        {
+            Application.EnableVisualStyles();
+            removeModels = MessageBox.Show(
+                "Also remove downloaded segmentation models?" + Environment.NewLine + Environment.NewLine +
+                "Model directory: " + modelDirectory + Environment.NewLine + Environment.NewLine +
+                "Only EXHALE's downloaded model folders will be removed. Other files are retained.",
+                "EXHALE Uninstall", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2) == DialogResult.Yes;
+        }
+        if (removeModels) RemoveDownloadedModels(modelDirectory);
         log("Removing private runtime: " + runtime);
         if (Directory.Exists(runtime)) DeleteTree(runtime);
-        log("Private runtime removed. Projects, trained models and application settings were retained.");
+        log("Private runtime removed. Projects and application settings were retained.");
     }
     internal void Prepare(string selection, string version = null, string updateWheel = null)
     {
@@ -208,13 +250,15 @@ internal sealed class RuntimeSetup
                 "--prerelease", "disallow", requirement };
             if (extras.Contains("cellpose")) command.AddRange(new[] { "-r", Path.Combine(payload, "requirements-cellpose.txt") });
             Execute(uv, command.ToArray(), false);
-            if (version != null)
-            {
-                Execute(Path.Combine(environment, "Scripts", "python.exe"), new[] {
-                    "-c", "import sys; from importlib.metadata import version; from packaging.version import Version; " +
-                    "assert Version(version('exhale-xrf')) == Version(sys.argv[1]), 'Installed version does not match requested update'", version }, true);
-            }
-            Execute(Path.Combine(environment, "Scripts", "python.exe"), new[] { "-m", "exhale", "--startup-check" }, true);
+            // Read distribution metadata only. Application/backend checks belong to CI.
+            Execute(Path.Combine(environment, "Scripts", "python.exe"), new[] {
+                "-c", "import json, sys; from importlib.metadata import distribution; from packaging.version import Version; " +
+                "d = distribution('exhale-xrf'); " +
+                "assert not sys.argv[1] or Version(d.version) == Version(sys.argv[1]), 'Installed version does not match requested update'; " +
+                "p = d.locate_file('exhale/launcher_requirements.json'); " +
+                "minimum = json.loads(p.read_text()).get('windows', '0') if p.is_file() else '0'; " +
+                "assert Version(sys.argv[2]) >= Version(minimum), 'This release requires a newer EXHALE installer'",
+                version ?? "", Launcher.Version }, true);
             var pending = new Dictionary<string, string> {
                 { "environment", Path.GetFileName(environment) }, { "wheel", config["wheel"] }, { "backends", selection } };
             if (version != null) pending["version"] = version;
@@ -460,12 +504,12 @@ internal sealed class RuntimeSetup
                     if (configured["version"] != installedVersion || configured["backends"] != "none")
                         throw new Exception("Setup changed the application version or lost the backend selection.");
                     if (!calls[1].Contains("exhale-xrf==" + installedVersion) ||
-                        !calls.Any(a => a.Contains("--startup-check")))
-                        throw new Exception("Setup did not pin and validate the installed release.");
+                        calls.Any(a => a.Contains("--startup-check")))
+                        throw new Exception("Setup changed version or ran application tests.");
                     string configuredRecord = File.ReadAllText(Path.Combine(home, "runtime", "installed.json"));
                     setup.Execute = (exe, args, check) => {
                         if (args[0] == "venv") Directory.CreateDirectory(args[3]);
-                        if (args.Contains("--startup-check")) throw new InvalidOperationException("simulated startup failure");
+                        if (args[0] == "-c") throw new InvalidOperationException("simulated metadata mismatch");
                     };
                     try { setup.Configure("both"); throw new Exception("Failed reconfiguration was accepted."); }
                     catch (InvalidOperationException) { }
@@ -473,6 +517,17 @@ internal sealed class RuntimeSetup
                         throw new Exception("Failed setup replaced the working environment.");
                     string userFile = Path.Combine(home, "user-project.h5");
                     File.WriteAllText(userFile, "user data");
+                    string models = Path.Combine(home, "model cache");
+                    string downloaded = Path.Combine(models, "cellpose-dino-xrf");
+                    Directory.CreateDirectory(downloaded);
+                    File.WriteAllText(Path.Combine(downloaded, "weights.pt"), "downloaded model");
+                    string customModel = Path.Combine(models, "my-trained-model.pt");
+                    File.WriteAllText(customModel, "user model");
+                    setup.Write(Path.Combine(directory, "setup.json"), new Dictionary<string, string> {
+                        { "wheel", "test.whl" }, { "model_ids", "cellpose-dino-xrf;monai-unet-xrf" } });
+                    setup.RemoveDownloadedModels(models);
+                    if (Directory.Exists(downloaded) || !File.Exists(customModel))
+                        throw new Exception("Model cleanup removed user files or retained downloads.");
                     string deepCache = Path.Combine(home, "runtime", "cache", new string('c', 120), new string('d', 120));
                     Directory.CreateDirectory(ExtendedPath(deepCache));
                     File.WriteAllText(ExtendedPath(Path.Combine(deepCache, "header.h")), "header");
@@ -611,7 +666,8 @@ internal static class Launcher
                         else if (args.Contains("--prepare-install")) setup.Prepare(args[Array.IndexOf(args, "--prepare-install") + 1]);
                         else if (args.Contains("--activate-install")) setup.Activate();
                         else if (args.Contains("--discard-install")) setup.Discard(true);
-                        else if (args.Contains("--remove-runtime")) setup.Remove();
+                        else if (args.Contains("--remove-runtime")) setup.Remove(
+                            args.Contains("--remove-models"), args.Contains("--prompt-models"));
                         else if (args.Contains("--update-runtime")) setup.Update(
                             args[Array.IndexOf(args, "--update-runtime") + 1],
                             args.Contains("--update-wheel") ? args[Array.IndexOf(args, "--update-wheel") + 1] : null);

@@ -82,7 +82,7 @@ uv tool upgrade exhale-xrf
 On Linux, Settings also offers daily update checks and a Check now button.
 Checks notify you of newer stable releases without installing anything. For a
 writable uv tool installation owned by your account, Update now closes Exhale,
-runs the upgrade, checks startup, and reopens it. Normal project saving applies
+runs the upgrade and reopens it. Normal project saving applies
 before closing. Other Exhale instances must be closed first. Update results and
 the log location are shown after restarting. Automatic checks can be disabled
 in Settings.
@@ -110,15 +110,19 @@ access is required, but an existing Python or uv installation is not.
 Use the Start menu or optional desktop shortcut to launch EXHALE.
 
 Settings offers daily update checks, Check now, and Update now. Application
-updates preserve the selected backends and validate a new runtime before
+updates preserve the selected backends and prepare a new runtime before
 switching to it. Open **EXHALE Setup** from the Start menu to change backend
 dependencies or repair the runtime while keeping the installed Exhale version.
 Close Exhale before applying changes. Model weights download on first use.
 Download and run a newer installer to update the launcher/setup tools.
 About and the setup window show the launcher/setup version. If a future release
 requires a newer launcher, the update dialog directs you to its installer.
-Uninstall through Windows Settings; the private runtime and shortcuts are
-removed while projects, trained models and application settings are retained.
+Uninstall through Windows Settings. The private runtime and shortcuts are
+removed. If downloaded segmentation models are present, uninstall offers to
+remove them too, with No selected by default. Other model files, projects and
+application settings are retained. Installation space estimates include the
+selected dependency packages, private Python and working/download space.
+Model weights download on first use and require additional space.
 
 ### macOS
 
@@ -136,7 +140,7 @@ launch; see [Apple's explanation and opening options](https://support.apple.com/
 Subsequent launches open the installed application. Hold Option while opening
 EXHALE.app to change backends, repair the installation, or remove the private
 runtime. Settings offers daily update checks and Update now, which preserves
-the backends and validates a new runtime before switching to it. To update the
+the backends and prepares a new runtime before switching to it. To update the
 launcher/setup tools, quit EXHALE and replace the app with a newer release; setup
 will install its bundled release with your previous backend choices. For removal, use
 **Remove Runtime** in setup, then move EXHALE.app to Trash. Projects, model files,

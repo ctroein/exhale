@@ -26,15 +26,15 @@ def runtime(tmp_path):
 
 
 @pytest.mark.parametrize("selection", runtime_module.BACKENDS)
-def test_selection_installs_only_requested_extras_and_checks_before_commit(runtime, selection):
+def test_selection_installs_only_requested_extras_without_starting_application(runtime, selection):
     commands = []
 
     def run(command):
         commands.append(list(map(str, command)))
         if command[1] == "venv":
             Path(command[-1]).mkdir()
-        if "--startup-check" in command:
-            assert not runtime.state_path.exists()
+        assert "--startup-check" not in command
+        assert not runtime.state_path.exists()
 
     runtime.run = run
     with runtime.locked():
@@ -49,7 +49,8 @@ def test_selection_installs_only_requested_extras_and_checks_before_commit(runti
         else requirement.endswith(".whl")
     )
     assert ("-r" in commands[1]) == ("cellpose" in extras)
-    assert commands[2][-3:] == ["-m", "exhale", "--startup-check"]
+    assert commands[2][1] == "-c"
+    assert "distribution('exhale-xrf')" in commands[2][2]
     assert runtime.state()["backends"] == selection
 
 
@@ -63,7 +64,7 @@ def test_failed_update_keeps_previous_environment_and_record(runtime):
     def run(command):
         if command[1] == "venv":
             Path(command[-1]).mkdir()
-        if "--startup-check" in command:
+        if command[1] == "pip":
             raise subprocess.CalledProcessError(1, command)
 
     runtime.run = run
@@ -197,7 +198,7 @@ def test_application_update_preserves_backends_and_bundle_and_rolls_back(runtime
         commands.append(list(map(str, command)))
         if command[1] == "venv":
             Path(command[-1]).mkdir()
-        if "--startup-check" in command and fail:
+        if command[1] == "-c" and fail:
             raise subprocess.CalledProcessError(1, command)
 
     runtime.run = run
@@ -239,7 +240,7 @@ def test_native_parent_consumes_request_and_reopens_after_update(runtime, tmp_pa
     def run(command):
         if command[1] == "venv":
             Path(command[-1]).mkdir()
-        if "--startup-check" in command:
+        if command[1] == "-c":
             if fail:
                 raise subprocess.CalledProcessError(1, command)
         elif command[1:3] == ["-m", "exhale"]:

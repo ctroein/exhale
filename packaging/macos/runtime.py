@@ -141,19 +141,22 @@ class Runtime:
             if "cellpose" in extras:
                 command += ["-r", self.resources / "requirements-cellpose.txt"]
             self.run(command)
-            if version is not None:
-                self.run(
-                    [
-                        environment / "bin/python",
-                        "-c",
-                        "import sys; from importlib.metadata import version; "
-                        "from packaging.version import Version; "
-                        "assert Version(version('exhale-xrf')) == Version(sys.argv[1]), "
-                        "'Installed version does not match requested update'",
-                        version,
-                    ]
-                )
-            self.run([environment / "bin/python", "-m", "exhale", "--startup-check"])
+            self.run(
+                [
+                    environment / "bin/python",
+                    "-c",
+                    "import json, sys; from importlib.metadata import distribution; "
+                    "from packaging.version import Version; d = distribution('exhale-xrf'); "
+                    "assert not sys.argv[1] or Version(d.version) == Version(sys.argv[1]), "
+                    "'Installed version does not match requested update'; "
+                    "p = d.locate_file('exhale/launcher_requirements.json'); "
+                    "minimum = json.loads(p.read_text()).get('macos', '0') if p.is_file() else '0'; "
+                    "assert Version(sys.argv[2]) >= Version(minimum), "
+                    "'This release requires a newer EXHALE installer'",
+                    version or "",
+                    self.config.get("launcher_version", "0"),
+                ]
+            )
             installed = {
                 "environment": environment.name,
                 "wheel": self.config["wheel"],

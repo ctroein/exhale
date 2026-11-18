@@ -76,7 +76,7 @@ def test_release_check_excludes_yanked_prereleases_and_incompatible_python():
     assert updates.latest_release(data, "1.0", "3.13.0") == "1.5"
 
 
-def test_upgrade_preserves_uv_settings_and_runs_startup_check(tool, tmp_path, monkeypatch):
+def test_upgrade_preserves_uv_settings_without_running_application(tool, tmp_path, monkeypatch):
     prefix, uv = tool
     plan = updates.tool_installation(prefix, prefix / "lib/exhale", str(uv))
     job = updates.prepare_update({**plan, "version": "2.0"}, tmp_path / "updates")
@@ -92,8 +92,9 @@ def test_upgrade_preserves_uv_settings_and_runs_startup_check(tool, tmp_path, mo
     monkeypatch.setattr(updates.subprocess, "run", run)
     updates.run_update(job)
     assert calls[0][0] == [str(uv), "tool", "upgrade", "exhale-xrf"]
-    assert calls[-1][0] == [str(prefix / "bin/exhale"), "--startup-check"]
-    assert calls[-1][1]["env"]["QT_QPA_PLATFORM"] == "offscreen"
+    assert calls[-1][0][0] == str(prefix / "bin/python")
+    assert calls[-1][0][1] == "-c"
+    assert not any("--startup-check" in command for command, _kwargs in calls)
     assert (prefix / "uv-receipt.toml").read_text() == plan["receipt"]
 
 
@@ -168,18 +169,17 @@ def test_upgrade_failure_does_not_run_startup_check(tool, tmp_path, monkeypatch)
     assert calls == [[str(uv), "tool", "upgrade", "exhale-xrf"]]
 
 
-@pytest.mark.parametrize("startup_code", [0, 1])
-def test_helper_records_startup_result_and_reopens(tool, tmp_path, startup_code):
+@pytest.mark.parametrize("metadata_code", [0, 1])
+def test_helper_records_metadata_result_and_reopens(tool, tmp_path, metadata_code):
     prefix, uv = tool
     plan = updates.tool_installation(prefix, prefix / "lib/exhale", str(uv))
     restarted = tmp_path / "restarted"
     launcher = prefix / "bin/exhale"
     launcher.write_text(
-        '#!/bin/sh\nif [ "$1" = "--startup-check" ]; then\n'
-        f'exit {startup_code}\nfi\ntouch "{restarted}"\n'
+        f'#!/bin/sh\nif [ "$1" = "--startup-check" ]; then\nexit 99\nfi\ntouch "{restarted}"\n'
     )
     python = prefix / "bin/python"
-    python.write_text("#!/bin/sh\nexit 0\n")
+    python.write_text(f"#!/bin/sh\nexit {metadata_code}\n")
     python.chmod(0o755)
     uv.write_text(f'#!/bin/sh\nif [ "$2" = "dir" ]; then\nprintf "%s\\n" "{prefix.parent}"\nfi\n')
     job = updates.prepare_update({**plan, "version": "2.0"}, tmp_path / "updates")
@@ -194,7 +194,7 @@ def test_helper_records_startup_result_and_reopens(tool, tmp_path, startup_code)
         timeout=10,
     )
     os.close(read_fd)
-    assert json.loads((job / "result.json").read_text())["success"] == (startup_code == 0)
+    assert json.loads((job / "result.json").read_text())["success"] == (metadata_code == 0)
     # The restarted script can be scheduled after the helper process exits.
     deadline = time.monotonic() + 5
     while not restarted.exists() and time.monotonic() < deadline:

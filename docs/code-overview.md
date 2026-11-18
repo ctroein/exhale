@@ -651,7 +651,7 @@ checked against the parent descriptor during update discovery and startup.
 Native requests go to the parent launcher with an instance token after GUI shutdown;
 Linux uv tools use a detached standard-library helper. Process
 lifetime and installation locks protect the running environment. The helper
-uses uv's recorded requirements, verifies the resulting version and startup,
+uses uv's recorded requirements, verifies the resulting version,
 records a log and result, and reopens Exhale.
 
 ### `exhale/update_controller.py`
@@ -731,7 +731,7 @@ and subsequent launches through that same driver.
 ### `packaging/macos/runtime.py`
 
 Owns EXHALE's private Python environments and installation record. Installs selected
-extras from the bundled wheel, checks startup before activation, preserves a
+extras from the bundled wheel, checks package metadata before activation, preserves a
 previous environment on failure, and locks setup against a running application.
 Consumes application update requests after process exit, installs the requested
 PyPI version with the existing backends, records the result, and reopens Exhale.
@@ -753,11 +753,19 @@ Windows and both Mac architectures in the build workflow.
 Builds the native launcher with Windows' C# compiler, verifies and stages uv,
 bundles a local application wheel and DINOv3 requirements, runs native self-tests,
 and invokes Inno Setup.
+Reads measured dependency footprints from `packaging/windows/space-estimates.json`
+to populate Inno's per-component disk requirements and first-use model sizes.
+
+### `packaging/windows/measure_space.py`
+
+Measures the four Windows dependency selections without starting Exhale or loading
+backends. Records private Python and environment sizes, with a cache-copy and
+working-space reserve for the installer. CI can measure an existing test installation.
 
 ### `packaging/windows/Launcher.cs`
 
 Native launcher and private runtime manager. Prepares selected backends with uv,
-checks startup, activates pending environments, rolls back unfinished setup and
+checks package metadata, activates pending environments, rolls back unfinished setup and
 forwards application arguments. Supplies runtime locking and installation logs.
 The `--setup` entry offers backend selection and repair through the installed uv;
 `--configure-backends` exercises the same version-preserving operation without
@@ -765,6 +773,8 @@ the selection dialog. The executable embeds and reports its launcher/setup versi
 Passes native runtime identity to the application and consumes update requests
 after it exits. Validates new runtimes before activation and reopens the working
 application after either success or rejected preparation.
+Optional uninstall cleanup removes only the managed downloaded-model directories
+listed in the installed payload, using the configured model location.
 
 ### `packaging/windows/test-installer.ps1`
 

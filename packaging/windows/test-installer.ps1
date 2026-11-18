@@ -9,6 +9,7 @@ $sentinel = Join-Path $env:RUNNER_TEMP 'exhale-project-preservation.txt'
 Set-Content $sentinel 'User project data'
 
 foreach ($selection in @('none', 'stardist', 'cellpose', 'both')) {
+    if (Test-Path "$destination/runtime.log") { Clear-Content "$destination/runtime.log" }
     $components = switch ($selection) {
         'none' { 'core' }
         'stardist' { 'core,stardist' }
@@ -23,6 +24,9 @@ foreach ($selection in @('none', 'stardist', 'cellpose', 'both')) {
         Copy-Item "$destination/runtime.log" "$logs/$selection-runtime.log" -Force
     }
     if ($process.ExitCode -ne 0) { throw "Installer failed for $selection (exit $($process.ExitCode))" }
+    if (Select-String -Path "$destination/runtime.log" -SimpleMatch '"--startup-check"' -Quiet) {
+        throw 'Installation invoked application startup checks'
+    }
     $state = Get-Content "$destination/runtime/installed.json" | ConvertFrom-Json
     if ($state.backends -ne $selection) { throw "Incorrect backend selection: $($state.backends)" }
     $environments = @(Get-ChildItem -LiteralPath "$destination/runtime" -Filter 'env-*' -Directory)
@@ -49,6 +53,8 @@ assert (importlib.util.find_spec('dinov3') is not None) == (selection in ('cellp
 '@
     & $python -c $code $selection
     if ($LASTEXITCODE -ne 0) { throw "Unexpected dependencies for $selection" }
+    & python "$repository/packaging/windows/measure_space.py" --installed-root $destination --output "$logs/$selection-space.json"
+    if ($LASTEXITCODE -ne 0) { throw "Space measurement failed for $selection" }
     $check = Start-Process "$destination/exhale.exe" -ArgumentList '--startup-check' -Wait -PassThru
     Copy-Item "$destination/runtime.log" "$logs/$selection-runtime.log" -Force
     if ($check.ExitCode -ne 0) { throw "Installed launcher startup failed for $selection" }

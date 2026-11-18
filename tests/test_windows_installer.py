@@ -48,6 +48,18 @@ def test_builder_uses_local_wheel_and_compiles_native_launcher(tmp_path, monkeyp
     root.mkdir()
     (root / "requirements-cellpose.txt").write_text("pinned DINOv3")
     (root / "LICENSE").write_text("MIT")
+    (root / "exhale/analysis").mkdir(parents=True)
+    (root / "exhale/analysis/model_store.py").write_text(
+        (Path(__file__).resolve().parents[1] / "exhale/analysis/model_store.py").read_text()
+    )
+    (root / "packaging/windows").mkdir(parents=True)
+    selections = {
+        name: {"python_bytes": 10, "environment_bytes": index * 100, "extra_bytes": index * 300}
+        for index, name in enumerate(("none", "stardist", "cellpose", "both"), start=1)
+    }
+    (root / "packaging/windows/space-estimates.json").write_text(
+        json.dumps({"selections": selections})
+    )
     wheel = tmp_path / "exhale_xrf-1.2.3-py3-none-any.whl"
     with ZipFile(wheel, "w") as archive:
         archive.writestr(
@@ -72,10 +84,21 @@ def test_builder_uses_local_wheel_and_compiles_native_launcher(tmp_path, monkeyp
     monkeypatch.setattr(builder.subprocess, "run", run)
     builder.main()
     payload = root / "dist/windows-payload"
-    assert json.loads((payload / "setup.json").read_text()) == {"wheel": wheel.name}
+    config = json.loads((payload / "setup.json").read_text())
+    assert config["wheel"] == wheel.name
+    assert set(config["model_ids"].split(";")) == {
+        "cellpose-dino-xrf",
+        "stardist-2d-versatile-fluo",
+        "monai-unet-xrf",
+        "smp-unet-resnet18-xrf",
+    }
     assert (payload / wheel.name).read_bytes() == wheel.read_bytes()
     assert (payload / "requirements-cellpose.txt").read_text() == "pinned DINOv3"
     assert '#define MyAppVersion "1.2.3"' in (payload / "release.iss").read_text()
+    definitions = (payload / "release.iss").read_text()
+    assert "#define SpaceCore 300" in definitions
+    assert "#define SpaceStarDist 300" in definitions
+    assert "#define SpacePyTorch 600" in definitions
     assert any("/target:winexe" in command for command in commands)
     assert commands[-2] == [str(payload / "exhale.exe"), "--self-test"]
     assert commands[-1] == ["ISCC.exe", str(root / "packaging/exhale.iss")]

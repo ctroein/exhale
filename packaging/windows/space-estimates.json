@@ -1,0 +1,28 @@
+{
+  "measured": "2026-11-18",
+  "platform": "Windows x64, Python 3.11",
+  "selections": {
+    "none": {
+      "python_bytes": 141125251,
+      "environment_bytes": 715546756,
+      "extra_bytes": 1782579200
+    },
+    "stardist": {
+      "python_bytes": 141125251,
+      "environment_bytes": 2186922057,
+      "extra_bytes": 5033164800
+    },
+    "cellpose": {
+      "python_bytes": 141568861,
+      "environment_bytes": 1416713478,
+      "extra_bytes": 3355443200
+    },
+    "both": {
+      "python_bytes": 141568861,
+      "environment_bytes": 2866174090,
+      "extra_bytes": 6501171200
+    }
+  },
+  "reserve": "One environment-sized cache copy plus 10%, rounded up to 100 MiB",
+  "wheel": "exhale_xrf-1.5.5.dev2+g3a48bc3-py3-none-any.whl"
+}

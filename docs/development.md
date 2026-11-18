@@ -254,9 +254,9 @@ imports the Napari integration and segmentation backends, verifies the DINOv3
 constructor, reports
 the runtime versions used by the About dialog, and exits without showing the
 main window. The manually dispatched **Windows startup check** workflow runs it
-from the installed package for each backend selection. Windows installer builds
-run the same check through the installed native launcher after Inno Setup has
-created the private uv environment.
+from the installed package for each backend selection. Installer CI runs the same
+check explicitly through the installed native launcher after setup. User
+installation, repair and updates do not run it.
 
 Every change should at least pass `./run_exhale.py --help` and focused tests for
 the affected code. Add tests under `tests/`, named `test_<feature>.py`, when a
@@ -279,7 +279,7 @@ version constraints.
 The copied helper under `~/.local/share/Exhale/updates/update-*` (or the XDG data
 directory) waits for application process exit, acquires the exclusive installation
 lock, runs `uv tool upgrade exhale-xrf`, verifies the offered version was reached,
-and runs the installed startup check before reopening Exhale. Logs and result
+and reopens Exhale. Logs and result
 records stay in that directory; the next launch reports the result. A failed
 update is reported without claiming rollback: this uses uv's tool upgrade, not
 the native installers' staged environments. Shared locks protect other running
@@ -290,7 +290,10 @@ version 1, their private runtime root and a per-launch token. Exhale validates i
 against its interpreter and installed record. After normal save/quit, it writes
 an update request. The waiting parent consumes it after process exit, retains
 its setup lock, and installs the requested PyPI version in a new environment with
-the current backend selection. Exact version and startup checks precede activation.
+the current backend selection. Lightweight version and launcher-compatibility
+metadata checks precede activation. Install, repair and update operations do not
+start Exhale or import its GUI or neural backends. Application startup tests run
+explicitly in CI before release.
 A failed preparation leaves the old environment active. The parent saves the
 result and log path before reopening Exhale. Windows result records are under
 `%LOCALAPPDATA%/Exhale/updates`; Mac uses its normal per-user data directory.
@@ -527,7 +530,7 @@ The output is `dist/EXHALE.app` and `dist/exhale-macos-ARCH.dmg`. Use a clean ou
 folder for each build. The user copies the app from the DMG into Applications.
 The native launcher starts the bundled `runtime.py` using a private uv-managed
 Python 3.12. Setup installs the bundled wheel with the selected extras in a new
-private environment, runs `--startup-check`, then atomically switches its launch
+private environment, reads package compatibility metadata, then atomically switches its launch
 record. Failed installations retain the old environment. Setup and launch hold
 an exclusive lock; setup cannot replace or remove an environment in use.
 Python, environments and cached downloads belong under
@@ -540,7 +543,7 @@ The setup app offers backend choices again using the previous selection.
 Normal launches use the saved environment without resolving or upgrading packages.
 
 GitHub Actions builds on both Apple Silicon and Intel runners. Its headless
-entry point runs the same setup driver and startup checks as the GUI:
+entry point runs the same setup driver as the GUI; CI invokes startup checks separately:
 
 ```bash
 EXHALE_SETUP_HOME=/tmp/exhale-mac-test dist/EXHALE.app/Contents/MacOS/EXHALE --setup-check none
@@ -564,16 +567,37 @@ The Start menu's **EXHALE Setup** entry invokes the installed launcher's
 and uses bundled uv to build a replacement environment for that selection.
 `--configure-backends none|stardist|cellpose|both` provides the same operation
 without the selection window. Both paths hold the runtime lock, pin the installed
-application version, run its startup check, and activate only after success.
+application version, check package metadata, and activate only after dependency
+installation succeeds. Neither path runs application startup checks.
 Legacy records recover the application version from the bundled wheel filename;
 records from application updates carry an explicit `version`. Reconfiguration
 after an update fetches that exact version instead of reinstalling the older
 bundled wheel. The grouped PyTorch choice remains Cellpose, MONAI and SMP.
 
+Windows space estimates are measured for all four selections by
+`packaging/windows/measure_space.py`. Run it with `--uv`, `--wheel`, `--work`
+(a new measurement directory) and `--output packaging/windows/space-estimates.json`.
+It installs dependency packages without importing them or fetching model weights.
+The report records private Python and environment sizes. Its free-space allowance
+adds a full environment-sized cache copy and a ten percent working margin,
+rounded up to 100 MiB. This reserves additional room while an old environment
+remains on disk during updates. The builder maps these values to Inno component
+space requirements, counting the grouped PyTorch stack once. The Ready page
+also reports runtime footprint and separate first-use model downloads.
+CI records fresh measurements in the installer test artifacts; update the checked-in
+report when dependency versions materially change.
+
+Interactive Windows uninstall offers to remove downloaded models, defaulting to
+No, when managed model folders exist. The launcher reads the configured model
+directory from QSettings' registry entry, falling back to the per-user default.
+It removes only the managed model-ID subdirectories listed in `setup.json`;
+other files in a shared or custom model location remain. Silent uninstall
+preserves models unless explicitly given `/REMOVEMODELS=1`.
+
 Native launcher/setup versions identify the release which built the native
 component and remain independent of application updates. The Windows builder
 embeds the version in the executable; the Mac builder records it in the app's
-setup configuration. Both pass it to the app and candidate startup checks, print
+setup configuration. Both pass it to the app and package metadata checks, print
 it in operation logs, and display it in setup. About reads the parent launcher's
 descriptor. Older launchers report an unknown version in About and compare as
 version zero for compatibility.
@@ -583,7 +607,7 @@ versions for each application release. Zero retains compatibility with existing
 installations. Raise the relevant minimum when a release needs new native
 behavior. Release checks fetch this file from the target `vVERSION` tag before
 offering Update now; releases without the file have no minimum. A failed metadata
-check directs users to the installer. Candidate startup checks enforce the
+check directs users to the installer. Candidate metadata checks enforce the
 packaged requirement before activation, and ordinary native launches check it
 again. Source and Linux uv installations have no native launcher requirement.
 
@@ -656,8 +680,9 @@ An exclusive
 runtime file lock protects setup and launch; an application mutex also prevents
 Inno setup/uninstall while EXHALE is running. Before removing the launcher and shortcuts, Inno calls `--remove-runtime` to
 delete the private runtime using extended paths. A cleanup failure aborts
-uninstallation and retains the launcher and its diagnostic log for retry. User projects, settings and trained-model storage remain
-independent. An old `_internal` directory is removed when upgrading a legacy
+uninstallation and retains the launcher and its diagnostic log for retry. User
+projects and settings remain; downloaded models are removed only when requested.
+An old `_internal` directory is removed when upgrading a legacy
 bundled installation.
 
 The GitHub `windows` build runs `packaging/windows/test-installer.ps1` against the

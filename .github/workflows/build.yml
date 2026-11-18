@@ -143,7 +143,9 @@ jobs:
           hdiutil attach dist/exhale-macos-${{ matrix.architecture }}.dmg -nobrowse -readonly -mountpoint "$mountpoint"
           trap 'hdiutil detach "$mountpoint"' EXIT
           "$mountpoint/EXHALE.app/Contents/MacOS/EXHALE" --setup-check none
+          "$mountpoint/EXHALE.app/Contents/MacOS/EXHALE" --startup-check
           "$mountpoint/EXHALE.app/Contents/MacOS/EXHALE" --setup-check ${{ matrix.backends }}
+          "$mountpoint/EXHALE.app/Contents/MacOS/EXHALE" --startup-check
           python packaging/test_runtime_updates.py --launcher "$mountpoint/EXHALE.app/Contents/MacOS/EXHALE" --home "$EXHALE_SETUP_HOME" --logs dist/macos-test-logs
 
       - name: Upload macOS runtime update logs

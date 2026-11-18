@@ -304,7 +304,7 @@ def launch_update(job):
 
 
 def run_update(job):
-    """Revalidate ownership and receipt, upgrade through uv, and check startup."""
+    """Revalidate ownership and receipt, then upgrade through uv."""
     plan = json.loads((job / "plan.json").read_text(encoding="utf-8"))
     prefix = Path(plan["prefix"])
     installation = tool_installation(prefix, prefix / "lib", plan["uv"])
@@ -335,9 +335,6 @@ def _upgrade(plan):
             "uv did not install the offered release. The original installation constraints "
             "or dependency compatibility may prevent this upgrade; see uv's output above."
         )
-    environment = os.environ.copy()
-    environment["QT_QPA_PLATFORM"] = "offscreen"
-    subprocess.run([plan["launcher"], "--startup-check"], check=True, env=environment, timeout=180)
 
 
 def helper_main(job, read_fd):

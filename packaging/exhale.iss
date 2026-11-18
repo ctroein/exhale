@@ -36,12 +36,12 @@ Name: "compact"; Description: "Viewing and composition without segmentation"
 Name: "custom"; Description: "Choose segmentation backends"; Flags: iscustom
 
 [Components]
-Name: "core"; Description: "EXHALE, private Python and application libraries"; Types: standard full compact custom; Flags: fixed
-Name: "stardist"; Description: "StarDist (TensorFlow)"; Types: standard full
-Name: "cellpose"; Description: "Cellpose, MONAI U-Net and SMP U-Net (PyTorch and DINOv3)"; Types: full
+Name: "core"; Description: "EXHALE, private Python and application libraries"; Types: standard full compact custom; Flags: fixed; ExtraDiskSpaceRequired: {#SpaceCore}
+Name: "stardist"; Description: "StarDist (TensorFlow)"; Types: standard full; ExtraDiskSpaceRequired: {#SpaceStarDist}
+Name: "cellpose"; Description: "Cellpose, MONAI U-Net and SMP U-Net (PyTorch and DINOv3)"; Types: full; ExtraDiskSpaceRequired: {#SpacePyTorch}
 
 [Files]
-; Temporary copies validate the runtime before installed launcher files are replaced.
+; Temporary copies prepare dependencies before installed launcher files are replaced.
 Source: "..\dist\windows-payload\exhale.exe"; Flags: dontcopy
 Source: "..\dist\windows-payload\uv.exe"; Flags: dontcopy
 Source: "..\dist\windows-payload\setup.json"; Flags: dontcopy
@@ -87,6 +87,32 @@ begin
     if WizardIsComponentSelected('cellpose') then Result := 'cellpose'
     else Result := 'none';
   end;
+end;
+
+function SizeText(Bytes: Int64): String;
+begin
+  if Bytes < 1073741824 then Result := Format('%.0f MB', [Bytes / 1048576.0])
+  else Result := Format('%.1f GB', [Bytes / 1073741824.0]);
+end;
+
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo,
+  MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+var
+  RuntimeBytes, ModelBytes: Int64;
+begin
+  RuntimeBytes := {#RuntimeNone};
+  ModelBytes := 0;
+  if SelectedBackends = 'both' then RuntimeBytes := {#RuntimeBoth}
+  else if SelectedBackends = 'stardist' then RuntimeBytes := {#RuntimeStarDist}
+  else if SelectedBackends = 'cellpose' then RuntimeBytes := {#RuntimePyTorch};
+  if WizardIsComponentSelected('stardist') then ModelBytes := ModelBytes + {#ModelsStarDist};
+  if WizardIsComponentSelected('cellpose') then ModelBytes := ModelBytes + {#ModelsPyTorch};
+  Result := MemoUserInfoInfo + NewLine + MemoDirInfo + NewLine + MemoTypeInfo +
+    NewLine + MemoComponentsInfo + NewLine + MemoGroupInfo + NewLine + MemoTasksInfo +
+    NewLine + NewLine + 'Estimated application and dependencies: ' + SizeText(RuntimeBytes) + NewLine +
+    'The space requirement includes a download/cache and temporary-file reserve.';
+  if ModelBytes > 0 then
+    Result := Result + NewLine + 'Model downloads on first use: up to ' + SizeText(ModelBytes) + ' (additional).';
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -162,11 +188,16 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ExitCode: Integer;
   Removed: Boolean;
+  Parameters: String;
 begin
-  if (CurUninstallStep = usUninstall) and DirExists(ExpandConstant('{app}\runtime')) then begin
+  if CurUninstallStep = usUninstall then begin
     { After user confirmation, before Inno removes the native launcher. }
     Log('Removing private runtime using the launcher long-path cleanup.');
-    Removed := Exec(ExpandConstant('{app}\exhale.exe'), '--remove-runtime --quiet',
+    Parameters := '--remove-runtime --quiet';
+    if not UninstallSilent then Parameters := Parameters + ' --prompt-models'
+    else if ExpandConstant('{param:REMOVEMODELS|0}') = '1' then
+      Parameters := Parameters + ' --remove-models';
+    Removed := Exec(ExpandConstant('{app}\exhale.exe'), Parameters,
       '', SW_HIDE, ewWaitUntilTerminated, ExitCode);
     if (not Removed) or (ExitCode <> 0) or DirExists(ExpandConstant('{app}\runtime')) then begin
       Log('Private runtime cleanup failed; stopping uninstall. Launcher exit code: ' + IntToStr(ExitCode));

@@ -176,7 +176,7 @@ class UpdateController(QtCore.QObject):
             try:
                 result = json.loads(path.read_text(encoding="utf-8"))
                 text = (
-                    "Exhale was updated and its startup check passed."
+                    "Exhale was updated."
                     if result["success"]
                     else "The update or its startup check failed. See the log for details."
                 )
