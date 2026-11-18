@@ -9,6 +9,7 @@ from qtpy.QtCore import Qt
 from .. import icons
 from ..data.source_refs import SourceUnavailableError
 from ..imaging.listwidgets import ElementListWidget
+from ..overridecursor import OverrideCursor
 from ..widgets import IconCheckDelegate
 
 
@@ -101,6 +102,9 @@ class ProjectTab(QtCore.QObject):
         self.widget.installEventFilter(self)
         self._sample_tree_viewport = self.sampleTree.viewport()
         self._sample_tree_viewport.installEventFilter(self)
+        self.sampleTree.setAcceptDrops(True)
+        self.sampleTree.setDragDropMode(QtWidgets.QAbstractItemView.DropOnly)
+        self.sampleTree.setDropIndicatorShown(False)
         self.channelList.installEventFilter(self)
         self.channelList.setSelectionMode(
             QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection
@@ -140,6 +144,27 @@ class ProjectTab(QtCore.QObject):
         self._sync_abundance_units_control()
 
     def eventFilter(self, watched, event):
+        if watched is self._sample_tree_viewport and event.type() in (
+            QtCore.QEvent.DragEnter,
+            QtCore.QEvent.DragMove,
+            QtCore.QEvent.Drop,
+        ):
+            urls = event.mimeData().urls()
+            if (
+                not urls
+                or not event.possibleActions() & Qt.CopyAction
+                or any(
+                    not url.isLocalFile() or not Path(url.toLocalFile()).is_file() for url in urls
+                )
+            ):
+                event.ignore()
+                return True
+            event.setDropAction(Qt.CopyAction)
+            event.accept()
+            if event.type() == QtCore.QEvent.Drop:
+                with OverrideCursor():
+                    self.window.source_manager.open_files([url.toLocalFile() for url in urls])
+            return True
         if watched is self.widget and event.type() == QtCore.QEvent.Show:
             self.refresh_channels()
             QtCore.QTimer.singleShot(0, self._initialize_tree_widths)

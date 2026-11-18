@@ -48,6 +48,10 @@ window. `ProjectTab` coordinates project and sample controls,
 `ProjectManager` owns project-directory operations, `SourceManager` owns
 source-file import, closure, removal, and relocation, and `ProjectStateManager`
 owns dirty-state, autosave, and recovery policy.
+Dropping local files on the Project data sample tree invokes the same
+project-level source import as Add files to project. `ProjectTab` accepts copy
+drops; `SourceManager` retains file validation, duplicate handling, TIFF grouping,
+and dependent UI refreshes.
 `AnalysisController` owns Segmentation-tab selection, execution, result
 display, and export, including its worker and Napari state.
 `CorrelationController` owns the independent Relationships subtabs, their

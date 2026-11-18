@@ -231,6 +231,8 @@ project refresh and shutdown.
 Coordinates the Project data tab. `ProjectTab` populates the sample/file tree,
 channel and map lists, resolution controls, add/remove actions, channel
 inheritance, and stable tree sizing without owning the underlying model.
+Accepts external file drops on the sample tree and delegates project-level
+imports to `SourceManager` using copy semantics.
 
 ### `exhale/imaging/element_controller.py`
 

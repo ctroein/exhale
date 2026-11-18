@@ -28,6 +28,7 @@ MAIN_WINDOW = {
     "resolutionValue": "Physical size represented by one image pixel; used when drawing scale bars.",
     "resolutionUnits": "Physical size represented by one image pixel; used when drawing scale bars.",
     "addProjectFilesButton": "Import HDF5 files as separate samples or TIFF files as one sample.",
+    "sampleTree": "Drop source files here to add samples, or select a sample to edit its settings.",
     "addSampleFilesButton": "Add source files to the selected sample.",
     "removeButton": (
         "Remove the selected sample or file from the project. Files on disk are not deleted."
