@@ -267,7 +267,8 @@ project autosave behavior, and software rendering.
 
 Applies the application-wide software-rendering preference before Qt application
 creation and presents viewer initialization failures with explicit quit,
-temporary degraded-operation, and save-for-restart choices.
+temporary degraded-operation, and software-rendering restart choices. Native
+restarts use the waiting launcher; source and uv runs relaunch through Python.
 
 ## Analysis
 

@@ -15,8 +15,10 @@ wires the feature-specific objects together.
 `rendering` reads the global software-rendering preference before `QApplication`
 and OpenGL initialization. If the embedded viewer fails, `MainWindow` presents
 the original error and requires a choice to quit, continue with segmentation and
-clustering disabled for this session, or save software rendering for a manual
-restart. A degraded session retains a visible error-details control.
+clustering disabled for this session, or save software rendering and restart.
+Supporting native launchers perform the restart after the child exits; source
+and uv runs relaunch directly. Older native launchers require a manual restart.
+A degraded session retains a visible error-details control.
 
 Qt is accessed through `qtpy`. Layouts are authored in Qt Designer `.ui`
 files. The corresponding `*_ui.py` modules are generated build products and

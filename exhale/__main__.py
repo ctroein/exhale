@@ -237,7 +237,7 @@ def _run_application():
 
     from qtpy import QtCore, QtGui, QtWidgets
 
-    from .rendering import configure_rendering
+    from .rendering import RenderingRestartRequested, configure_rendering, restart_application
     from .updates import check_running_launcher
 
     check_running_launcher()
@@ -307,7 +307,11 @@ def _run_application():
     from .main_window import MainWindow
 
     update_splash("Creating user interface")
-    window = MainWindow(initialize_analysis_view=not args.startup_check)
+    try:
+        window = MainWindow(initialize_analysis_view=not args.startup_check)
+    except RenderingRestartRequested:
+        restart_application()
+        return 0
 
     if args.startup_check:
         import importlib

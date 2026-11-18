@@ -8,7 +8,7 @@ import unittest
 
 from qtpy import QtCore, QtTest, QtWidgets
 
-from exhale.widgets import ContentDoubleSpinBox, initialize_splitter_on_show
+from exhale.widgets import ContentDoubleSpinBox, IconCheckDelegate, initialize_splitter_on_show
 
 
 class SplitterInitializerTests(unittest.TestCase):
@@ -111,3 +111,29 @@ class SpinBoxSizingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ElementDoubleClickTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    def test_label_double_click_cycles_tristate(self):
+        view = QtWidgets.QListWidget()
+        self.addCleanup(view.close)
+        view.setItemDelegate(IconCheckDelegate(view))
+        item = QtWidgets.QListWidgetItem("Iron")
+        item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserTristate)
+        item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+        view.addItem(item)
+        view.show()
+        self.app.processEvents()
+        position = view.visualItemRect(item).center()
+        for expected in (
+            QtCore.Qt.CheckState.PartiallyChecked,
+            QtCore.Qt.CheckState.Checked,
+            QtCore.Qt.CheckState.Unchecked,
+        ):
+            QtTest.QTest.mouseClick(view.viewport(), QtCore.Qt.LeftButton, pos=position)
+            QtTest.QTest.mouseDClick(view.viewport(), QtCore.Qt.LeftButton, pos=position)
+            self.assertEqual(item.checkState(), expected)

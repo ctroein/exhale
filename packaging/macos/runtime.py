@@ -93,6 +93,7 @@ class Runtime:
                         "kind": "macos",
                         "root": str(self.home.resolve()),
                         "token": self.launch_token,
+                        "restart": "1",
                         "launcher_version": self.config.get("launcher_version", "0"),
                     }
                 ),
@@ -199,6 +200,8 @@ class Runtime:
                 raise ValueError(
                     "Update request does not belong to the application that just exited."
                 )
+            if request.get("action") == "restart":
+                continue
             result = {"log": str(self.home / "update.log"), "success": False}
             with (self.home / "update.log").open("a", buffering=1) as log:
                 self.update_output = log

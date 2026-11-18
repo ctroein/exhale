@@ -1,5 +1,6 @@
 """Rendering preferences and explicit consent after viewer initialization failures."""
 
+import json
 import os
 
 import pytest
@@ -38,13 +39,17 @@ def test_failure_choice_persists_only_accepted_software_preference(
     expected = {
         "quit_option": "Quit",
         "continue_option": "Continue",
-        "software_option": "Save and quit",
+        "software_option": "Restart",
     }
     assert dialog.action_button.text() == expected[choice]
     QtCore.QTimer.singleShot(0, dialog.accept if accepted else dialog.reject)
-    assert dialog.allow_degraded_session() == continue_session
+    if saved:
+        with pytest.raises(rendering.RenderingRestartRequested):
+            dialog.allow_degraded_session()
+    else:
+        assert dialog.allow_degraded_session() == continue_session
     assert settings.value(rendering.SOFTWARE_OPENGL_KEY, False, type=bool) == saved
-    assert dialog.details.toPlainText() == "original traceback"
+    assert dialog.error_details == "original traceback"
     dialog.deleteLater()
 
 
@@ -52,9 +57,23 @@ def test_failed_software_rendering_cannot_be_selected_again(settings, monkeypatc
     monkeypatch.setenv("QT_OPENGL", "software")
     dialog = rendering.RenderingFailureDialog(settings, "software failed")
     assert not dialog.software_option.isEnabled()
+    dialog.deleteLater()
+
+
+def test_error_details_open_full_traceback_in_separate_dialog(settings, monkeypatch):
+    dialog = rendering.RenderingFailureDialog(settings, "original full traceback")
+    reported = []
+    monkeypatch.setattr(
+        rendering.ExceptionDetailsDialog, "show_exception", lambda self, **kw: reported.append(kw)
+    )
     dialog.details_button.click()
-    assert not dialog.details.isHidden()
-    assert dialog.details_button.text() == "Hide error details"
+    assert isinstance(dialog._details_dialog, rendering.ExceptionDetailsDialog)
+    assert reported[0]["details"] == "original full traceback"
+    assert dialog.details_button.text() == "Show error details"
+    assert not dialog.details_button.isCheckable()
+    assert not dialog.findChildren(
+        QtWidgets.QPlainTextEdit, options=QtCore.Qt.FindDirectChildrenOnly
+    )
     dialog.deleteLater()
 
 
@@ -111,7 +130,7 @@ def test_main_window_requires_consent_before_disabling_tabs(settings, monkeypatc
     received = []
 
     def continue_session(dialog):
-        received.append(dialog.details.toPlainText())
+        received.append(dialog.error_details)
         return True
 
     monkeypatch.setattr(
@@ -159,3 +178,47 @@ def test_main_window_quits_when_degraded_operation_is_declined(settings, monkeyp
     window.clustering_controller.shutdown()
     window.deleteLater()
     QtWidgets.QApplication.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+
+
+def test_older_native_launcher_requires_manual_restart(settings, monkeypatch):
+    monkeypatch.setenv("EXHALE_NATIVE_INSTALLATION", json.dumps({"protocol": "1"}))
+    monkeypatch.delenv("QT_OPENGL", raising=False)
+    dialog = rendering.RenderingFailureDialog(settings, "traceback")
+    dialog.software_option.setChecked(True)
+    assert dialog.action_button.text() == "Save and quit"
+    QtCore.QTimer.singleShot(0, dialog.accept)
+    assert not dialog.allow_degraded_session()
+    assert settings.value(rendering.SOFTWARE_OPENGL_KEY, False, type=bool)
+    dialog.deleteLater()
+
+
+def test_native_restart_hands_request_to_launcher_without_spawning(monkeypatch, tmp_path):
+    from exhale import updates
+
+    request = tmp_path / "update-request.json"
+    monkeypatch.setenv("EXHALE_NATIVE_INSTALLATION", json.dumps({"restart": "1"}))
+    monkeypatch.setattr(
+        updates,
+        "native_installation",
+        lambda: {"request": str(request), "token": "current-token", "environment": "env-working"},
+    )
+    rendering.restart_application()
+    assert json.loads(request.read_text()) == {
+        "action": "restart",
+        "token": "current-token",
+        "environment": "env-working",
+    }
+    assert not request.with_suffix(".tmp").exists()
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_direct_restart_preserves_interpreter_and_arguments(monkeypatch, platform, tmp_path):
+    monkeypatch.delenv("EXHALE_NATIVE_INSTALLATION", raising=False)
+    monkeypatch.setattr(rendering.sys, "platform", platform)
+    script = tmp_path / "run_exhale.py"
+    monkeypatch.setattr(rendering.sys, "argv", [str(script), "--project", "my project"])
+    calls = []
+    monkeypatch.setattr(rendering.os, "execv", lambda exe, args: calls.append(args))
+    monkeypatch.setattr(rendering.subprocess, "Popen", lambda args: calls.append(args))
+    rendering.restart_application()
+    assert calls == [[rendering.sys.executable, str(script), "--project", "my project"]]

@@ -57,6 +57,12 @@ class _IconCheckStyle(QtWidgets.QProxyStyle):
 
     INDICATOR_SIZE = 24
 
+    def drawPrimitive(self, element, option, painter, widget=None):
+        # The delegate supplies the SVG after the style paints the complete row.
+        if element == QtWidgets.QStyle.PrimitiveElement.PE_IndicatorItemViewItemCheck:
+            return
+        super().drawPrimitive(element, option, painter, widget)
+
     def pixelMetric(self, metric, option=None, widget=None):
         if metric in (
             QtWidgets.QStyle.PixelMetric.PM_IndicatorWidth,
@@ -113,21 +119,9 @@ class IconCheckDelegate(QtWidgets.QStyledItemDelegate):
         widget = styled.widget
         style = widget.style() if widget is not None else QtWidgets.QApplication.style()
 
-        style.drawPrimitive(
-            QtWidgets.QStyle.PrimitiveElement.PE_PanelItemViewItem,
-            styled,
-            painter,
-            widget,
-        )
-        content = QtWidgets.QStyleOptionViewItem(styled)
-        content.features &= ~QtWidgets.QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
-        if content.direction == QtCore.Qt.LayoutDirection.RightToLeft:
-            content.rect.setRight(indicator_rect.left())
-        else:
-            content.rect.setLeft(indicator_rect.right())
         style.drawControl(
             QtWidgets.QStyle.ControlElement.CE_ItemViewItem,
-            content,
+            styled,
             painter,
             widget,
         )
@@ -144,6 +138,40 @@ class IconCheckDelegate(QtWidgets.QStyledItemDelegate):
             mode,
             QtGui.QIcon.State.Off,
         )
+
+    def editorEvent(self, event, model, option, index):
+        """Cycle checks on label double-clicks and avoid a second indicator toggle."""
+        event_type = event.type()
+        if event_type == QtCore.QEvent.Type.MouseButtonPress:
+            self._double_click_index = None
+        if (
+            event_type == QtCore.QEvent.Type.MouseButtonRelease
+            and getattr(self, "_double_click_index", None) == index
+        ):
+            self._double_click_index = None
+            return True
+        if event_type != QtCore.QEvent.Type.MouseButtonDblClick:
+            return super().editorEvent(event, model, option, index)
+        flags = index.flags()
+        if (
+            event.button() != QtCore.Qt.MouseButton.LeftButton
+            or not flags & QtCore.Qt.ItemFlag.ItemIsEnabled
+            or not flags & QtCore.Qt.ItemFlag.ItemIsUserCheckable
+            or index.data(QtCore.Qt.ItemDataRole.CheckStateRole) is None
+        ):
+            return super().editorEvent(event, model, option, index)
+        styled = QtWidgets.QStyleOptionViewItem(option)
+        self.initStyleOption(styled, index)
+        self._double_click_index = QtCore.QPersistentModelIndex(index)
+        if self.indicator_rect(styled, index).contains(event.pos()):
+            return True
+        state = styled.checkState.value
+        next_state = (
+            (state + 1) % 3
+            if flags & QtCore.Qt.ItemFlag.ItemIsUserTristate
+            else (0 if state == 2 else 2)
+        )
+        return model.setData(index, next_state, QtCore.Qt.ItemDataRole.CheckStateRole)
 
 
 class _SplitterInitializer(QtCore.QObject):

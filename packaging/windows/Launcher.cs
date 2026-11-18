@@ -139,7 +139,7 @@ internal sealed class RuntimeSetup
         if (!startupCheck && launchToken != null && arguments.Contains("exhale"))
             info.EnvironmentVariables["EXHALE_NATIVE_INSTALLATION"] = json.Serialize(new {
                 protocol = "1", kind = "windows", root = root, token = launchToken,
-                launcher_version = Launcher.Version });
+                launcher_version = Launcher.Version, restart = "1" });
         if (startupCheck) info.EnvironmentVariables["QT_QPA_PLATFORM"] = "offscreen";
         using (var process = new Process())
         {
@@ -265,6 +265,8 @@ internal sealed class RuntimeSetup
             File.Delete(requestPath);
             if (request["token"] != launchToken || request["environment"] != state["environment"])
                 throw new InvalidDataException("Update request does not belong to the application that just exited.");
+            if (request.ContainsKey("action") && request["action"] == "restart")
+                continue;
             bool success = false;
             try { Update(request["version"]); success = true; }
             catch (Exception error) { log("Application update failed: " + error); }
@@ -433,6 +435,20 @@ internal sealed class RuntimeSetup
                         if (failUpdate && priorState != File.ReadAllText(Path.Combine(home, "runtime", "installed.json")))
                             throw new Exception("Failed requested update replaced the working runtime.");
                     }
+                    int restartLaunches = 0;
+                    string restartState = File.ReadAllText(Path.Combine(home, "runtime", "installed.json"));
+                    setup.Execute = (exe, args, check) => {
+                        if (!args.SequenceEqual(new[] { "-m", "exhale", "--project", "my project" }) || check)
+                            throw new Exception("Restart changed launch arguments or attempted setup.");
+                        restartLaunches++;
+                        if (restartLaunches == 1)
+                            setup.Write(Path.Combine(home, "update-request.json"), new Dictionary<string, string> {
+                                { "action", "restart" }, { "token", setup.launchToken },
+                                { "environment", setup.InstalledState()["environment"] } });
+                    };
+                    setup.Launch(new[] { "--project", "my project" });
+                    if (restartLaunches != 2 || restartState != File.ReadAllText(Path.Combine(home, "runtime", "installed.json")))
+                        throw new Exception("Restart failed or changed the installed runtime.");
                     string installedVersion = InstalledVersion(setup.InstalledState());
                     calls.Clear();
                     setup.Execute = (exe, args, check) => {

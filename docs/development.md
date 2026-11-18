@@ -593,7 +593,11 @@ It is available on Windows and Linux; Linux requests Mesa software rendering
 through `LIBGL_ALWAYS_SOFTWARE`. Exhale does not provide this switch on macOS.
 Viewer initialization failures open a dialog with Quit selected initially.
 The user can explicitly continue without segmentation and clustering for that
-session, or save the software-rendering preference and quit for a manual restart.
+session, or save the software-rendering preference and restart. Native launchers
+advertise restart support and handle a token-validated restart request after the
+application exits, preserving the original arguments and runtime lock. Source and
+uv runs relaunch through the current Python interpreter. Older native launchers
+without restart support require a manual restart.
 Continuing leaves a persistent warning with access to the original error details.
 The software option is unavailable if software rendering already failed.
 

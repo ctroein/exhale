@@ -172,7 +172,7 @@ def test_builder_bundles_local_release_and_private_setup(tmp_path, monkeypatch):
     builder.main()
     resources = output / "EXHALE.app/Contents/Resources"
     config = json.loads((resources / "setup.json").read_text())
-    assert config == {"wheel": wheel.name, "architecture": "arm64"}
+    assert config == {"wheel": wheel.name, "architecture": "arm64", "launcher_version": "1.2.3"}
     assert (resources / wheel.name).read_bytes() == wheel.read_bytes()
     assert (resources / "runtime.py").exists()
     assert (resources / "requirements-cellpose.txt").exists()
@@ -280,3 +280,40 @@ def test_driver_parses_native_headless_arguments(runtime, monkeypatch, action):
     monkeypatch.setattr(runtime_module.sys, "argv", arguments)
     runtime_module.main()
     assert calls == ([["--startup-check"]] if action == "startup" else [("2.0", Path("/test.whl"))])
+
+
+@pytest.mark.parametrize("valid_token", [True, False])
+def test_restart_request_preserves_runtime_and_arguments(runtime, valid_token):
+    runtime.root.mkdir(parents=True)
+    runtime.state_path.write_text(
+        json.dumps(
+            {"environment": "env-working", "wheel": runtime.config["wheel"], "backends": "none"}
+        )
+    )
+    original = runtime.state_path.read_bytes()
+    calls = []
+
+    def run(command):
+        calls.append(command)
+        if len(calls) == 1:
+            (runtime.home / "update-request.json").write_text(
+                json.dumps(
+                    {
+                        "action": "restart",
+                        "environment": "env-working",
+                        "token": runtime.launch_token if valid_token else "wrong-token",
+                    }
+                )
+            )
+
+    runtime.run = run
+    with runtime.locked():
+        if valid_token:
+            runtime.launch(["--project", "my project"])
+        else:
+            with pytest.raises(ValueError, match="does not belong"):
+                runtime.launch(["--project", "my project"])
+    assert len(calls) == (2 if valid_token else 1)
+    if valid_token:
+        assert calls[0] == calls[1]
+    assert runtime.state_path.read_bytes() == original
