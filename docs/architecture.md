@@ -31,14 +31,15 @@ Fusion for explicit light/dark choices. System selection clears application
 palette overrides and follows platform changes. Custom palette resources are
 refreshed through the manager's change signal.
 
-`ItemViewStyle` in `appearance` shares compact cell geometry across Windows 11
-lists and trees, preserving the native selection marker at the viewport's leading
-edge independently of tree indentation. Fusion uses the same cell geometry without
-adding a marker. Other platform styles retain their native conventions. Images
-and file rows use native decoration sizes. Project and sample element checks
-share the SVG interaction delegate in `widgets`, with extra space only for sample
-group dividers. Per-view styles follow application palette and style changes,
-including native color caches.
+`ItemViewStyle` in `appearance` preserves native row metrics and padding while
+placing the Windows 11 selection marker at the viewport's leading edge,
+independently of tree indentation. Other platform styles retain their native
+conventions. Image/file decorations and element check glyphs use native metrics.
+Project and sample element checks share the SVG interaction delegate in `widgets`;
+sample group dividers add their own spacing. Per-view styles follow application
+palette and style changes, including native color caches. Windows 11 light-mode
+disabled text and button outlines use the palette's disabled text/border colors,
+and splitter backgrounds match the surrounding page's Base brush.
 
 `UpdateController` owns desktop release-check scheduling, its worker and update
 confirmation. Application preferences store the daily-check setting and last

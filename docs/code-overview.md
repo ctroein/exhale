@@ -255,8 +255,10 @@ options dialog.
 
 ### `exhale/imaging/image_settings_dialog.py`
 
-Provides the generated controls as a focused modal image-settings dialog; the
+Provides the generated controls as a focused image-settings dialog; the
 `ImageController` transfers defaults or one image's settings to and from it.
+It positions its first native frame before showing, preserving subsequent user
+positioning instead of moving the dialog after it becomes visible.
 
 ### `exhale/settings_dialog.py`
 
@@ -609,7 +611,7 @@ initialization for pages which are hidden during initial layout.
 
 `IconCheckDelegate` supplies the shared SVG checkbox rendering and interaction
 for project and sample elements. Its proxy extends the shared `ItemViewStyle`
-with the SVG indicator size and follows application style and palette changes,
+with SVG glyph drawing at the native indicator size and follows style/palette changes,
 including native drawing colors cached separately from the widget palette.
 
 `ContentDoubleSpinBox` uses Qt’s native size hint for the configured numeric
@@ -629,10 +631,11 @@ the persistent choice and emits palette changes; `SplitterGripStyle` provides
 the shared Fusion splitter grip. Windows uses Qt's native color-scheme override
 and platform palette on Qt 6.8+, with Fusion and explicit palettes for older Qt.
 System selection clears palette overrides so later OS changes are reflected.
-`ItemViewStyle` supplies compact Windows 11/Fusion list and tree cell geometry.
-It reserves the same leading gutter for the Windows 11 native marker in every
-list, including hierarchical and multi-column trees. Tables retain native cell
-geometry. Image and file decorations use native sizes instead of fixed list sizes.
+`ItemViewStyle` retains native item sizing and padding, keeping the Windows 11
+marker at a consistent leading edge in lists and hierarchical/multi-column trees.
+Tables retain native cell geometry. Disabled light-mode text uses the native
+disabled field-text color, button borders use the disabled Mid color, and native
+splitter handles use the page's Base brush. Enabled-control drawing is unchanged.
 
 ### `exhale/icons.py`
 

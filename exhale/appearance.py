@@ -14,7 +14,7 @@ _manager = None
 
 
 class ItemViewStyle(QtWidgets.QProxyStyle):
-    """Share compact cell geometry and native selection markers across item views."""
+    """Retain native item metrics and consistent Windows selection markers."""
 
     MARKER_GUTTER = 8
 
@@ -38,9 +38,7 @@ class ItemViewStyle(QtWidgets.QProxyStyle):
 
     def _cell_option(self, option, widget):
         cell = QtWidgets.QStyleOptionViewItem(option)
-        if self._has_native_marker() and isinstance(
-            widget, (QtWidgets.QListView, QtWidgets.QTreeView)
-        ):
+        if self._has_native_marker() and isinstance(widget, QtWidgets.QTreeView):
             if cell.direction == QtCore.Qt.RightToLeft:
                 if cell.rect.right() >= widget.viewport().width() - 1:
                     cell.rect.adjust(0, 0, -self.MARKER_GUTTER, 0)
@@ -60,6 +58,32 @@ class ItemViewStyle(QtWidgets.QProxyStyle):
         )
 
     def drawControl(self, element, option, painter, widget=None):
+        if (
+            element == QtWidgets.QStyle.CE_Splitter
+            and isinstance(widget, (QtWidgets.QSplitter, QtWidgets.QSplitterHandle))
+            and self.baseStyle().objectName().casefold() == "windows11"
+        ):
+            painter.fillRect(option.rect, option.palette.brush(QtGui.QPalette.Base))
+            return
+        if (
+            element == QtWidgets.QStyle.CE_PushButtonBevel
+            and self.baseStyle().objectName().casefold() == "windows11"
+            and not option.state & QtWidgets.QStyle.State_Enabled
+            and option.palette.color(QtGui.QPalette.Window).lightness() > 128
+            and not option.features & QtWidgets.QStyleOptionButton.Flat
+        ):
+            super().drawControl(element, option, painter, widget)
+            painter.save()
+            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.setPen(option.palette.color(QtGui.QPalette.Disabled, QtGui.QPalette.Mid))
+            # Match the Windows 11 button outline; use the palette's disabled
+            # border color instead of the style's nearly transparent stroke.
+            radius = 2 * self.pixelMetric(QtWidgets.QStyle.PM_DefaultFrameWidth, option, widget)
+            painter.drawRoundedRect(
+                QtCore.QRectF(option.rect).adjusted(1.5, 1.5, -1.5, -1.5), radius, radius
+            )
+            painter.restore()
+            return
         if element != QtWidgets.QStyle.CE_ItemViewItem:
             return super().drawControl(element, option, painter, widget)
         cell = self._cell_option(option, widget)
@@ -85,14 +109,27 @@ class ItemViewStyle(QtWidgets.QProxyStyle):
 
     def subElementRect(self, element, option, widget=None):
         if isinstance(option, QtWidgets.QStyleOptionViewItem):
+            if isinstance(option.widget, (QtWidgets.QListView, QtWidgets.QTreeView)):
+                widget = option.widget
             option = self._cell_option(option, widget)
-            widget = self._cell_widget(widget)
         return super().subElementRect(element, option, widget)
 
-    def sizeFromContents(self, contents_type, option, size, widget=None):
-        if contents_type == QtWidgets.QStyle.CT_ItemViewItem:
-            widget = self._cell_widget(widget)
-        return super().sizeFromContents(contents_type, option, size, widget)
+    def drawItemText(
+        self, painter, rect, flags, palette, enabled, text, text_role=QtGui.QPalette.NoRole
+    ):
+        if (
+            not enabled
+            and text_role != QtGui.QPalette.NoRole
+            and self.baseStyle().objectName().casefold() == "windows11"
+            and palette.color(QtGui.QPalette.Window).lightness() > 128
+        ):
+            palette = QtGui.QPalette(palette)
+            palette.setColor(
+                QtGui.QPalette.Disabled,
+                text_role,
+                palette.color(QtGui.QPalette.Disabled, QtGui.QPalette.Text),
+            )
+        super().drawItemText(painter, rect, flags, palette, enabled, text, text_role)
 
 
 class SplitterGripStyle(ItemViewStyle):

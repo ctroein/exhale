@@ -46,14 +46,19 @@ class IconCheckDelegateTests(unittest.TestCase):
             icons.IconName.CHECKBOX_MARKED,
         )
 
-    def test_indicator_uses_svg_native_size(self):
+    def test_indicator_uses_platform_size(self):
         index = self.view.indexFromItem(self.item)
         option = QtWidgets.QStyleOptionViewItem()
         option.rect = self.view.visualRect(index)
         option.widget = self.view
         self.delegate.initStyleOption(option, index)
 
-        self.assertEqual(self.delegate.indicator_rect(option, index).size(), QtCore.QSize(24, 24))
+        style = self.app.style()
+        expected = QtCore.QSize(
+            style.pixelMetric(QtWidgets.QStyle.PM_IndicatorWidth, option, self.view),
+            style.pixelMetric(QtWidgets.QStyle.PM_IndicatorHeight, option, self.view),
+        )
+        self.assertEqual(self.delegate.indicator_rect(option, index).size(), expected)
 
     def test_standard_indicator_click_toggles_model_check_state(self):
         index = self.view.indexFromItem(self.item)
@@ -137,7 +142,7 @@ class IconCheckDelegateTests(unittest.TestCase):
             self.assertEqual(item.checkState(), check_state)
             self.assertEqual(delegate.indicator_icon_name(index, check_state), icon_name)
 
-    def test_project_and_sample_cells_share_geometry_and_selection_painting(self):
+    def test_project_and_sample_cells_use_native_indicator_and_row_sizes(self):
         project = QtWidgets.QTreeWidget()
         self.addCleanup(project.deleteLater)
         project.setRootIsDecorated(False)
@@ -181,10 +186,10 @@ class IconCheckDelegateTests(unittest.TestCase):
                 delegate.paint(painter, option, index)
                 painter.end()
                 images.append(image)
-            self.assertEqual(heights[0], heights[1])
-            self.assertGreaterEqual(heights[0], 24)
-            self.assertEqual(indicators[0], indicators[1])
-            self.assertEqual(images[0], images[1])
+            self.assertEqual(indicators[0].size(), indicators[1].size())
+            for height, indicator in zip(heights, indicators, strict=True):
+                self.assertGreaterEqual(height, indicator.height())
+            self.assertTrue(all(not image.isNull() for image in images))
 
 
 if __name__ == "__main__":

@@ -54,9 +54,7 @@ class ContentDoubleSpinBox(QtWidgets.QDoubleSpinBox):
 
 
 class _IconCheckStyle(ItemViewStyle):
-    """Use consistent native cell geometry and 24-unit SVG check indicators."""
-
-    INDICATOR_SIZE = 24
+    """Use native check-indicator metrics for Exhale's SVG glyphs."""
 
     def __init__(self, view):
         super().__init__(QtWidgets.QApplication.style().objectName())
@@ -81,14 +79,6 @@ class _IconCheckStyle(ItemViewStyle):
         if element == QtWidgets.QStyle.PrimitiveElement.PE_IndicatorItemViewItemCheck:
             return
         super().drawPrimitive(element, option, painter, widget)
-
-    def pixelMetric(self, metric, option=None, widget=None):
-        if metric in (
-            QtWidgets.QStyle.PixelMetric.PM_IndicatorWidth,
-            QtWidgets.QStyle.PixelMetric.PM_IndicatorHeight,
-        ):
-            return self.INDICATOR_SIZE
-        return super().pixelMetric(metric, option, widget)
 
 
 class IconCheckDelegate(QtWidgets.QStyledItemDelegate):

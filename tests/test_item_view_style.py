@@ -110,16 +110,19 @@ def test_images_and_files_use_the_same_native_decoration_size(views):
     _app, widgets, child = views
     images, files = widgets[2:4]
     files.setCurrentItem(child)
-    sizes, heights = [], []
+    sizes = []
+    native = QtWidgets.QStyleFactory.create("windows11")
     for view in (images, files):
         option = QtWidgets.QStyleOptionViewItem()
         view.initViewItemOption(option)
         view.itemDelegate().initStyleOption(option, view.currentIndex())
         sizes.append(option.decorationSize)
-        heights.append(view.visualRect(view.currentIndex()).height())
+        expected = native.sizeFromContents(
+            QtWidgets.QStyle.CT_ItemViewItem, option, QtCore.QSize(), view
+        )
+        assert view.visualRect(view.currentIndex()).height() == expected.height()
     assert sizes[0] == sizes[1]
     assert sizes[0].width() > 0
-    assert heights[0] == heights[1]
 
 
 def test_image_name_editor_keeps_clear_of_the_marker(views):
@@ -137,3 +140,53 @@ def test_image_name_editor_keeps_clear_of_the_marker(views):
     QtTest.QTest.keyClick(editor, QtCore.Qt.Key_Return)
     app.processEvents()
     assert images.currentItem().text() == "Renamed image"
+
+
+def test_disabled_light_text_uses_the_native_disabled_field_color(views):
+    app, _widgets, _child = views
+    app.styleHints().setColorScheme(QtCore.Qt.ColorScheme.Light)
+    app.setPalette(QtGui.QPalette())
+    native = QtWidgets.QStyleFactory.create("windows11")
+    for role in (QtGui.QPalette.WindowText, QtGui.QPalette.ButtonText):
+        images = []
+        for style in (app.style(), native):
+            palette = QtGui.QPalette(app.palette())
+            if style is native:
+                palette.setColor(
+                    QtGui.QPalette.Disabled,
+                    role,
+                    palette.color(QtGui.QPalette.Disabled, QtGui.QPalette.Text),
+                )
+            image = QtGui.QImage(150, 35, QtGui.QImage.Format_ARGB32)
+            image.fill(palette.color(QtGui.QPalette.Window))
+            painter = QtGui.QPainter(image)
+            style.drawItemText(
+                painter, image.rect(), QtCore.Qt.AlignCenter, palette, False, "Label", role
+            )
+            painter.end()
+            images.append(image)
+        assert images[0] == images[1]
+
+
+def test_disabled_button_border_and_splitter_use_palette_colors(views):
+    app, _widgets, _child = views
+    app.styleHints().setColorScheme(QtCore.Qt.ColorScheme.Light)
+    app.setPalette(QtGui.QPalette())
+    option = QtWidgets.QStyleOptionButton()
+    option.palette = app.palette()
+    option.rect = QtCore.QRect(0, 0, 120, 32)
+    image = QtGui.QImage(120, 32, QtGui.QImage.Format_ARGB32)
+    image.fill(option.palette.color(QtGui.QPalette.Window))
+    painter = QtGui.QPainter(image)
+    app.style().drawControl(QtWidgets.QStyle.CE_PushButtonBevel, option, painter)
+    painter.end()
+    border = option.palette.color(QtGui.QPalette.Disabled, QtGui.QPalette.Mid)
+    assert any(image.pixelColor(x, y) == border for x in range(120) for y in range(32))
+    splitter = QtWidgets.QSplitter()
+    try:
+        painter = QtGui.QPainter(image)
+        app.style().drawControl(QtWidgets.QStyle.CE_Splitter, option, painter, splitter)
+        painter.end()
+        assert image.pixelColor(60, 16) == app.palette().color(QtGui.QPalette.Base)
+    finally:
+        splitter.deleteLater()
