@@ -631,7 +631,7 @@ class ClusteringController(QtCore.QObject):
         window.clusteringAuto.setEnabled(can_edit)
         if not valid:
             window.clusteringCutoff.setEnabled(False)
-            window.clusteringBusy.setText(" ")
+            window.clusteringElementCombo.unsetCursor()
             return
         selection = method, sample_id, ref
         settings = window.project_data.clustering_settings
@@ -674,8 +674,10 @@ class ClusteringController(QtCore.QObject):
                 window.clusteringCutoff.setValue(shown)
                 self._display_multiple = shown
         window.clusteringCutoff.setEnabled(can_edit and not window.clusteringAuto.isChecked())
-        window.clusteringBusy.setText("◌" if queued is not None else " ")
-        window.clusteringBusy.setToolTip("Clustering this element" if queued is not None else "")
+        if queued is not None:
+            window.clusteringElementCombo.setCursor(QtCore.Qt.CursorShape.BusyCursor)
+        else:
+            window.clusteringElementCombo.unsetCursor()
 
     def _map_matches(self, result, parameters, ref, key):
         if result is None or ref not in result.element_refs:

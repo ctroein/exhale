@@ -6,7 +6,7 @@ from qtpy import QtCore, QtGui, QtTest, QtWidgets
 
 from exhale import icons
 from exhale.imaging.listwidgets import ElementListWidget, SampleElementCheckDelegate
-from exhale.widgets import IconCheckDelegate
+from exhale.widgets import IconCheckDelegate, ItemTreeWidget
 
 
 class IconCheckDelegateTests(unittest.TestCase):
@@ -15,13 +15,13 @@ class IconCheckDelegateTests(unittest.TestCase):
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
     def setUp(self):
-        self.view = QtWidgets.QListWidget()
+        self.view = ItemTreeWidget()
         self.delegate = IconCheckDelegate(self.view)
         self.view.setItemDelegate(self.delegate)
-        self.item = QtWidgets.QListWidgetItem("Channel")
+        self.item = QtWidgets.QTreeWidgetItem(["Channel"])
         self.item.setFlags(self.item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-        self.item.setCheckState(QtCore.Qt.CheckState.Checked)
-        self.view.addItem(self.item)
+        self.item.setCheckState(0, QtCore.Qt.CheckState.Checked)
+        self.view.addTopLevelItem(self.item)
         self.view.resize(240, 80)
         self.view.show()
         self.app.processEvents()
@@ -73,18 +73,18 @@ class IconCheckDelegateTests(unittest.TestCase):
             pos=self.delegate.indicator_rect(option, index).center(),
         )
 
-        self.assertEqual(self.item.checkState(), QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(self.item.checkState(0), QtCore.Qt.CheckState.Unchecked)
 
     def test_space_toggles_model_check_state(self):
         self.view.setCurrentItem(self.item)
 
         QtTest.QTest.keyClick(self.view, QtCore.Qt.Key.Key_Space)
 
-        self.assertEqual(self.item.checkState(), QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(self.item.checkState(0), QtCore.Qt.CheckState.Unchecked)
 
     def test_icon_resolver_can_use_model_roles(self):
         role = QtCore.Qt.ItemDataRole.UserRole + 1
-        self.item.setData(role, icons.IconName.CHECKBOX_DENIED)
+        self.item.setData(0, role, icons.IconName.CHECKBOX_DENIED)
         delegate = IconCheckDelegate(
             self.view,
             lambda index, _state: index.data(role),
@@ -139,13 +139,12 @@ class IconCheckDelegateTests(unittest.TestCase):
                 project_enabled=project_enabled,
             )
             index = view.indexFromItem(item)
-            self.assertEqual(item.checkState(), check_state)
+            self.assertEqual(item.checkState(0), check_state)
             self.assertEqual(delegate.indicator_icon_name(index, check_state), icon_name)
 
     def test_project_and_sample_cells_use_native_indicator_and_row_sizes(self):
-        project = QtWidgets.QTreeWidget()
+        project = ItemTreeWidget()
         self.addCleanup(project.deleteLater)
-        project.setRootIsDecorated(False)
         project.setColumnCount(1)
         project_delegate = IconCheckDelegate(project)
         project.setItemDelegate(project_delegate)
@@ -187,6 +186,8 @@ class IconCheckDelegateTests(unittest.TestCase):
                 painter.end()
                 images.append(image)
             self.assertEqual(indicators[0].size(), indicators[1].size())
+            self.assertEqual(heights[0], heights[1])
+            self.assertEqual(images[0], images[1])
             for height, indicator in zip(heights, indicators, strict=True):
                 self.assertGreaterEqual(height, indicator.height())
             self.assertTrue(all(not image.isNull() for image in images))

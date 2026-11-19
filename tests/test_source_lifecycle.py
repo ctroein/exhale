@@ -40,7 +40,7 @@ from exhale.main_window import ACTIVE_TAB_SETTINGS_KEY, SPLITTER_SETTINGS_PREFIX
 from exhale.project import projectio
 from exhale.project.projectmanager import EXPORT_DIRECTORY_SETTING
 from exhale.project.projectstatemanager import PROJECT_SAVE_ON_EXIT_KEY
-from exhale.widgets import IconCheckDelegate
+from exhale.widgets import IconCheckDelegate, ItemTreeWidget
 
 
 class SourceLifecycleTests(unittest.TestCase):
@@ -108,6 +108,18 @@ class SourceLifecycleTests(unittest.TestCase):
                 self.assertEqual(tabs.widget(index).sizeHint().height(), initial_hints[index])
 
     def test_tabs_and_file_actions(self):
+        for name in (
+            "sampleTree",
+            "channelList",
+            "elementList",
+            "imageList",
+            "sampleSimilaritySamples",
+            "sampleSimilarityExcluded",
+            "analysisLayerList",
+        ):
+            view = getattr(self.win, name)
+            self.assertIsInstance(view, ItemTreeWidget)
+            self.assertEqual(view.rootIsDecorated(), name == "sampleTree")
         tabs = self.win.tabWidget
         self.assertEqual(
             [tabs.tabText(i) for i in range(tabs.count())],
@@ -442,11 +454,12 @@ class SourceLifecycleTests(unittest.TestCase):
             "Project elements: 4 included, 1 unavailable, 0 excluded.\nExtra elements: 0 included.",
         )
         sample_item = next(
-            self.win.elementList.item(row)
-            for row in range(self.win.elementList.count())
-            if self.win.elementList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
+            self.win.elementList.topLevelItem(row)
+            for row in range(self.win.elementList.topLevelItemCount())
+            if self.win.elementList.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+            == "Fe"
         )
-        self.assertTrue(sample_item.data(ElementListWidget.SAMPLE_PROJECT_ENABLED_ROLE))
+        self.assertTrue(sample_item.data(0, ElementListWidget.SAMPLE_PROJECT_ENABLED_ROLE))
         self.win.project_data.skip_sample_channel(sample_id, "Fe")
         self.win.project_tab.refresh_map_counts()
         self.assertEqual(hdf5_sample.text(2), "0/2 (+0 -1)")
@@ -458,15 +471,15 @@ class SourceLifecycleTests(unittest.TestCase):
     def test_sample_element_state_cycles_only_when_its_indicator_is_clicked(self):
         self.win.source_manager.open_files([self.h5])
         element_list = self.win.elementList
-        element_list.setCurrentRow(0)
+        element_list.setCurrentItem(element_list.topLevelItem(0))
         item = element_list.currentItem()
         sample_id = self.win.project_tab.selected_sample_id()
-        key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
+        key = item.data(0, ElementListWidget.CHANNEL_KEY_ROLE)
         initial = self.win.project_data.sample_channel_state(sample_id, key)
         delegate = element_list.itemDelegate()
         self.assertIsInstance(delegate, SampleElementCheckDelegate)
-        self.assertEqual(item.checkState(), QtCore.Qt.CheckState.PartiallyChecked)
-        self.assertTrue(item.icon().isNull())
+        self.assertEqual(item.checkState(0), QtCore.Qt.CheckState.PartiallyChecked)
+        self.assertTrue(item.icon(0).isNull())
         index = element_list.indexFromItem(item)
         option = QtWidgets.QStyleOptionViewItem()
         option.rect = element_list.visualRect(index)
@@ -665,7 +678,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.project_tab.resolutionValue.setValue(125)
         self.win.project_tab.resolutionUnits.setCurrentText("µm")
 
-        image_id = self.win.imageList.currentItem().data(self.win.imageList.IMG_NUM_ROLE)
+        image_id = self.win.imageList.currentItem().data(0, self.win.imageList.IMG_NUM_ROLE)
         self.assertEqual(self.win.project_data.images[image_id].resolution, [125, "µm"])
 
     def test_project_and_sample_channel_states(self):
@@ -707,12 +720,13 @@ class SourceLifecycleTests(unittest.TestCase):
             self.win.loadedFileComboBox.findData(first_sample)
         )
         fe_item = next(
-            self.win.elementList.item(row)
-            for row in range(self.win.elementList.count())
-            if self.win.elementList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
+            self.win.elementList.topLevelItem(row)
+            for row in range(self.win.elementList.topLevelItemCount())
+            if self.win.elementList.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+            == "Fe"
         )
         self.assertEqual(
-            fe_item.data(ElementListWidget.SAMPLE_STATE_ROLE),
+            fe_item.data(0, ElementListWidget.SAMPLE_STATE_ROLE),
             SampleChannelState.INHERIT.value,
         )
 
@@ -724,9 +738,10 @@ class SourceLifecycleTests(unittest.TestCase):
         )
 
         fe_item = next(
-            self.win.elementList.item(row)
-            for row in range(self.win.elementList.count())
-            if self.win.elementList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
+            self.win.elementList.topLevelItem(row)
+            for row in range(self.win.elementList.topLevelItemCount())
+            if self.win.elementList.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+            == "Fe"
         )
         self.win.element_controller.cycle_sample_element_state(fe_item)
         self.win.element_controller.cycle_sample_element_state(fe_item)
@@ -741,9 +756,10 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.loadedFileComboBox.setCurrentIndex(0)
         sample = self.win.element_controller.current_sample()
         element = next(
-            self.win.elementList.item(row)
-            for row in range(self.win.elementList.count())
-            if self.win.elementList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
+            self.win.elementList.topLevelItem(row)
+            for row in range(self.win.elementList.topLevelItemCount())
+            if self.win.elementList.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+            == "Fe"
         )
         project_item = next(
             self.win.project_tab.channelList.topLevelItem(row)
@@ -753,15 +769,15 @@ class SourceLifecycleTests(unittest.TestCase):
             )
             == "Fe"
         )
-        ref = element.data(ElementListWidget.ELEMENT_REF_ROLE)
+        ref = element.data(0, ElementListWidget.ELEMENT_REF_ROLE)
         error = SourceUnavailableError(self.win.project_data.sources[ref.source_id])
         with (
             patch.object(self.win.element_controller, "ensure_settings", side_effect=error),
             patch.object(self.win, "show_source_unavailable") as show_error,
         ):
-            element.setCheckState(QtCore.Qt.CheckState.Checked)
+            element.setCheckState(0, QtCore.Qt.CheckState.Checked)
             self.assertNotIn("Fe", sample.channel_overrides)
-            self.assertEqual(element.checkState(), QtCore.Qt.CheckState.PartiallyChecked)
+            self.assertEqual(element.checkState(0), QtCore.Qt.CheckState.PartiallyChecked)
 
             project_item.setCheckState(0, QtCore.Qt.CheckState.Checked)
             self.assertNotIn("Fe", self.win.project_data.project_channels)
@@ -1368,8 +1384,8 @@ class SourceLifecycleTests(unittest.TestCase):
                 self.win.loadedFileComboBox.findData(sample_id)
             )
             self.win.image_controller.create_image()
-            self.assertEqual(self.win.imageList.count(), 1)
-            image_id = self.win.imageList.currentItem().data(self.win.imageList.IMG_NUM_ROLE)
+            self.assertEqual(self.win.imageList.topLevelItemCount(), 1)
+            image_id = self.win.imageList.currentItem().data(0, self.win.imageList.IMG_NUM_ROLE)
             image = self.win.project_data.images[image_id]
             self.assertEqual(image.name, "New image")
             self.assertFalse(image.elements)
@@ -1408,9 +1424,9 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.element_controller.effective_channels_changed()
 
         list_refs = [
-            self.win.elementList.item(row).data(ElementListWidget.ELEMENT_REF_ROLE)
-            for row in range(self.win.elementList.count())
-            if self.win.elementList.item(row).data(ElementListWidget.ELEMENT_REF_ROLE)
+            self.win.elementList.topLevelItem(row).data(0, ElementListWidget.ELEMENT_REF_ROLE)
+            for row in range(self.win.elementList.topLevelItemCount())
+            if self.win.elementList.topLevelItem(row).data(0, ElementListWidget.ELEMENT_REF_ROLE)
             in self.win.project_data.effective_refs()
         ]
         combo = self.win.imageElementBoxes[0].combo
@@ -1425,15 +1441,17 @@ class SourceLifecycleTests(unittest.TestCase):
         self.win.source_manager.open_files([self.h5])
         self.win.loadedFileComboBox.setCurrentIndex(0)
         item = next(
-            self.win.elementList.item(row)
-            for row in range(self.win.elementList.count())
-            if self.win.elementList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
+            self.win.elementList.topLevelItem(row)
+            for row in range(self.win.elementList.topLevelItemCount())
+            if self.win.elementList.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+            == "Fe"
         )
         self.win.element_controller.cycle_sample_element_state(item)
         item = next(
-            self.win.elementList.item(row)
-            for row in range(self.win.elementList.count())
-            if self.win.elementList.item(row).data(ElementListWidget.CHANNEL_KEY_ROLE) == "Fe"
+            self.win.elementList.topLevelItem(row)
+            for row in range(self.win.elementList.topLevelItemCount())
+            if self.win.elementList.topLevelItem(row).data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+            == "Fe"
         )
         self.win.elementList.setCurrentItem(item)
 
@@ -1475,7 +1493,7 @@ class SourceLifecycleTests(unittest.TestCase):
         for _ in range(2):
             self.win.refresh_project_ui()
             self.assertEqual(self.win.loadedFileComboBox.count(), 2)
-            self.assertEqual(self.win.elementList.count(), 2)
+            self.assertEqual(self.win.elementList.topLevelItemCount(), 2)
             self.assertEqual(
                 self.win.loadedFileComboBox.currentData(),
                 hdf5_sample_id,
@@ -1517,7 +1535,7 @@ class SourceLifecycleTests(unittest.TestCase):
         self.assertFalse(self.win.project_data.sources)
         self.assertFalse(self.win.project_data.element_settings)
         self.assertFalse(self.win.project_data.images)
-        self.assertEqual(self.win.elementList.count(), 0)
+        self.assertEqual(self.win.elementList.topLevelItemCount(), 0)
 
     def test_failed_atomic_save_preserves_existing_project_file(self):
         project_dir = Path(self.temp.name) / "atomic"
@@ -1613,9 +1631,10 @@ class SourceLifecycleTests(unittest.TestCase):
             self.win.project_data.images[1].elements[0].transformedData()
 
         item = next(
-            self.win.elementList.item(row)
-            for row in range(self.win.elementList.count())
-            if self.win.elementList.item(row).data(ElementListWidget.ELEMENT_REF_ROLE) == ref
+            self.win.elementList.topLevelItem(row)
+            for row in range(self.win.elementList.topLevelItemCount())
+            if self.win.elementList.topLevelItem(row).data(0, ElementListWidget.ELEMENT_REF_ROLE)
+            == ref
         )
         with patch.object(self.win, "show_source_unavailable") as unavailable:
             self.win.elementList.setCurrentItem(item)

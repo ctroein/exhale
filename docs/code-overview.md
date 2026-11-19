@@ -609,10 +609,11 @@ channel/header control rows used by the main window.
 Contains small general Qt helpers: square icon buttons and deferred splitter
 initialization for pages which are hidden during initial layout.
 
-`IconCheckDelegate` supplies the shared SVG checkbox rendering and interaction
-for project and sample elements. Its proxy extends the shared `ItemViewStyle`
-with SVG glyph drawing at the native indicator size and follows style/palette changes,
-including native drawing colors cached separately from the widget palette.
+`ItemTreeWidget` provides common native tree-based construction for flat lists
+and hierarchical views. Multi-column views explicitly show their headers.
+`IconCheckDelegate` supplies shared SVG checkbox rendering and interaction
+for project and sample elements. Its small proxy suppresses the native checkbox
+glyph only, retaining native geometry and following application style changes.
 
 `ContentDoubleSpinBox` uses Qt’s native size hint for the configured numeric
 range, decimal precision, font and style, with a fixed size policy. Its width
@@ -627,15 +628,14 @@ State-dependent tooltips remain beside the behavior which changes them.
 ### `exhale/appearance.py`
 
 Owns light, dark, and system palette selection. `AppearanceManager` applies
-the persistent choice and emits palette changes; `SplitterGripStyle` provides
-the shared Fusion splitter grip. Windows uses Qt's native color-scheme override
+the persistent choice and emits palette changes; `SplitterStyle` preserves
+inherited splitter backgrounds and draws the shared palette-aware grip. Windows uses Qt's native color-scheme override
 and platform palette on Qt 6.8+, with Fusion and explicit palettes for older Qt.
 System selection clears palette overrides so later OS changes are reflected.
-`ItemViewStyle` retains native item sizing and padding, keeping the Windows 11
-marker at a consistent leading edge in lists and hierarchical/multi-column trees.
-Tables retain native cell geometry. Disabled light-mode text uses the native
-disabled field-text color, button borders use the disabled Mid color, and native
-splitter handles use the page's Base brush. Enabled-control drawing is unchanged.
+Windows 11 Light uses the complete native Win32/UXTheme style and platform
+palette; Dark retains Windows 11 drawing. Native Qt styles own item geometry
+and selection drawing. Splitters inherit their containing background and share
+the palette-aware grip across styles.
 
 ### `exhale/icons.py`
 

@@ -109,7 +109,6 @@ class ProjectTab(QtCore.QObject):
         self.channelList.setSelectionMode(
             QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection
         )
-        self.channelList.setRootIsDecorated(False)
         self.channelList.setItemDelegateForColumn(0, IconCheckDelegate(self.channelList))
         self.channelList.header().setStretchLastSection(False)
         self.channelList.header().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)

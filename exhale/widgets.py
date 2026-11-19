@@ -3,7 +3,6 @@
 from qtpy import QtCore, QtGui, QtWidgets
 
 from . import icons
-from .appearance import ItemViewStyle
 
 
 class IconToolButton(QtWidgets.QToolButton):
@@ -53,7 +52,21 @@ class ContentDoubleSpinBox(QtWidgets.QDoubleSpinBox):
         self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
 
 
-class _IconCheckStyle(ItemViewStyle):
+class ItemTreeWidget(QtWidgets.QTreeWidget):
+    """Shared native row construction for flat lists and hierarchical views.
+
+    Flat lists hide the header and branch gutter. Hierarchical views enable
+    root decoration; views with named columns explicitly show the header.
+    Row geometry, decorations and selection drawing belong to the Qt style.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setHeaderHidden(True)
+        self.setRootIsDecorated(False)
+
+
+class _IconCheckStyle(QtWidgets.QProxyStyle):
     """Use native check-indicator metrics for Exhale's SVG glyphs."""
 
     def __init__(self, view):
@@ -68,6 +81,9 @@ class _IconCheckStyle(ItemViewStyle):
                 base = QtWidgets.QStyleFactory.create(application_style)
                 if base is not None:
                     self.setBaseStyle(base)
+                    QtWidgets.QApplication.sendEvent(
+                        watched, QtCore.QEvent(QtCore.QEvent.StyleChange)
+                    )
             # Native styles cache drawing colors in polish(), separately from
             # the widget palette. Application palette changes do not polish
             # per-widget proxy styles automatically.

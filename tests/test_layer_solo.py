@@ -45,9 +45,9 @@ def layers():
 
 def row_for(widget, layer):
     return next(
-        widget.itemWidget(widget.item(i))
-        for i in range(1, widget.count())
-        if widget.itemWidget(widget.item(i)).layer is layer
+        widget.itemWidget(widget.topLevelItem(i), 0)
+        for i in range(1, widget.topLevelItemCount())
+        if widget.itemWidget(widget.topLevelItem(i), 0).layer is layer
     )
 
 

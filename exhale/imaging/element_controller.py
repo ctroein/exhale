@@ -96,7 +96,7 @@ class ElementController:
         window.channelsChanged.emit()
         current_item = window.imageList.currentItem()
         current_image_id = (
-            None if current_item is None else current_item.data(ImageListWidget.IMG_NUM_ROLE)
+            None if current_item is None else current_item.data(0, ImageListWidget.IMG_NUM_ROLE)
         )
         if current_image_id in changed_images:
             window.image_controller.show_image(current_image_id)
@@ -232,9 +232,9 @@ class ElementController:
         if sample is None:
             return
         with QtCore.QSignalBlocker(self.window.elementList):
-            for row in range(self.window.elementList.count()):
-                item = self.window.elementList.item(row)
-                key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
+            for row in range(self.window.elementList.topLevelItemCount()):
+                item = self.window.elementList.topLevelItem(row)
+                key = item.data(0, ElementListWidget.CHANNEL_KEY_ROLE)
                 state = self.window.project_data.sample_channel_state(sample.sample_id, key)
                 ElementListWidget.updateSampleChannel(
                     item,
@@ -247,8 +247,8 @@ class ElementController:
         sample = self.current_sample()
         if sample is None:
             return
-        key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
-        ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
+        key = item.data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+        ref = item.data(0, ElementListWidget.ELEMENT_REF_ROLE)
         if not self.cycle_sample_channel(sample.sample_id, key, ref):
             self.refresh_current_channel_states()
             return
@@ -274,7 +274,7 @@ class ElementController:
         sample = self.current_sample()
         if sample is None:
             return
-        key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
+        key = item.data(0, ElementListWidget.CHANNEL_KEY_ROLE)
         self.window.project_data.skip_sample_channel(sample.sample_id, key)
         self._finish_channel_state_change()
 
@@ -393,7 +393,7 @@ class ElementController:
         self.current_element = self.window.project_data.element_settings[ref]
         self.window.image_controller.current_image = None
         with QtCore.QSignalBlocker(self.window.imageList):
-            self.window.imageList.setCurrentRow(-1)
+            self.window.imageList.setCurrentItem(None)
         self.window.image_controller.set_controls_enabled(False)
         try:
             self.show_current_element()
@@ -420,13 +420,15 @@ class ElementController:
         self.current_element = settings
         with QtCore.QSignalBlocker(window.elementList):
             if slot in image.element_overrides:
-                window.elementList.setCurrentRow(-1)
+                window.elementList.setCurrentItem(None)
             else:
                 item = next(
                     (
-                        window.elementList.item(row)
-                        for row in range(window.elementList.count())
-                        if window.elementList.item(row).data(ElementListWidget.ELEMENT_REF_ROLE)
+                        window.elementList.topLevelItem(row)
+                        for row in range(window.elementList.topLevelItemCount())
+                        if window.elementList.topLevelItem(row).data(
+                            0, ElementListWidget.ELEMENT_REF_ROLE
+                        )
                         == settings.ref
                     ),
                     None,
@@ -446,8 +448,8 @@ class ElementController:
     def _current_item_changed(self, current, _previous) -> None:
         if current is None:
             return
-        ref = current.data(ElementListWidget.ELEMENT_REF_ROLE)
-        key = current.data(ElementListWidget.CHANNEL_KEY_ROLE)
+        ref = current.data(0, ElementListWidget.ELEMENT_REF_ROLE)
+        key = current.data(0, ElementListWidget.CHANNEL_KEY_ROLE)
         sample = self.current_sample()
         self._editing_channel_context = (None if sample is None else sample.sample_id, key)
         try:
@@ -579,10 +581,10 @@ class ElementController:
         window = self.window
         sample = self.current_sample()
         with QtCore.QSignalBlocker(window.elementList):
-            for row in range(window.elementList.count()):
-                item = window.elementList.item(row)
-                key = item.data(ElementListWidget.CHANNEL_KEY_ROLE)
-                ref = item.data(ElementListWidget.ELEMENT_REF_ROLE)
+            for row in range(window.elementList.topLevelItemCount()):
+                item = window.elementList.topLevelItem(row)
+                key = item.data(0, ElementListWidget.CHANNEL_KEY_ROLE)
+                ref = item.data(0, ElementListWidget.ELEMENT_REF_ROLE)
                 if sample is None:
                     project_channel = window.project_data.project_channels.get(key)
                     name = (
@@ -599,7 +601,7 @@ class ElementController:
                         name = override.name or sample.channels[key].name
                     else:
                         name = sample.channels[key].name
-                item.setText(self.channel_list_label(key, name))
+                item.setText(0, self.channel_list_label(key, name))
         window.analysis_controller.update_channels()
         window.clustering_controller.sample_changed()
 

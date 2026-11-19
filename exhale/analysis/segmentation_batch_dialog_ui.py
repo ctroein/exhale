@@ -15,8 +15,8 @@ class Ui_SegmentationBatchDialog(object):
         self.methodInfo = QtWidgets.QLabel(parent=SegmentationBatchDialog)
         self.methodInfo.setObjectName("methodInfo")
         self.batchLayout.addWidget(self.methodInfo)
-        self.sampleTree = QtWidgets.QTreeWidget(parent=SegmentationBatchDialog)
-        self.sampleTree.setRootIsDecorated(False)
+        self.sampleTree = ItemTreeWidget(parent=SegmentationBatchDialog)
+        self.sampleTree.setHeaderHidden(False)
         self.sampleTree.setObjectName("sampleTree")
         self.batchLayout.addWidget(self.sampleTree)
         self.selectionLayout = QtWidgets.QHBoxLayout()
@@ -56,3 +56,4 @@ class Ui_SegmentationBatchDialog(object):
         self.selectAll.setText(_translate("SegmentationBatchDialog", "Select all"))
         self.selectNew.setText(_translate("SegmentationBatchDialog", "Select unsegmented"))
         self.selectNone.setText(_translate("SegmentationBatchDialog", "Select none"))
+from exhale.widgets import ItemTreeWidget

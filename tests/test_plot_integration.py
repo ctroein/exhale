@@ -37,7 +37,7 @@ class PlotIntegrationTests(unittest.TestCase):
             handle.attrs["default"] = "entry"
             handle.create_dataset("entry/plotselect/Fe", data=self.data)
         with patch.object(AnalysisController, "setup", lambda controller, **_kwargs: None):
-            self.window = MainWindow()
+            self.window = MainWindow(initialize_analysis_view=False)
         self.addCleanup(self.dispose)
         self.window.source_manager.open_files([self.filename])
 
@@ -47,10 +47,10 @@ class PlotIntegrationTests(unittest.TestCase):
         self.app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
 
     def select_element(self):
-        item = self.window.elementList.item(0)
+        item = self.window.elementList.topLevelItem(0)
         self.window.elementList.setCurrentItem(item)
         self.app.processEvents()
-        return item.data(ElementListWidget.ELEMENT_REF_ROLE)
+        return item.data(0, ElementListWidget.ELEMENT_REF_ROLE)
 
     def test_generated_ui_uses_new_widgets(self):
         self.assertIsInstance(self.window.elementPlot, ImageCanvas)
@@ -99,7 +99,7 @@ class PlotIntegrationTests(unittest.TestCase):
         image.elements[0] = element.copy()
         self.window.project_data.images[1] = image
         self.window.imageList.addImage(1, image)
-        self.window.imageList.setCurrentRow(0)
+        self.window.imageList.setCurrentItem(self.window.imageList.topLevelItem(0))
         self.app.processEvents()
 
         description = self.window.elementPlot.composition_description

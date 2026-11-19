@@ -264,6 +264,13 @@ def _run_application():
 
             hold_application_lock()
 
+    from . import appearance, icons
+
+    # Configure the application before mapping its first top-level window.
+    appearance.initialize(QtCore.QSettings("CIPA", application_name))
+    if sys.platform != "darwin":
+        app.setWindowIcon(icons.icon(icons.IconName.APPLICATION))
+
     qt_splash = None
     if not args.startup_check and QtCore.QSettings("CIPA", application_name).value(
         SHOW_SPLASH_KEY, True, type=bool
@@ -273,6 +280,7 @@ def _run_application():
         qt_splash = QtWidgets.QSplashScreen(pixmap)
         splash_font = qt_splash.font()
         splash_font.setBold(True)
+        splash_font.setPixelSize(14)
         qt_splash.setFont(splash_font)
         qt_splash.showMessage(
             _splash_text("Initializing"),
@@ -280,6 +288,7 @@ def _run_application():
             splash_color,
         )
         qt_splash.show()
+        qt_splash.raise_()
         exposure_deadline = QtCore.QDeadlineTimer(1000)
         while not exposure_deadline.hasExpired():
             app.processEvents(QtCore.QEventLoop.AllEvents)
@@ -297,12 +306,6 @@ def _run_application():
                 splash_color,
             )
             app.processEvents()
-
-    from . import appearance, icons
-
-    appearance.initialize(QtCore.QSettings("CIPA", application_name))
-    if sys.platform != "darwin":
-        app.setWindowIcon(icons.icon(icons.IconName.APPLICATION))
 
     from .main_window import MainWindow
 

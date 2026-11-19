@@ -12,7 +12,7 @@ from ..tooltips import (
     LAYER_OPACITY,
     LAYER_VISIBLE,
 )
-from ..widgets import IconToolButton
+from ..widgets import IconToolButton, ItemTreeWidget
 
 
 def _with_brightness(color, level):
@@ -485,7 +485,7 @@ class LayerRowWidget(QtWidgets.QWidget):
             self._inline_gain or (selected and self.helper.layer_has_gain(self.layer))
         )
         self.adjustSize()
-        self.item.setSizeHint(self.sizeHint())
+        self.item.setSizeHint(0, self.sizeHint())
         self.layer_list.scheduleDelayedItemsLayout()
 
     def _cycle_blending(self):
@@ -555,10 +555,10 @@ class _LayerHeaderWidget(QtWidgets.QWidget):
                 label.setFixedWidth(width)
                 label.setAlignment(QtCore.Qt.AlignCenter)
             layout.addWidget(label, stretch)
-        item.setSizeHint(self.sizeHint())
+        item.setSizeHint(0, self.sizeHint())
 
 
-class LayerListWidget(QtWidgets.QListWidget):
+class LayerListWidget(ItemTreeWidget):
     """List of embedded Napari layers with direct presentation controls."""
 
     presentationChanged = QtCore.Signal()
@@ -608,7 +608,7 @@ class LayerListWidget(QtWidgets.QListWidget):
 
     def rebuild(self, selected_layer=None):
         if selected_layer is None and self.currentItem() is not None:
-            row = self.itemWidget(self.currentItem())
+            row = self.itemWidget(self.currentItem(), 0)
             selected_layer = None if row is None else getattr(row, "layer", None)
         self.remove_width = (
             self.fontMetrics().height() + 8
@@ -627,39 +627,39 @@ class LayerListWidget(QtWidgets.QListWidget):
             else 0
         )
         self.clear()
-        header_item = QtWidgets.QListWidgetItem()
+        header_item = QtWidgets.QTreeWidgetItem()
         header_item.setFlags(QtCore.Qt.ItemIsEnabled)
-        self.addItem(header_item)
-        self.setItemWidget(header_item, _LayerHeaderWidget(self, header_item))
+        self.addTopLevelItem(header_item)
+        self.setItemWidget(header_item, 0, _LayerHeaderWidget(self, header_item))
         if self.helper is None:
             return
         selected_item = None
         # Napari model index 0 is the bottommost layer. Match Napari's own
         # layer list by showing the topmost layer first.
         for layer in reversed(self.helper.user_layers()):
-            item = QtWidgets.QListWidgetItem()
-            self.addItem(item)
+            item = QtWidgets.QTreeWidgetItem()
+            self.addTopLevelItem(item)
             row = LayerRowWidget(self, item, layer)
-            self.setItemWidget(item, row)
-            item.setSizeHint(row.sizeHint())
+            self.setItemWidget(item, 0, row)
+            item.setSizeHint(0, row.sizeHint())
             if layer is selected_layer:
                 selected_item = item
         if selected_item is not None:
             self.setCurrentItem(selected_item)
 
     def _selection_changed(self, current, previous):
-        if current is not None and self.row(current) == 0:
+        if current is not None and self.indexOfTopLevelItem(current) == 0:
             self.setCurrentItem(previous)
             return
         for item, selected in ((previous, False), (current, True)):
-            row = None if item is None else self.itemWidget(item)
+            row = None if item is None else self.itemWidget(item, 0)
             if isinstance(row, LayerRowWidget):
                 row.set_selected(selected)
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_Space and not event.modifiers():
             item = self.currentItem()
-            row = None if item is None else self.itemWidget(item)
+            row = None if item is None else self.itemWidget(item, 0)
             if row is not None:
                 row.visible.toggle()
                 event.accept()
@@ -671,11 +671,11 @@ class LayerListWidget(QtWidgets.QListWidget):
         item = self.currentItem()
         if item is None:
             return
-        source_index = self.row(item) - 1
+        source_index = self.indexOfTopLevelItem(item) - 1
         target_index = source_index + offset
-        if not 0 <= target_index < self.count() - 1:
+        if not 0 <= target_index < self.topLevelItemCount() - 1:
             return
-        row = self.itemWidget(item)
+        row = self.itemWidget(item, 0)
         self._move_layer_to_display_index(row.layer, target_index)
         self.rebuild(row.layer)
         self.presentationChanged.emit()
@@ -686,7 +686,7 @@ class LayerListWidget(QtWidgets.QListWidget):
 
     def dropEvent(self, event):
         source_item = self.currentItem()
-        source_row = None if source_item is None else self.itemWidget(source_item)
+        source_row = None if source_item is None else self.itemWidget(source_item, 0)
         if source_row is None:
             event.ignore()
             return
@@ -696,16 +696,16 @@ class LayerListWidget(QtWidgets.QListWidget):
             event.acceptProposedAction()
             return
         if target_item is None:
-            target_index = self.count() - 2
-        elif self.row(target_item) == 0:
+            target_index = self.topLevelItemCount() - 2
+        elif self.indexOfTopLevelItem(target_item) == 0:
             target_index = 0
         else:
             remaining = [
-                self.itemWidget(self.item(index)).layer
-                for index in range(1, self.count())
-                if self.item(index) is not source_item
+                self.itemWidget(self.topLevelItem(index), 0).layer
+                for index in range(1, self.topLevelItemCount())
+                if self.topLevelItem(index) is not source_item
             ]
-            target_layer = self.itemWidget(target_item).layer
+            target_layer = self.itemWidget(target_item, 0).layer
             insert_after = event.pos().y() >= self.visualItemRect(target_item).center().y()
             target_index = remaining.index(target_layer) + int(insert_after)
 
@@ -716,8 +716,8 @@ class LayerListWidget(QtWidgets.QListWidget):
         self.presentationChanged.emit()
 
     def reload_appearance(self):
-        for index in range(1, self.count()):
-            row = self.itemWidget(self.item(index))
+        for index in range(1, self.topLevelItemCount()):
+            row = self.itemWidget(self.topLevelItem(index), 0)
             if row is not None:
                 row.update()
                 row._refresh_previews()
@@ -725,7 +725,7 @@ class LayerListWidget(QtWidgets.QListWidget):
 
     def refresh_blending_icons(self):
         """Reflect an exclusive Solo change without rebuilding rows or moving focus."""
-        for index in range(1, self.count()):
-            row = self.itemWidget(self.item(index))
+        for index in range(1, self.topLevelItemCount()):
+            row = self.itemWidget(self.topLevelItem(index), 0)
             if isinstance(row, LayerRowWidget):
                 row._update_blending_icon()

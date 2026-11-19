@@ -187,7 +187,7 @@ class ImageController:
         self.current_image.applyPresentationFrom(self.window.project_data.image_defaults)
         item = self.window.imageList.currentItem()
         if item is not None:
-            self.show_image(item.data(ImageListWidget.IMG_NUM_ROLE))
+            self.show_image(item.data(0, ImageListWidget.IMG_NUM_ROLE))
             self.update_composed_image(reset_view=True)
         self.window.project_state_manager.project_changed()
 
@@ -202,7 +202,7 @@ class ImageController:
         if selected_image_id is None:
             item = window.imageList.currentItem()
             if item is not None:
-                selected_image_id = item.data(ImageListWidget.IMG_NUM_ROLE)
+                selected_image_id = item.data(0, ImageListWidget.IMG_NUM_ROLE)
 
         self.current_image = None
         with QtCore.QSignalBlocker(window.imageList):
@@ -213,16 +213,16 @@ class ImageController:
             row = next(
                 (
                     row
-                    for row in range(window.imageList.count())
-                    if window.imageList.item(row).data(ImageListWidget.IMG_NUM_ROLE)
+                    for row in range(window.imageList.topLevelItemCount())
+                    if window.imageList.topLevelItem(row).data(0, ImageListWidget.IMG_NUM_ROLE)
                     == selected_image_id
                 ),
-                0 if window.imageList.count() else -1,
+                0 if window.imageList.topLevelItemCount() else -1,
             )
-            window.imageList.setCurrentRow(row)
+            window.imageList.setCurrentItem(window.imageList.topLevelItem(row))
 
         if window.imageList.currentItem() is not None:
-            image_id = window.imageList.currentItem().data(ImageListWidget.IMG_NUM_ROLE)
+            image_id = window.imageList.currentItem().data(0, ImageListWidget.IMG_NUM_ROLE)
             self.show_image(image_id)
             self.update_composed_image(reset_view=True)
         else:
@@ -281,7 +281,7 @@ class ImageController:
         self.current_image = image
         window.element_controller.current_element = None
         self.clear_show_buttons()
-        window.elementList.setCurrentRow(-1)
+        window.elementList.setCurrentItem(None)
         self.set_controls_enabled(True)
         window.element_controller.set_controls_enabled(False)
 
@@ -409,7 +409,7 @@ class ImageController:
         item = self.window.imageList.currentItem()
         if item is None:
             return
-        image_id = item.data(ImageListWidget.IMG_NUM_ROLE)
+        image_id = item.data(0, ImageListWidget.IMG_NUM_ROLE)
         image = self.window.project_data.images[image_id]
         answer = QtWidgets.QMessageBox.question(
             self.window, "Delete image", f"Do you want to delete image '{image.name}'?"
@@ -418,12 +418,12 @@ class ImageController:
             self.window.elementPlot.clear_image()
             del self.window.project_data.images[image_id]
             self.current_image = None
-            self.window.imageList.takeItem(self.window.imageList.row(item))
+            self.window.imageList.takeTopLevelItem(self.window.imageList.indexOfTopLevelItem(item))
 
-    def _rename_image(self, item) -> None:
-        image_id = item.data(ImageListWidget.IMG_NUM_ROLE)
+    def _rename_image(self, item, _column) -> None:
+        image_id = item.data(0, ImageListWidget.IMG_NUM_ROLE)
         if image_id in self.window.project_data.images:
-            self.window.project_data.images[image_id].name = item.text()
+            self.window.project_data.images[image_id].name = item.text(0)
 
     def _layout_changed(self) -> None:
         if self.current_image is not None:
@@ -445,7 +445,7 @@ class ImageController:
 
     def _image_selected(self, current, _previous) -> None:
         if current is not None:
-            self.show_image(current.data(ImageListWidget.IMG_NUM_ROLE))
+            self.show_image(current.data(0, ImageListWidget.IMG_NUM_ROLE))
             self.update_composed_image(reset_view=True)
 
     def _mouse_over_plot(self, canvas_pixel) -> None:
@@ -544,9 +544,9 @@ class ImageController:
                 if channel.ref in window.project_data.element_settings
             }
         ordered_refs = [
-            window.elementList.item(row).data(ElementListWidget.ELEMENT_REF_ROLE)
-            for row in range(window.elementList.count())
-            if window.elementList.item(row).data(ElementListWidget.ELEMENT_REF_ROLE)
+            window.elementList.topLevelItem(row).data(0, ElementListWidget.ELEMENT_REF_ROLE)
+            for row in range(window.elementList.topLevelItemCount())
+            if window.elementList.topLevelItem(row).data(0, ElementListWidget.ELEMENT_REF_ROLE)
             in available_refs
         ]
         for slot, box in enumerate(window.imageElementBoxes):

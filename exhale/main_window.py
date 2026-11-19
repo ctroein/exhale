@@ -516,11 +516,11 @@ Licensed under the MIT License.</p>
         available_image_row = next(
             (
                 row
-                for row in range(self.imageList.count())
+                for row in range(self.imageList.topLevelItemCount())
                 if all(
                     element.data_source.is_available
                     for element in self.project_data.images[
-                        self.imageList.item(row).data(ImageListWidget.IMG_NUM_ROLE)
+                        self.imageList.topLevelItem(row).data(0, ImageListWidget.IMG_NUM_ROLE)
                     ].elements.values()
                 )
             ),
@@ -529,8 +529,12 @@ Licensed under the MIT License.</p>
         available_element_row = next(
             (
                 row
-                for row in range(self.elementList.count())
-                if (ref := self.elementList.item(row).data(ElementListWidget.ELEMENT_REF_ROLE))
+                for row in range(self.elementList.topLevelItemCount())
+                if (
+                    ref := self.elementList.topLevelItem(row).data(
+                        0, ElementListWidget.ELEMENT_REF_ROLE
+                    )
+                )
                 is not None
                 and ref.source_id in self.project_data.assets
                 and self.project_data.assets[ref.source_id].is_available
@@ -538,9 +542,9 @@ Licensed under the MIT License.</p>
             None,
         )
         if available_image_row is not None:
-            self.imageList.setCurrentRow(available_image_row)
+            self.imageList.setCurrentItem(self.imageList.topLevelItem(available_image_row))
         elif available_element_row is not None:
-            self.elementList.setCurrentRow(available_element_row)
+            self.elementList.setCurrentItem(self.elementList.topLevelItem(available_element_row))
         else:
             self.image_controller.set_controls_enabled(False)
             self.element_controller.set_controls_enabled(False)

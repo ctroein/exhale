@@ -293,10 +293,10 @@ class CorrelationController(QtCore.QObject):
         selected_scatter_sample = window.elementScatterSample.currentData()
         selected_distance_sample = window.clusterDistanceSample.currentData()
         selected_similarity_ids = {
-            item.data(self.SAMPLE_ID_ROLE)
+            item.data(0, self.SAMPLE_ID_ROLE)
             for item in window.sampleSimilaritySamples.selectedItems()
         }
-        had_similarity_items = window.sampleSimilaritySamples.count() > 0
+        had_similarity_items = window.sampleSimilaritySamples.topLevelItemCount() > 0
         samples = list(window.project_data.samples.values())
 
         for combo, selected in (
@@ -314,8 +314,8 @@ class CorrelationController(QtCore.QObject):
         with QtCore.QSignalBlocker(window.sampleSimilaritySamples):
             window.sampleSimilaritySamples.clear()
             for sample in samples:
-                item = QtWidgets.QListWidgetItem(sample.name, window.sampleSimilaritySamples)
-                item.setData(self.SAMPLE_ID_ROLE, sample.sample_id)
+                item = QtWidgets.QTreeWidgetItem(window.sampleSimilaritySamples, [sample.name])
+                item.setData(0, self.SAMPLE_ID_ROLE, sample.sample_id)
                 item.setSelected(
                     sample.sample_id in selected_similarity_ids or not had_similarity_items
                 )
@@ -628,9 +628,9 @@ class CorrelationController(QtCore.QObject):
     def _selected_similarity_samples(self):
         project_data = self.window.project_data
         return [
-            project_data.samples[item.data(self.SAMPLE_ID_ROLE)]
+            project_data.samples[item.data(0, self.SAMPLE_ID_ROLE)]
             for item in self.window.sampleSimilaritySamples.selectedItems()
-            if item.data(self.SAMPLE_ID_ROLE) in project_data.samples
+            if item.data(0, self.SAMPLE_ID_ROLE) in project_data.samples
         ]
 
     def _effective_channels(self, sample):

@@ -34,7 +34,7 @@ setting the new bits. Blue spots are placed first, followed by magenta spots
 under the same starting-clearance rule. Finally, RG pixels with at least three
 four-neighbour RG pixels lose their green bit. No yellow points are generated.
 The bottom three mask rows are excluded from starting positions, keeping new
-spots out of at least the bottom 33 pixels of the 627-pixel splash. Walks may
+spots out of at least the bottom 22 pixels of the 418-pixel splash. Walks may
 enter those rows after starting. Change `--seed` to obtain another deterministic
 sprinkling.
 
@@ -110,10 +110,12 @@ python artwork/generate/install_xrf_splash.py \
     artwork/generate/xrf_imagegen_57.png
 ```
 
-This writes `exhale/resources/xrf_splash.jpg` at 627×627. The complete generated
+This writes `exhale/resources/xrf_splash.jpg` at one third of the source width
+and height: 418×418 for the 1254×1254 generated artwork. The complete generated
 artwork remains the splash and retained source rather than a small UI logo. The
 installer limits the bottom 28-pixel strip to 25% HSB brightness and blends
-that adjustment smoothly through an eight-pixel transition above it.
+that adjustment smoothly through an eight-pixel transition above it. Startup
+status text uses an explicitly set bold 14-pixel font.
 
 ## 5. Build platform icons
 

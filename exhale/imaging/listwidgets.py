@@ -13,7 +13,7 @@ from ..tooltips import (
     IMAGE_ELEMENT_COLOR,
     IMAGE_SHOW_COMPOSED,
 )
-from ..widgets import IconCheckDelegate
+from ..widgets import IconCheckDelegate, ItemTreeWidget
 
 _GROUP_DIVIDER_ROLE = Qt.UserRole + 13
 _SAMPLE_STATE_ROLE = Qt.UserRole + 10
@@ -70,10 +70,10 @@ class SampleElementCheckDelegate(_GroupDividerMixin, IconCheckDelegate):
         return super().editorEvent(event, model, self._style_option(option, index), index)
 
 
-class ExhaleListWidget(QtWidgets.QListWidget):
+class ExhaleListWidget(ItemTreeWidget):
     "Base class for the lists below"
 
-    itemUnwanted = QtCore.Signal(QtWidgets.QListWidgetItem)
+    itemUnwanted = QtCore.Signal(QtWidgets.QTreeWidgetItem)
 
     def keyPressEvent(self, event):
         if event.matches(QtGui.QKeySequence.Delete) or event.matches(QtGui.QKeySequence.Backspace):
@@ -93,7 +93,7 @@ class ElementListWidget(ExhaleListWidget):
     SAMPLE_STATE_ROLE = _SAMPLE_STATE_ROLE
     SAMPLE_DEFERRED_ROLE = _SAMPLE_DEFERRED_ROLE
     SAMPLE_PROJECT_ENABLED_ROLE = _SAMPLE_PROJECT_ENABLED_ROLE
-    stateToggleRequested = QtCore.Signal(QtWidgets.QListWidgetItem)
+    stateToggleRequested = QtCore.Signal(QtWidgets.QTreeWidgetItem)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -120,30 +120,28 @@ class ElementListWidget(ExhaleListWidget):
             items = self.selectedItems() or [current]
             state = (
                 Qt.CheckState.Checked
-                if current.checkState() == Qt.CheckState.Unchecked
+                if current.checkState(0) == Qt.CheckState.Unchecked
                 else Qt.CheckState.Unchecked
             )
             for item in items:
-                item.setCheckState(state)
+                item.setCheckState(0, state)
             event.accept()
             return
         super().keyPressEvent(event)
 
     def addChannel(self, name, key, ref, check_state, *, tristate=False, element_icon=True):
         """Add a project or sample channel with its effective state."""
-        item = (
-            QtWidgets.QListWidgetItem(icons.icon(icons.IconName.ELEMENT), name)
-            if element_icon
-            else QtWidgets.QListWidgetItem(name)
-        )
-        item.setData(self.ELEMENT_REF_ROLE, ref)
-        item.setData(self.CHANNEL_KEY_ROLE, key)
-        item.setData(self.ELEMENT_ICON_ROLE, element_icon)
-        item.setToolTip(f"Channel key: {key}")
+        item = QtWidgets.QTreeWidgetItem([name])
+        if element_icon:
+            item.setIcon(0, icons.icon(icons.IconName.ELEMENT))
+        item.setData(0, self.ELEMENT_REF_ROLE, ref)
+        item.setData(0, self.CHANNEL_KEY_ROLE, key)
+        item.setData(0, self.ELEMENT_ICON_ROLE, element_icon)
+        item.setToolTip(0, f"Channel key: {key}")
         if tristate:
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserTristate)
-        item.setCheckState(check_state)
-        self.addItem(item)
+        item.setCheckState(0, check_state)
+        self.addTopLevelItem(item)
         return item
 
     def addSampleChannel(
@@ -158,12 +156,12 @@ class ElementListWidget(ExhaleListWidget):
         group_divider=False,
     ):
         """Add a sample channel using the shared four-glyph state presentation."""
-        item = QtWidgets.QListWidgetItem(name)
-        item.setData(self.ELEMENT_REF_ROLE, ref)
-        item.setData(self.CHANNEL_KEY_ROLE, key)
-        item.setData(_GROUP_DIVIDER_ROLE, group_divider)
+        item = QtWidgets.QTreeWidgetItem([name])
+        item.setData(0, self.ELEMENT_REF_ROLE, ref)
+        item.setData(0, self.CHANNEL_KEY_ROLE, key)
+        item.setData(0, _GROUP_DIVIDER_ROLE, group_divider)
         self.updateSampleChannel(item, state, deferred=deferred, project_enabled=project_enabled)
-        self.addItem(item)
+        self.addTopLevelItem(item)
         return item
 
     def use_sample_check_delegate(self):
@@ -173,15 +171,15 @@ class ElementListWidget(ExhaleListWidget):
     @staticmethod
     def updateSampleChannel(item, state, *, deferred, project_enabled):
         state_name = state.value if hasattr(state, "value") else str(state)
-        item.setData(ElementListWidget.SAMPLE_STATE_ROLE, state_name)
-        item.setData(ElementListWidget.SAMPLE_DEFERRED_ROLE, deferred)
-        item.setData(ElementListWidget.SAMPLE_PROJECT_ENABLED_ROLE, project_enabled)
+        item.setData(0, ElementListWidget.SAMPLE_STATE_ROLE, state_name)
+        item.setData(0, ElementListWidget.SAMPLE_DEFERRED_ROLE, deferred)
+        item.setData(0, ElementListWidget.SAMPLE_PROJECT_ENABLED_ROLE, project_enabled)
         item.setFlags(
             item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsUserTristate
         )
-        item.setCheckState(ElementListWidget._sample_check_state(state_name, deferred))
-        item.setIcon(QtGui.QIcon())
-        item.setToolTip("")
+        item.setCheckState(0, ElementListWidget._sample_check_state(state_name, deferred))
+        item.setIcon(0, QtGui.QIcon())
+        item.setToolTip(0, "")
 
     @staticmethod
     def _sample_check_state(state_name, deferred):
@@ -191,20 +189,20 @@ class ElementListWidget(ExhaleListWidget):
             return Qt.CheckState.Checked
         return Qt.CheckState.Unchecked
 
-    def _sample_check_state_changed(self, item):
-        state_name = item.data(self.SAMPLE_STATE_ROLE)
-        if state_name is not None and item.checkState() != self._sample_check_state(
+    def _sample_check_state_changed(self, item, _column):
+        state_name = item.data(0, self.SAMPLE_STATE_ROLE)
+        if state_name is not None and item.checkState(0) != self._sample_check_state(
             state_name,
-            bool(item.data(self.SAMPLE_DEFERRED_ROLE)),
+            bool(item.data(0, self.SAMPLE_DEFERRED_ROLE)),
         ):
             self.stateToggleRequested.emit(item)
 
     def reload_icons(self):
-        for row in range(self.count()):
-            item = self.item(row)
-            state = item.data(self.SAMPLE_STATE_ROLE)
-            if state is None and item.data(self.ELEMENT_ICON_ROLE):
-                item.setIcon(icons.icon(icons.IconName.ELEMENT))
+        for row in range(self.topLevelItemCount()):
+            item = self.topLevelItem(row)
+            state = item.data(0, self.SAMPLE_STATE_ROLE)
+            if state is None and item.data(0, self.ELEMENT_ICON_ROLE):
+                item.setIcon(0, icons.icon(icons.IconName.ELEMENT))
         self.viewport().update()
 
 
@@ -222,16 +220,11 @@ class ImageListWidget(ExhaleListWidget):
         self.setAcceptDrops(True)
         self.setDropIndicatorShown(True)
 
-    def dropEvent(self, event: QtGui.QDropEvent):
-        # event.mimeData().dumpObjectTree()
-        # print("imglist drop")
-        print(event.source())
-        super().dropEvent(event)
-
     def addImage(self, num: int, imageSettings: ImageSettings):
         "Add image to this list by id and settings object"
-        item = QtWidgets.QListWidgetItem(icons.icon(icons.IconName.IMAGE), imageSettings.name)
-        item.setData(ImageListWidget.IMG_NUM_ROLE, num)
+        item = QtWidgets.QTreeWidgetItem([imageSettings.name])
+        item.setIcon(0, icons.icon(icons.IconName.IMAGE))
+        item.setData(0, ImageListWidget.IMG_NUM_ROLE, num)
         item.setFlags(
             Qt.ItemFlag.ItemIsSelectable
             | Qt.ItemFlag.ItemIsEditable
@@ -239,15 +232,13 @@ class ImageListWidget(ExhaleListWidget):
             | Qt.ItemFlag.ItemIsEnabled
             | Qt.ItemFlag.ItemNeverHasChildren
         )
-        # This is supposed to add the item at the bottom of the list but
-        # for me it's usually (but not always) added at the top. Weird.
-        self.addItem(item)
+        self.addTopLevelItem(item)
         self.setCurrentItem(item)
 
     def reload_icons(self):
         icon = icons.icon(icons.IconName.IMAGE)
-        for row in range(self.count()):
-            self.item(row).setIcon(icon)
+        for row in range(self.topLevelItemCount()):
+            self.topLevelItem(row).setIcon(0, icon)
 
 
 class ColorButton(QtWidgets.QPushButton):
@@ -271,6 +262,16 @@ class ColorButton(QtWidgets.QPushButton):
             self.dialog.open(picked)
 
         self.clicked.connect(pick)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        option = QtWidgets.QStyleOptionButton()
+        self.initStyleOption(option)
+        contents = self.style().subElementRect(QtWidgets.QStyle.SE_PushButtonContents, option, self)
+        # A swatch is data, not a themed button background. Native Windows
+        # styles may ignore QPalette.Button when drawing the button itself.
+        painter = QtGui.QPainter(self)
+        painter.fillRect(contents, self.palette().brush(QtGui.QPalette.Button))
 
     def color(self):
         color = self.palette().color(QtGui.QPalette.ColorRole.Button)

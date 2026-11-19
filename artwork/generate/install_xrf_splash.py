@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install selected XRF artwork as the application's fixed-size splash image."""
+"""Install selected XRF artwork as the application's downscaled splash image."""
 
 from argparse import ArgumentParser
 from pathlib import Path
@@ -10,7 +10,7 @@ from PIL import Image
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 RUNTIME_SPLASH = ROOT / "exhale" / "resources" / "xrf_splash.jpg"
-SPLASH_SIZE = 627
+SPLASH_DIVISOR = 3
 STATUS_HEIGHT = 28
 STATUS_FEATHER = 8
 STATUS_MAXIMUM_BRIGHTNESS = 64  # 25% on the 0–255 HSB brightness scale.
@@ -47,7 +47,8 @@ def main() -> None:
     parser.add_argument("input_artwork", type=Path)
     args = parser.parse_args()
     with Image.open(args.input_artwork) as source:
-        splash = source.convert("RGB").resize((SPLASH_SIZE, SPLASH_SIZE), Image.Resampling.LANCZOS)
+        size = tuple(max(1, dimension // SPLASH_DIVISOR) for dimension in source.size)
+        splash = source.convert("RGB").resize(size, Image.Resampling.LANCZOS)
     splash = darken_status_area(splash)
     RUNTIME_SPLASH.parent.mkdir(parents=True, exist_ok=True)
     splash.save(RUNTIME_SPLASH, quality=95, subsampling=0)

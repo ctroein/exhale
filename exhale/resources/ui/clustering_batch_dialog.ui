@@ -5,8 +5,8 @@
   <property name="windowTitle"><string>Batch clustering</string></property>
   <layout class="QVBoxLayout" name="batchLayout" stretch="0,1,0,0,0">
    <item><widget class="QLabel" name="methodInfo"/></item>
-   <item><widget class="QTreeWidget" name="sampleTree">
-    <property name="rootIsDecorated"><bool>false</bool></property>
+   <item><widget class="ItemTreeWidget" name="sampleTree">
+    <property name="headerHidden"><bool>false</bool></property>
     <property name="sortingEnabled"><bool>false</bool></property>
     <column><property name="text"><string>Sample</string></property></column>
     <column><property name="text"><string>Elements</string></property></column>
@@ -22,6 +22,13 @@
    <item><widget class="QDialogButtonBox" name="buttonBox"><property name="standardButtons"><set>QDialogButtonBox::Cancel</set></property></widget></item>
   </layout>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>ItemTreeWidget</class>
+   <extends>QTreeWidget</extends>
+   <header>exhale.widgets</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

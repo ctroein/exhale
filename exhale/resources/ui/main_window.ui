@@ -56,12 +56,12 @@
          <property name="orientation"><enum>Qt::Horizontal</enum></property><property name="handleWidth"><number>8</number></property>
          <widget class="QWidget" name="samplesPane"><layout class="QVBoxLayout" name="samplesLayout" stretch="0,1,0">
           <item><layout class="QHBoxLayout" name="samplesHeaderLayout"><item><widget class="QLabel" name="samplesLabel"><property name="text"><string>Samples and files</string></property></widget></item><item><spacer name="samplesHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item></layout></item>
-          <item><widget class="QTreeWidget" name="sampleTree"><column><property name="text"><string>Name</string></property></column><column><property name="text"><string>Size</string></property></column><column><property name="text"><string>Element maps</string></property></column></widget></item>
+          <item><widget class="ItemTreeWidget" name="sampleTree"><property name="rootIsDecorated"><bool>true</bool></property><property name="headerHidden"><bool>false</bool></property><column><property name="text"><string>Name</string></property></column><column><property name="text"><string>Size</string></property></column><column><property name="text"><string>Element maps</string></property></column></widget></item>
           <item><layout class="QHBoxLayout" name="sampleButtonsLayout"><item><widget class="QToolButton" name="addProjectFilesButton"><property name="text"><string>Add sample(s)…</string></property><property name="toolButtonStyle"><enum>Qt::ToolButtonTextBesideIcon</enum></property></widget></item><item><widget class="QPushButton" name="addSampleFilesButton"><property name="text"><string>Add files to sample…</string></property></widget></item><item><spacer name="sampleButtonsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QPushButton" name="removeButton"><property name="text"><string>Remove selected item</string></property></widget></item></layout></item>
          </layout></widget>
          <widget class="QWidget" name="channelsPane"><layout class="QVBoxLayout" name="channelsLayout" stretch="0,1">
           <item><layout class="QHBoxLayout" name="channelsHeaderLayout"><item><widget class="QLabel" name="channelsLabel"><property name="text"><string>Project elements</string></property></widget></item><item><spacer name="channelsHeaderSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item><item><widget class="QToolButton" name="projectElementsHelp"><property name="text"><string>Help</string></property></widget></item><item><widget class="QToolButton" name="refreshChannelsButton"/></item></layout></item>
-          <item><widget class="QTreeWidget" name="channelList"><column><property name="text"><string>Name</string></property></column><column><property name="text"><string>In samples</string></property></column></widget></item>
+          <item><widget class="ItemTreeWidget" name="channelList"><property name="headerHidden"><bool>false</bool></property><column><property name="text"><string>Name</string></property></column><column><property name="text"><string>In samples</string></property></column></widget></item>
          </layout></widget>
         </widget></item>
        </layout>
@@ -339,8 +339,8 @@
          <property name="orientation"><enum>Qt::Horizontal</enum></property>
          <property name="handleWidth"><number>8</number></property>
          <widget class="QWidget" name="clusteringControlsWidget">
-          <layout class="QVBoxLayout" name="clusteringControlsLayout">
-           <item><widget class="QGroupBox" name="clusteringRunGroup"><property name="title"><string>Run clustering</string></property>
+          <layout class="QVBoxLayout" name="clusteringControlsLayout" stretch="0,0,0,1">
+           <item><widget class="QGroupBox" name="clusteringRunGroup"><property name="sizePolicy"><sizepolicy hsizetype="Preferred" vsizetype="Maximum"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="title"><string>Run clustering</string></property>
             <layout class="QVBoxLayout" name="clusteringRunLayout">
              <item><layout class="QHBoxLayout" name="clusteringMethodLayout" stretch="0,2,1">
               <item><widget class="QLabel" name="clusteringMethodLabel"><property name="text"><string>Run method</string></property></widget></item>
@@ -352,7 +352,7 @@
               <item><widget class="QLabel" name="clusteringRunSampleLabel"><property name="text"><string>Sample</string></property></widget></item>
               <item><widget class="QComboBox" name="clusteringRunSample"/></item>
              </layout></item>
-             <item><widget class="QStackedWidget" name="clusteringOptionsStack">
+             <item><widget class="QStackedWidget" name="clusteringOptionsStack"><property name="sizePolicy"><sizepolicy hsizetype="Preferred" vsizetype="Fixed"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property>
               <widget class="QWidget" name="clusteringIntensityOptions"><layout class="QHBoxLayout" name="clusteringIntensityLayout">
                <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
                <item><widget class="QLabel" name="clusteringClassesLabel"><property name="text"><string>Intensity classes</string></property></widget></item>
@@ -376,7 +376,7 @@
             </layout>
            </widget></item>
            <item><spacer name="clusteringControlsSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeType"><enum>QSizePolicy::Maximum</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>24</height></size></property></spacer></item>
-           <item><widget class="QGroupBox" name="clusteringDisplayGroup"><property name="title"><string>Display</string></property>
+           <item><widget class="QGroupBox" name="clusteringDisplayGroup"><property name="sizePolicy"><sizepolicy hsizetype="Preferred" vsizetype="Maximum"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="title"><string>Display</string></property>
             <layout class="QVBoxLayout" name="clusteringDisplayLayout">
            <item><layout class="QHBoxLayout" name="clusteringAnalysisMethodLayout">
             <item><widget class="QLabel" name="clusteringAnalysisMethodLabel"><property name="text"><string>Result method</string></property></widget></item>
@@ -388,10 +388,9 @@
             <item><widget class="QLabel" name="clusteringSampleLabel"><property name="text"><string>Sample</string></property></widget></item>
             <item><widget class="QComboBox" name="clusteringSampleComboBox"/></item>
            </layout></item>
-             <item><layout class="QHBoxLayout" name="clusteringElementLayout" stretch="0,1">
+             <item><layout class="QHBoxLayout" name="clusteringElementLayout" stretch="1,3">
               <item><widget class="QLabel" name="clusteringElementLabel"><property name="text"><string>Element</string></property></widget></item>
               <item><widget class="QComboBox" name="clusteringElementCombo"/></item>
-              <item><widget class="QLabel" name="clusteringBusy"><property name="minimumSize"><size><width>18</width><height>18</height></size></property><property name="text"><string> </string></property><property name="toolTip"><string>Clustering this element</string></property></widget></item>
              </layout></item>
              <item><layout class="QHBoxLayout" name="clusteringCutoffLayout">
               <item><widget class="QLabel" name="clusteringCutoffLabel"><property name="text"><string>Cutoff (× noise scale)</string></property></widget></item>
@@ -410,7 +409,7 @@
              <item><widget class="QLabel" name="clusteringViewerHelp"><property name="text"><string>Combine layers more freely in the Segmentation viewer.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
             </layout>
            </widget></item>
-           <item><spacer name="clusteringBottomSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
+           <item><spacer name="clusteringBottomSpacer"><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property></spacer></item>
           </layout>
          </widget>
          <widget class="QWidget" name="clusteringNapariWidget" native="true">
@@ -1200,7 +1199,7 @@
                  </widget>
                 </item>
                 <item>
-                 <widget class="QListWidget" name="sampleSimilaritySamples">
+                 <widget class="ItemTreeWidget" name="sampleSimilaritySamples">
                   <property name="selectionMode">
                    <enum>QAbstractItemView::ExtendedSelection</enum>
                   </property>
@@ -1230,12 +1229,10 @@
                  </widget>
                 </item>
                 <item>
-                 <widget class="QTreeWidget" name="sampleSimilarityExcluded">
+                 <widget class="ItemTreeWidget" name="sampleSimilarityExcluded">
+                  <property name="headerHidden"><bool>false</bool></property>
                   <property name="selectionMode">
                    <enum>QAbstractItemView::NoSelection</enum>
-                  </property>
-                  <property name="rootIsDecorated">
-                   <bool>false</bool>
                   </property>
                   <property name="itemsExpandable">
                    <bool>false</bool>
@@ -1705,23 +1702,28 @@ Normalized distances are observed means divided by their random expectations. Pe
  </widget>
  <customwidgets>
   <customwidget>
+   <class>ItemTreeWidget</class>
+   <extends>QTreeWidget</extends>
+   <header>exhale.widgets</header>
+  </customwidget>
+  <customwidget>
    <class>IconToolButton</class>
    <extends>QToolButton</extends>
    <header>exhale.widgets</header>
   </customwidget>
   <customwidget>
    <class>ElementListWidget</class>
-   <extends>QListWidget</extends>
+   <extends>QTreeWidget</extends>
    <header>exhale.imaging.listwidgets</header>
   </customwidget>
   <customwidget>
    <class>ImageListWidget</class>
-   <extends>QListWidget</extends>
+   <extends>QTreeWidget</extends>
    <header>exhale.imaging.listwidgets</header>
   </customwidget>
   <customwidget>
    <class>LayerListWidget</class>
-   <extends>QListWidget</extends>
+   <extends>QTreeWidget</extends>
    <header>exhale.analysis.layerwidgets</header>
   </customwidget>
   <customwidget>

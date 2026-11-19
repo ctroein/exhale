@@ -138,12 +138,17 @@ needed to reproduce calculations, expressed in the reader's terms.
 
 Access Qt through `qtpy` so the application remains independent of a specific
 Qt binding.
+Keep simple components platform-independent and controlled by the application
+style. Platform-specific rendering belongs in style classes, not component
+branches. Custom drawing requires a concrete functional reason, such as visible
+splitter grips or data color swatches; it must preserve shared interaction rules.
 
 The packaged binding is PyQt6 (Qt 6.7 or newer), required by Napari 0.10.
 On Windows, native widget drawing must use the same color scheme as the palette.
-Qt 6.8+ supports the application color-scheme override; use its matching platform
-palette so checkboxes, progress bars and other native controls retain their accent
-colors. Qt 6.7 uses Fusion for explicit light/dark palettes. Returning to System
+Qt 6.8+ supports the application color-scheme override. On Windows 11, use
+the native Win32/UXTheme style and its full platform palette for Light, and the
+Windows 11 style for Dark. Apply real Qt style changes so native caches, frames
+and layouts stay in sync; do not patch individual palette colors. Qt 6.7 uses Fusion for explicit light/dark palettes. Returning to System
 clears palette overrides instead of installing a style's `standardPalette()`,
 which can differ from the active platform theme. Fusion's standard palette can
 itself be dark and must not be used as an unconditional light palette.
@@ -153,16 +158,15 @@ When running pytest directly in such an environment, use `QT_API=pyqt6`.
 
 Establish sorting and grouping when a list or selector is populated, then keep
 item positions stable while the user selects, checks, activates, or edits items.
-Project and sample element checks share `IconCheckDelegate` and its native cell
-geometry. Sample rows add space only for explicit group dividers. Keep sizing,
-painting and check hit-testing on the same shared style path; do not compensate
-for platform list padding with a separate fixed row height.
-Windows 11 list/tree selection markers share the viewport's leading edge, even
-for indented tree rows. Keep the native marker and reserve its gutter consistently
-through `ItemViewStyle`. Image/file decorations and custom SVG checkbox glyphs
-use native icon and indicator metrics. Retain native row heights and padding;
-embedded controls and explicit group dividers may require additional space.
+Use `ItemTreeWidget` and `QTreeWidgetItem` for flat lists and hierarchical views
+so their native construction stays consistent. Multi-column views show headers;
+flat lists hide them. Flat lists omit the branch gutter; hierarchical views
+explicitly enable root decoration. Leave row spacing, indentation metrics,
+decorations and selection drawing to Qt. Project and sample element checks share `IconCheckDelegate` for
+semantic SVG glyphs and check interaction, using native indicator metrics.
+Embedded controls and explicit group dividers may require additional space.
 
+Splitter drawing preserves the containing background on all platforms and styles.
 Main content splitters use an 8-pixel handle width, as established on the
 Project data and Element maps tabs. This provides the extra space needed for a
 splitter without changing the normal margins around its panes. Embedded canvas

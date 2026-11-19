@@ -2,7 +2,7 @@
 ## Efficient X-ray Hub Aiding Lung Explorations
 
 <p align="center">
-  <img src="artwork/screenshots/segmentation_20261023.png"
+  <img src="https://raw.githubusercontent.com/ctroein/exhale/main/artwork/screenshots/segmentation_20261023.png"
        alt="EXHALE segmentation results"
        width="900">
 </p>

@@ -15,8 +15,8 @@ class Ui_ClusteringBatchDialog(object):
         self.methodInfo = QtWidgets.QLabel(parent=ClusteringBatchDialog)
         self.methodInfo.setObjectName("methodInfo")
         self.batchLayout.addWidget(self.methodInfo)
-        self.sampleTree = QtWidgets.QTreeWidget(parent=ClusteringBatchDialog)
-        self.sampleTree.setRootIsDecorated(False)
+        self.sampleTree = ItemTreeWidget(parent=ClusteringBatchDialog)
+        self.sampleTree.setHeaderHidden(False)
         self.sampleTree.setObjectName("sampleTree")
         self.batchLayout.addWidget(self.sampleTree)
         self.selectionLayout = QtWidgets.QHBoxLayout()
@@ -56,3 +56,4 @@ class Ui_ClusteringBatchDialog(object):
         self.selectAll.setText(_translate("ClusteringBatchDialog", "Select all"))
         self.selectNew.setText(_translate("ClusteringBatchDialog", "Select unclustered"))
         self.selectNone.setText(_translate("ClusteringBatchDialog", "Select none"))
+from exhale.widgets import ItemTreeWidget

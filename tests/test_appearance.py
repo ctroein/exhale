@@ -14,6 +14,7 @@ def manager(tmp_path):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     original_palette = app.palette()
     original_style = app.style().objectName()
+    appearance._install_application_style(app)
     hints = app.styleHints()
     if hasattr(hints, "unsetColorScheme"):
         hints.unsetColorScheme()
@@ -68,18 +69,13 @@ def test_windows_native_scheme_tracks_explicit_palette(manager):
     app = QtWidgets.QApplication.instance()
     if not hasattr(app.styleHints(), "setColorScheme"):
         pytest.skip("Native scheme override requires Qt 6.8")
-    style = app.style().objectName()
     for scheme, expected in (
         ("light", QtCore.Qt.ColorScheme.Light),
         ("dark", QtCore.Qt.ColorScheme.Dark),
     ):
-        app.styleHints().setColorScheme(expected)
-        app.setPalette(QtGui.QPalette())
-        native_palette = app.palette()
         manager.set_scheme(scheme)
         assert app.styleHints().colorScheme() == expected
-        assert app.style().objectName() == style
-        assert app.palette() == native_palette
+        assert app.style().objectName() == ("windowsvista" if scheme == "light" else "windows11")
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Qt 6.7 Windows fallback")
@@ -132,11 +128,54 @@ def test_item_view_frames_follow_light_dark_switches(manager):
         for scheme in ("light", "dark", "light"):
             manager.set_scheme(scheme)
             app.processEvents()
-            fresh_style = QtWidgets.QStyleFactory.create(app.style().objectName())
+            fresh_style = QtWidgets.QStyleFactory.create(
+                "windowsvista" if scheme == "light" else app.style().objectName()
+            )
             assert frame_image(view.style()) == frame_image(fresh_style)
             assert frame_image(app.style()) == frame_image(fresh_style)
             frames[scheme] = frame_image(view.style())
         assert frames["light"] != frames["dark"]
     finally:
         view.deleteLater()
+        app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+
+
+@pytest.mark.parametrize("style_name", ["Fusion", "windowsvista", "windows11"])
+@pytest.mark.parametrize("orientation", [QtCore.Qt.Horizontal, QtCore.Qt.Vertical])
+def test_splitter_draws_grip_over_inherited_background(manager, style_name, orientation):
+    manager.set_scheme("light")
+    app = QtWidgets.QApplication.instance()
+    if style_name.casefold() not in [name.casefold() for name in QtWidgets.QStyleFactory.keys()]:
+        pytest.skip("Style unavailable on this platform")
+    app.setStyle(style_name)
+    appearance._install_application_style(app)
+
+    class PaintedParent(QtWidgets.QWidget):
+        color = QtGui.QColor("#83b49d")
+
+        def paintEvent(self, event):
+            painter = QtGui.QPainter(self)
+            painter.fillRect(self.rect(), self.color)
+
+    host = PaintedParent()
+    splitter = QtWidgets.QSplitter(orientation)
+    splitter.setHandleWidth(8)
+    for _ in range(2):
+        splitter.addWidget(QtWidgets.QWidget())
+    QtWidgets.QVBoxLayout(host).addWidget(splitter)
+    host.resize(240, 240)
+    host.show()
+    try:
+        for color in ("#83b49d", "#36283e"):
+            host.color = QtGui.QColor(color)
+            host.update()
+            app.processEvents()
+            handle = splitter.handle(1)
+            image = host.grab().toImage()
+            corner = handle.mapTo(host, QtCore.QPoint(0, 0))
+            assert image.pixelColor(corner) == host.color
+            center = handle.mapTo(host, handle.rect().center())
+            assert image.pixelColor(center) != host.color
+    finally:
+        host.deleteLater()
         app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)

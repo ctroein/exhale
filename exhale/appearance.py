@@ -13,138 +13,18 @@ COLOR_SCHEMES = ("system", "light", "dark")
 _manager = None
 
 
-class ItemViewStyle(QtWidgets.QProxyStyle):
-    """Retain native item metrics and consistent Windows selection markers."""
-
-    MARKER_GUTTER = 8
+class SplitterStyle(QtWidgets.QProxyStyle):
+    """Inherit splitter backgrounds and draw a shared palette-aware grip."""
 
     def __init__(self, style_name):
         super().__init__(style_name)
         self.setObjectName(style_name.casefold())
 
-    def _has_native_marker(self):
-        return (
-            self.baseStyle().objectName().casefold() == "windows11"
-            and QApplication.styleHints().colorScheme() != QtCore.Qt.ColorScheme.Unknown
-        )
-
-    @staticmethod
-    def _cell_widget(widget):
-        return (
-            widget.viewport()
-            if isinstance(widget, (QtWidgets.QListView, QtWidgets.QTreeView))
-            else widget
-        )
-
-    def _cell_option(self, option, widget):
-        cell = QtWidgets.QStyleOptionViewItem(option)
-        if self._has_native_marker() and isinstance(widget, QtWidgets.QTreeView):
-            if cell.direction == QtCore.Qt.RightToLeft:
-                if cell.rect.right() >= widget.viewport().width() - 1:
-                    cell.rect.adjust(0, 0, -self.MARKER_GUTTER, 0)
-            elif cell.rect.left() <= 0:
-                cell.rect.adjust(self.MARKER_GUTTER, 0, 0, 0)
-        return cell
-
-    def _draw_marker(self, option, painter, widget):
-        marker = QtWidgets.QStyleOptionViewItem(option)
-        marker.rect.setLeft(0)
-        marker.rect.setRight(widget.viewport().width() - 1)
-        marker.features = QtWidgets.QStyleOptionViewItem.ViewItemFeature.None_
-        # Ask the native style to draw its own marker, without tree decorations
-        # or alternate-row fill. Its position is relative to the whole viewport.
-        super().drawPrimitive(
-            QtWidgets.QStyle.PE_PanelItemViewRow, marker, painter, widget.viewport()
-        )
-
     def drawControl(self, element, option, painter, widget=None):
-        if (
-            element == QtWidgets.QStyle.CE_Splitter
-            and isinstance(widget, (QtWidgets.QSplitter, QtWidgets.QSplitterHandle))
-            and self.baseStyle().objectName().casefold() == "windows11"
+        if element != QtWidgets.QStyle.CE_Splitter or not isinstance(
+            widget, (QtWidgets.QSplitter, QtWidgets.QSplitterHandle)
         ):
-            painter.fillRect(option.rect, option.palette.brush(QtGui.QPalette.Base))
-            return
-        if (
-            element == QtWidgets.QStyle.CE_PushButtonBevel
-            and self.baseStyle().objectName().casefold() == "windows11"
-            and not option.state & QtWidgets.QStyle.State_Enabled
-            and option.palette.color(QtGui.QPalette.Window).lightness() > 128
-            and not option.features & QtWidgets.QStyleOptionButton.Flat
-        ):
-            super().drawControl(element, option, painter, widget)
-            painter.save()
-            painter.setBrush(QtCore.Qt.NoBrush)
-            painter.setPen(option.palette.color(QtGui.QPalette.Disabled, QtGui.QPalette.Mid))
-            # Match the Windows 11 button outline; use the palette's disabled
-            # border color instead of the style's nearly transparent stroke.
-            radius = 2 * self.pixelMetric(QtWidgets.QStyle.PM_DefaultFrameWidth, option, widget)
-            painter.drawRoundedRect(
-                QtCore.QRectF(option.rect).adjusted(1.5, 1.5, -1.5, -1.5), radius, radius
-            )
-            painter.restore()
-            return
-        if element != QtWidgets.QStyle.CE_ItemViewItem:
             return super().drawControl(element, option, painter, widget)
-        cell = self._cell_option(option, widget)
-        super().drawControl(element, cell, painter, self._cell_widget(widget))
-        if self._has_native_marker() and isinstance(
-            widget, (QtWidgets.QListView, QtWidgets.QTreeView)
-        ):
-            self._draw_marker(option, painter, widget)
-
-    def drawPrimitive(self, element, option, painter, widget=None):
-        if (
-            element == QtWidgets.QStyle.PE_PanelItemViewRow
-            and self._has_native_marker()
-            and isinstance(widget, QtWidgets.QTreeView)
-        ):
-            row = QtWidgets.QStyleOptionViewItem(option)
-            row.rect.setLeft(0)
-            row.rect.setRight(widget.viewport().width() - 1)
-            super().drawPrimitive(element, row, painter, widget)
-            self._draw_marker(option, painter, widget)
-            return
-        super().drawPrimitive(element, option, painter, widget)
-
-    def subElementRect(self, element, option, widget=None):
-        if isinstance(option, QtWidgets.QStyleOptionViewItem):
-            if isinstance(option.widget, (QtWidgets.QListView, QtWidgets.QTreeView)):
-                widget = option.widget
-            option = self._cell_option(option, widget)
-        return super().subElementRect(element, option, widget)
-
-    def drawItemText(
-        self, painter, rect, flags, palette, enabled, text, text_role=QtGui.QPalette.NoRole
-    ):
-        if (
-            not enabled
-            and text_role != QtGui.QPalette.NoRole
-            and self.baseStyle().objectName().casefold() == "windows11"
-            and palette.color(QtGui.QPalette.Window).lightness() > 128
-        ):
-            palette = QtGui.QPalette(palette)
-            palette.setColor(
-                QtGui.QPalette.Disabled,
-                text_role,
-                palette.color(QtGui.QPalette.Disabled, QtGui.QPalette.Text),
-            )
-        super().drawItemText(painter, rect, flags, palette, enabled, text, text_role)
-
-
-class SplitterGripStyle(ItemViewStyle):
-    """A restrained, palette-aware splitter grip for Fusion only."""
-
-    def __init__(self):
-        super().__init__("Fusion")
-        self.setObjectName("fusion")
-
-    def drawControl(self, element, option, painter, widget=None):
-        if element != QtWidgets.QStyle.CE_Splitter or not isinstance(widget, QtWidgets.QSplitter):
-            return super().drawControl(element, option, painter, widget)
-
-        # Leave the handle background and hit area unchanged. In particular,
-        # do not also override dock-widget separators drawn with CE_Splitter.
         rect = QtCore.QRectF(option.rect)
         vertical = widget.orientation() == QtCore.Qt.Horizontal
         length = min(24.0, (rect.height() if vertical else rect.width()) - 4.0)
@@ -171,18 +51,9 @@ class SplitterGripStyle(ItemViewStyle):
 
 
 def _install_application_style(app) -> None:
-    # Other platform styles retain their native item-view conventions.
-    if app.style().objectName().casefold() == "fusion" and not isinstance(
-        app.style(), SplitterGripStyle
-    ):
+    if not isinstance(app.style(), SplitterStyle):
         palette = app.palette()
-        app.setStyle(SplitterGripStyle())
-        app.setPalette(palette)
-    elif app.style().objectName().casefold() == "windows11" and not isinstance(
-        app.style(), ItemViewStyle
-    ):
-        palette = app.palette()
-        app.setStyle(ItemViewStyle("windows11"))
+        app.setStyle(SplitterStyle(app.style().objectName()))
         app.setPalette(palette)
 
 
@@ -231,10 +102,10 @@ class AppearanceManager(QtCore.QObject):
     def apply_configured_scheme(self) -> None:
         self.set_scheme(self.settings.value(COLOR_SCHEME_KEY, "system"))
 
-    def set_scheme(self, scheme: str) -> None:
+    def set_scheme(self, scheme: str, *, force: bool = False) -> None:
         if scheme not in COLOR_SCHEMES:
             raise ValueError(f"Unknown colour scheme: {scheme}")
-        if scheme == self._scheme and getattr(self, "_initialized", False):
+        if not force and scheme == self._scheme and getattr(self, "_initialized", False):
             return
 
         self._scheme = scheme
@@ -255,13 +126,21 @@ class AppearanceManager(QtCore.QObject):
                         }[scheme]
                     )
                     native_palette = True
+                    style = self._system_style
+                    if (
+                        style.casefold() == "windows11"
+                        and app.styleHints().colorScheme() == QtCore.Qt.ColorScheme.Light
+                    ):
+                        # The Win32/UXTheme style supplies the complete normal
+                        # Windows light palette, backgrounds, frames and metrics.
+                        style = "windowsvista"
                 else:
                     # Qt 6.7 cannot override the native color scheme. Fusion
                     # honors our explicit palettes; System restores the style.
                     style = self._system_style if scheme == "system" else "fusion"
-                    if app.style().objectName().casefold() != style.casefold():
-                        app.setStyle(style)
-                        _install_application_style(app)
+                if app.style().objectName().casefold() != style.casefold():
+                    app.setStyle(style)
+                _install_application_style(app)
             if scheme == "system" or native_palette:
                 # An unresolved palette removes application overrides and lets
                 # Qt supply the current platform palette, including OS changes.
@@ -277,7 +156,7 @@ class AppearanceManager(QtCore.QObject):
 
     def _application_palette_changed(self, _palette) -> None:
         if self._scheme == "system" and not self._applying:
-            self.changed.emit()
+            self.set_scheme("system", force=True)
 
 
 def initialize(

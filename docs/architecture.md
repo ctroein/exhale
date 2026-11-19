@@ -31,15 +31,16 @@ Fusion for explicit light/dark choices. System selection clears application
 palette overrides and follows platform changes. Custom palette resources are
 refreshed through the manager's change signal.
 
-`ItemViewStyle` in `appearance` preserves native row metrics and padding while
-placing the Windows 11 selection marker at the viewport's leading edge,
-independently of tree indentation. Other platform styles retain their native
-conventions. Image/file decorations and element check glyphs use native metrics.
-Project and sample element checks share the SVG interaction delegate in `widgets`;
-sample group dividers add their own spacing. Per-view styles follow application
-palette and style changes, including native color caches. Windows 11 light-mode
-disabled text and button outlines use the palette's disabled text/border colors,
-and splitter backgrounds match the surrounding page's Base brush.
+On Windows 11, Light selects Qt's native Win32/UXTheme style (`windowsvista`),
+with its complete platform light palette. Dark retains the Windows 11 style;
+System follows the OS scheme. Qt performs real style changes so frame and layout
+caches update together. Platform-specific decisions stay in `appearance`.
+`ItemTreeWidget` gives flat lists and hierarchical views the same native tree/item
+construction. Qt owns row spacing, indentation and selection markers; shared
+interaction delegates supply element-state glyphs at native indicator sizes.
+Splitters retain the inherited background and share a palette-aware grip on
+all styles.
+Data color swatches paint their actual color independently of themed button fills.
 
 `UpdateController` owns desktop release-check scheduling, its worker and update
 confirmation. Application preferences store the daily-check setting and last
