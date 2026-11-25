@@ -26,7 +26,7 @@ class SegmentationBatchDialog(QtWidgets.QDialog, Ui_SegmentationBatchDialog):
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
         self._rows = []
-        for sample in sorted(project.samples.values(), key=lambda sample: sample.name.casefold()):
+        for sample in project.samples.values():
             channels = batch_channels(project, sample)
             item = QtWidgets.QTreeWidgetItem(self.sampleTree, [sample.name, "", ""])
             item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)

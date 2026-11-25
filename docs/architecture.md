@@ -122,6 +122,14 @@ settings. A channel without a project selection is absent unless overridden.
 model copy. Its current selection and editor context are controller UI state;
 they are not mirrored on `MainWindow`.
 
+
+Sample iteration is alphabetical by default. The Project data tree can move
+selected sample groups with drag-and-drop. Custom order is saved as sample IDs
+in the sample_order field. New samples append to a custom order. Sort A–Z restores
+automatic alphabetical ordering. Sample selectors and batch dialogs follow
+the project order. File drops continue to import files independently.
+
+
 ## Source loading and import
 
 `exhale.data.source_refs` detects HDF5 and TIFF files by content, validates

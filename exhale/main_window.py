@@ -57,6 +57,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.project_manager = ProjectManager(self)
         self.source_manager = SourceManager(self)
         self.setupUi(self)
+        self.project_manager.configure_recent_projects()
         self.setWindowTitle(application_title)
         self._configure_view_menu()
         self._configure_tooltips()

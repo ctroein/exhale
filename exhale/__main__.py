@@ -237,7 +237,12 @@ def _run_application():
 
     from qtpy import QtCore, QtGui, QtWidgets
 
-    from .rendering import RenderingRestartRequested, configure_rendering, restart_application
+    from .rendering import (
+        RenderingRestartRequested,
+        configure_pyopengl_platform,
+        configure_rendering,
+        restart_application,
+    )
     from .updates import check_running_launcher
 
     check_running_launcher()
@@ -257,6 +262,7 @@ def _run_application():
     app = QtWidgets.QApplication.instance()
     if not app:
         app = QtWidgets.QApplication(sys.argv)
+    configure_pyopengl_platform(app)
     if sys.platform.startswith("linux"):
         app.setDesktopFileName(DESKTOP_ID)
         if not args.startup_check:

@@ -124,3 +124,47 @@ def test_invalid_file_reports_error_and_does_not_block_other_dropped_files(windo
     assert drag_event(window, urls).isAccepted()
     assert len(window.project_data.samples) == 1
     window.show_error.assert_called_once()
+
+
+def test_sample_reorder_preserves_files_and_updates_choosers(window, tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from exhale.data.projectdata import ProjectData
+    from exhale.project.projectio import export_project_state, load_project_state
+
+    paths = [source_file(tmp_path / f"{name}.h5") for name in ("zeta", "alpha", "Beta")]
+    window.source_manager.open_files([str(path) for path in paths])
+    project = window.project_data
+    original = list(project.samples)
+    assert [sample.name for sample in project.samples.values()] == ["alpha", "Beta", "zeta"]
+    ownership = {key: list(sample.asset_ids) for key, sample in project.samples.items()}
+    tree = window.sampleTree
+    moving = [original[0], original[2]]
+    mime = QtCore.QMimeData()
+    mime.setData(tree.MIME_TYPE, json.dumps(moving).encode())
+    event = SimpleNamespace(
+        source=lambda: tree,
+        mimeData=lambda: mime,
+        position=lambda: QtCore.QPointF(10, tree.viewport().height() - 1),
+        setDropAction=Mock(),
+        accept=Mock(),
+    )
+    tree.dropEvent(event)
+    expected = [original[1], original[0], original[2]]
+    assert list(project.samples) == expected
+    assert {key: sample.asset_ids for key, sample in project.samples.items()} == ownership
+    for chooser in (window.loadedFileComboBox, window.clusteringRunSample):
+        assert [chooser.itemData(index) for index in range(chooser.count())] == expected
+    restored = ProjectData()
+    state = export_project_state(project)
+    assert not load_project_state(restored, state, open_files=False)
+    assert list(restored.samples) == expected
+    assert window.project_state_manager.compare_now()
+    window.sortSamples.click()
+    assert list(project.samples) == original
+    assert "sample_order" not in export_project_state(project)
+    state.pop("sample_order", None)
+    legacy = ProjectData()
+    assert not load_project_state(legacy, state, open_files=False)
+    assert list(legacy.samples) == original

@@ -414,6 +414,7 @@ class ProjectData:
         self.abundance_units = CONCENTRATION_UNITS
         self.assets: dict[str, DataAsset] = {}
         self.samples: dict[str, Sample] = {}
+        self.sample_order_custom = False
         self.project_channels: dict[str, Channel] = {}
         self.images: dict[int, ImageSettings] = {}
         self.segmentation_histories: dict[str, SegmentationHistory] = {}
@@ -446,7 +447,25 @@ class ProjectData:
             raise ValueError(f"Sample {sample_id!r} already exists")
         sample = Sample(sample_id=sample_id, name=name)
         self.samples[sample_id] = sample
+        if not self.sample_order_custom:
+            self.reorder_samples()
         return sample
+
+    def reorder_samples(self, sample_ids=None):
+        """Keep dictionary iteration in alphabetical or explicitly chosen project order."""
+        if sample_ids is None:
+            sample_ids = sorted(
+                self.samples,
+                key=lambda sample_id: (self.samples[sample_id].name.casefold(), sample_id),
+            )
+            custom = False
+        else:
+            sample_ids = list(sample_ids)
+            if len(sample_ids) != len(self.samples) or set(sample_ids) != set(self.samples):
+                raise ValueError("Sample order must contain every sample exactly once")
+            custom = True
+        self.samples = {sample_id: self.samples[sample_id] for sample_id in sample_ids}
+        self.sample_order_custom = custom
 
     @property
     def segmentation_results(self) -> dict[str, dict[str, SegmentationResult]]:
@@ -566,6 +585,8 @@ class ProjectData:
         if not name:
             raise ValueError("Sample name must not be empty")
         self.samples[sample_id].name = name
+        if not self.sample_order_custom:
+            self.reorder_samples()
 
     def add_project_channel(self, key: str, name: str | None = None, settings=None) -> Channel:
         """Add a channel to the selection inherited by samples."""
@@ -768,6 +789,8 @@ class ProjectData:
 
         if sample.sample_id not in self.samples:
             self.samples[sample.sample_id] = sample
+            if not self.sample_order_custom:
+                self.reorder_samples()
         if source_id not in sample.asset_ids:
             sample.asset_ids.append(source_id)
         self.assets[source_id] = DataAsset(
@@ -992,6 +1015,7 @@ class ProjectData:
         """Clear all project-owned sample state without replacing containers."""
         self.assets.clear()
         self.samples.clear()
+        self.sample_order_custom = False
         self.project_channels.clear()
         self.images.clear()
         self.segmentation_histories.clear()

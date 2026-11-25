@@ -440,6 +440,9 @@ def export_project_state(
         ),
         "external_data_root": project_data.external_data_root,
         "samples": samples,
+        **(
+            {"sample_order": list(project_data.samples)} if project_data.sample_order_custom else {}
+        ),
         "assets": assets,
         "project_channels": project_channels,
         "element_settings": element_settings,
@@ -608,14 +611,36 @@ def load_project_state(
     *,
     open_files: bool = True,
     project_dir: str | Path | None = None,
+    progress=None,
 ) -> list[str]:
     """Restore saved state into an empty ``ProjectData`` model.
 
+    Optional progress(completed, total, message) reports file and result restoration.
     Return recoverable loading issues. Missing data files retain their saved
     channel identities so the user can relocate them after opening the project.
     """
     validate_project_state(state)
 
+    histories = state.get("segmentation_histories")
+    masks = (
+        sum(len(history.get("candidates", [])) for history in histories)
+        if histories is not None
+        else len(state.get("segmentation_results", []))
+    )
+    total = (
+        (len(state["assets"]) if open_files else 0)
+        + (masks + len(state.get("clustering_results", [])) if project_dir is not None else 0)
+        + 1
+    )
+    completed = 0
+
+    def report(message):
+        nonlocal completed
+        if progress is not None:
+            progress(completed, total, message)
+        completed += 1
+
+    report("Restoring project settings…")
     issues = []
     project_data.clustering_method = state.get("clustering_method", DEFAULT_CLUSTERING_METHOD)
     if not isinstance(project_data.clustering_method, str):
@@ -681,8 +706,14 @@ def load_project_state(
         sample = project_data.create_sample(sample_obj["name"], sample_obj["id"])
         shape = sample_obj.get("shape")
         sample.shape = tuple(shape) if shape is not None else None
+    if "sample_order" in state:
+        try:
+            project_data.reorder_samples(state["sample_order"])
+        except (TypeError, ValueError):
+            issues.append("Invalid sample order was replaced with alphabetical order")
     if open_files:
         for filename, asset_obj in zip(filenames, state["assets"], strict=True):
+            report(f"Opening {Path(filename).name}…")
             source = None
             try:
                 source = open_source(filename)
@@ -835,6 +866,7 @@ def load_project_state(
                 except Exception as exc:
                     issues.append(f"One working mask was skipped: {exc}")
         for result_obj in result_objects:
+            report("Restoring segmentation masks…")
             try:
                 sample_id = result_obj["sample_id"]
                 method_id = result_obj.get("method_id", "stardist")
@@ -957,6 +989,7 @@ def load_project_state(
 
     if project_dir is not None:
         for obj in state.get("clustering_results", []):
+            report("Restoring element clusters…")
             try:
                 sample = project_data.samples[obj["sample_id"]]
                 refs = tuple(ElementRef.from_json(ref) for ref in obj["element_refs"])
@@ -1034,6 +1067,9 @@ def load_project_state(
                 target = settings.cutoffs.setdefault(obj["sample_id"], {})
                 for key, value in overrides.items():
                     target.setdefault(key, value)
+
+    if progress is not None:
+        progress(total, total, "Updating project views…")
 
     return issues
 

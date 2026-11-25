@@ -103,7 +103,11 @@ class ProjectTab(QtCore.QObject):
         self._sample_tree_viewport = self.sampleTree.viewport()
         self._sample_tree_viewport.installEventFilter(self)
         self.sampleTree.setAcceptDrops(True)
-        self.sampleTree.setDragDropMode(QtWidgets.QAbstractItemView.DropOnly)
+        self.sampleTree.setDragDropMode(QtWidgets.QAbstractItemView.DragDrop)
+        self.sampleTree.setDragEnabled(True)
+        self.sampleTree.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.sampleTree.samplesMoved.connect(self._move_samples)
+        window.sortSamples.clicked.connect(self._sort_samples)
         self.sampleTree.setDropIndicatorShown(False)
         self.channelList.installEventFilter(self)
         self.channelList.setSelectionMode(
@@ -148,6 +152,10 @@ class ProjectTab(QtCore.QObject):
             QtCore.QEvent.DragMove,
             QtCore.QEvent.Drop,
         ):
+            if event.source() is self.sampleTree and event.mimeData().hasFormat(
+                self.sampleTree.MIME_TYPE
+            ):
+                return False
             urls = event.mimeData().urls()
             if (
                 not urls
@@ -186,6 +194,35 @@ class ProjectTab(QtCore.QObject):
                 )
             return True
         return super().eventFilter(watched, event)
+
+    def _sort_samples(self):
+        self.project.reorder_samples()
+        self._sample_order_changed()
+
+    def _move_samples(self, sample_ids, position):
+        order = list(self.project.samples)
+        moving = set(sample_ids)
+        if not moving or not moving <= set(order):
+            return
+        position = max(0, min(position, len(order)))
+        before = [sample_id for sample_id in order[:position] if sample_id not in moving]
+        after = [sample_id for sample_id in order[position:] if sample_id not in moving]
+        reordered = before + [sample_id for sample_id in order if sample_id in moving] + after
+        if reordered == order:
+            return
+        self.project.reorder_samples(reordered)
+        self._sample_order_changed(sample_ids)
+
+    def _sample_order_changed(self, selected_ids=()):
+        selected = self.selected_sample_id()
+        self.window.element_controller.refresh_sample_selector()
+        self.refresh(selected=selected)
+        self.window.channelsChanged.emit()
+        for row in range(self.sampleTree.topLevelItemCount()):
+            item = self.sampleTree.topLevelItem(row)
+            if item.data(0, self.NODE_ID_ROLE) in selected_ids:
+                item.setSelected(True)
+        self.window.project_state_manager.project_changed()
 
     def selected_sample_id(self):
         item = self.sampleTree.currentItem()
@@ -232,7 +269,9 @@ class ProjectTab(QtCore.QObject):
                 sample_item = QtWidgets.QTreeWidgetItem(
                     [sample.name, self._sample_size(sample), self._map_count(sample)]
                 )
-                sample_item.setFlags(sample_item.flags() | Qt.ItemFlag.ItemIsEditable)
+                sample_item.setFlags(
+                    sample_item.flags() | Qt.ItemFlag.ItemIsEditable | Qt.ItemFlag.ItemIsDragEnabled
+                )
                 sample_item.setData(0, self.NODE_KIND_ROLE, "sample")
                 sample_item.setData(0, self.NODE_ID_ROLE, sample.sample_id)
                 sample_item.setToolTip(2, self._map_count_tooltip(sample))

@@ -19,6 +19,24 @@ from exhale.data.source_refs import ElementRef
 
 
 class ProjectDataTests(unittest.TestCase):
+    def test_manual_sample_order_survives_additions_and_removals(self):
+        project = ProjectData()
+        project.create_sample("Zeta", "z")
+        project.create_sample("Alpha", "a")
+        self.assertEqual(list(project.samples), ["a", "z"])
+        project.reorder_samples(["z", "a"])
+        project.create_sample("Beta", "b")
+        self.assertEqual(list(project.samples), ["z", "a", "b"])
+        project.remove_sample("a")
+        self.assertEqual(list(project.samples), ["z", "b"])
+        project.reorder_samples()
+        self.assertEqual(list(project.samples), ["b", "z"])
+        self.assertFalse(project.sample_order_custom)
+        with self.assertRaises(ValueError):
+            project.reorder_samples(["z", "z"])
+        project.clear()
+        self.assertFalse(project.sample_order_custom)
+
     def setUp(self):
         self.fe_ref = ElementRef("scan.h5", "/entry/plotselect/Fe")
         self.zn_ref = ElementRef("scan.h5", "/entry/plotselect/Zn")

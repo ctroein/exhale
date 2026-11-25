@@ -70,6 +70,23 @@ def configure_rendering(settings, *, software=False):
             os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
 
 
+def configure_pyopengl_platform(app):
+    """Match PyOpenGL context lookup to Qt before importing Napari or Vispy.
+
+    Napari's NVIDIA workaround can select GLX after Qt has already selected
+    native Wayland. At that point changing QT_QPA_PLATFORM cannot change Qt's
+    live backend, so establish the matching PyOpenGL default first.
+    """
+    if not sys.platform.startswith("linux"):
+        return
+    platform = app.platformName()
+    if platform.startswith("wayland"):
+        os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+    elif platform == "xcb":
+        backend = "egl" if os.environ.get("QT_XCB_GL_INTEGRATION") == "xcb_egl" else "glx"
+        os.environ.setdefault("PYOPENGL_PLATFORM", backend)
+
+
 class RenderingFailureDialog(QtWidgets.QDialog):
     """Require an explicit choice before continuing without the Napari viewers."""
 

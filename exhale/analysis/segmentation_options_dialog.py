@@ -20,9 +20,20 @@ class SegmentationOptionsDialog(QtWidgets.QDialog, Ui_SegmentationOptionsDialog)
         self.probThreshold.setValue(self._stardist_defaults["prob_thresh"])
         self.nmsThreshold.setValue(self._stardist_defaults["nms_thresh"])
         self._clip_percentiles = {"stardist": None, "cellpose": 99.9, "monai": 99.9, "smp": None}
+        self._default_parameters = {}
+        for method_id in self._clip_percentiles:
+            self.set_method(method_id)
+            self._default_parameters[method_id] = self.parameters()
         self.set_method("stardist")
+        self.buttonBox.button(QtWidgets.QDialogButtonBox.RestoreDefaults).clicked.connect(
+            self.restore_defaults
+        )
         self.buttonBox.rejected.connect(self.hide)
         apply_tooltips(self, SEGMENTATION_OPTIONS_DIALOG)
+
+    def restore_defaults(self):
+        """Restore the active method's inference and preprocessing defaults."""
+        self.set_parameters(self._default_parameters[self.method_id])
 
     def set_method(self, method_id: str) -> None:
         """Select a method page while preserving the other method’s controls."""

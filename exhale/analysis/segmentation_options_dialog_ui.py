@@ -123,7 +123,7 @@ class Ui_SegmentationOptionsDialog(object):
         self.methodOptionsStack.addWidget(self.smpPage)
         self.verticalLayout.addWidget(self.methodOptionsStack)
         self.buttonBox = QtWidgets.QDialogButtonBox(parent=SegmentationOptionsDialog)
-        self.buttonBox.setStandardButtons(QtWidgets.QDialogButtonBox.StandardButton.Close)
+        self.buttonBox.setStandardButtons(QtWidgets.QDialogButtonBox.StandardButton.RestoreDefaults|QtWidgets.QDialogButtonBox.StandardButton.Close)
         self.buttonBox.setObjectName("buttonBox")
         self.verticalLayout.addWidget(self.buttonBox)
 

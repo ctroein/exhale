@@ -22,7 +22,7 @@ class ClusteringBatchDialog(QtWidgets.QDialog, Ui_ClusteringBatchDialog):
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
         self.rows = []
-        for sample in sorted(project.samples.values(), key=lambda sample: sample.name.casefold()):
+        for sample in project.samples.values():
             job = clustering_job(project, sample)
             item = QtWidgets.QTreeWidgetItem(self.sampleTree, [sample.name, str(len(job.refs)), ""])
             item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)

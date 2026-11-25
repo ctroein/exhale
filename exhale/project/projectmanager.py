@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from qtpy import QtWidgets
+from qtpy import QtCore, QtWidgets
 
 from .. import application_name
 from ..data.constants import CONCENTRATION_UNITS
@@ -19,6 +19,8 @@ from .projectstatemanager import PROJECT_AUTOSAVE_FILENAME
 PROJECT_FILENAME = "project.xhp"
 PROJECT_DIRECTORY_SETTING = "ProjectDirectory"
 EXPORT_DIRECTORY_SETTING = "ExportDirectory"
+RECENT_PROJECTS_SETTING = "RecentProjects"
+MAX_RECENT_PROJECTS = 5
 
 
 class ProjectManager:
@@ -26,6 +28,40 @@ class ProjectManager:
 
     def __init__(self, window):
         self.window = window
+
+    def configure_recent_projects(self):
+        """Populate the persistent recent-project menu after the window UI exists."""
+        self.window.menuRecentProjects.aboutToShow.connect(self.refresh_recent_projects)
+        self.refresh_recent_projects()
+
+    def refresh_recent_projects(self):
+        menu = self.window.menuRecentProjects
+        menu.clear()
+        paths = self.window.settings.value(RECENT_PROJECTS_SETTING, [], type=list)
+        for filename in paths[:MAX_RECENT_PROJECTS]:
+            project = Path(filename)
+            directory = project.parent
+            label = str(directory)
+            if len(label) > 50:
+                suffix = Path(directory.name)
+                for component in reversed(directory.parts[1:-1]):
+                    candidate = Path(component) / suffix
+                    if len(str(Path("…") / candidate)) > 50:
+                        break
+                    suffix = candidate
+                label = str(Path("…") / suffix)
+            action = menu.addAction(label.replace("&", "&&"))
+            action.triggered.connect(
+                lambda checked=False, filename=filename: self.load_project_file(filename)
+            )
+        menu.setEnabled(bool(paths))
+
+    def remember_project(self, directory):
+        filename = str((Path(directory) / PROJECT_FILENAME).resolve())
+        paths = self.window.settings.value(RECENT_PROJECTS_SETTING, [], type=list)
+        paths = [filename] + [path for path in paths if path != filename]
+        self.window.settings.setValue(RECENT_PROJECTS_SETTING, paths[:MAX_RECENT_PROJECTS])
+        self.refresh_recent_projects()
 
     def default_dialog_directory(self) -> str:
         if self.window.project_dir is not None:
@@ -141,9 +177,10 @@ class ProjectManager:
         recoverable loading issue is reported after the new model is shown.
         """
         try:
-            with project_file.open(encoding="utf-8") as stream:
-                saved_state = json.load(stream)
-            projectio.validate_project_state(saved_state)
+            with OverrideCursor():
+                with project_file.open(encoding="utf-8") as stream:
+                    saved_state = json.load(stream)
+                projectio.validate_project_state(saved_state)
         except Exception as exc:
             self._show_error("Loading failed", exc)
             return False
@@ -189,22 +226,51 @@ class ProjectManager:
                     autosave_file.unlink(missing_ok=True)
 
         manager = self.window.project_state_manager
+        progress = QtWidgets.QProgressDialog("Loading project…", "", 0, 0, self.window)
+        progress.setWindowTitle("Opening project")
+        progress.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+
+        def update_progress(completed, total, message):
+            progress.setLabelText(message)
+            progress.setRange(0, total + 1)
+            progress.setValue(completed)
+            progress.repaint()
+
         try:
             with manager.suspend_notifications(), OverrideCursor():
+                progress.show()
+                QtWidgets.QApplication.processEvents(
+                    QtCore.QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+                )
                 self.window.clear_project()
                 issues = projectio.load_project_state(
-                    self.window.project_data, state, project_dir=directory
+                    self.window.project_data,
+                    state,
+                    project_dir=directory,
+                    progress=update_progress,
                 )
+                self.window.project_dir = directory
+                self.remember_directory(directory)
+                progress.setLabelText("Updating project views…")
+                progress.repaint()
+                self.window.refresh_project_ui()
+                manager.mark_loaded(saved_state, recovered=recovered)
+                self.window.update_window_title()
+                progress.setValue(progress.maximum())
         except Exception as exc:
+            progress.close()
             self._show_error("Loading failed", exc)
             self.window.refresh_project_ui()
             return False
+        finally:
+            progress.close()
+            progress.deleteLater()
 
-        self.window.project_dir = directory
-        self.remember_directory(directory)
-        self.window.refresh_project_ui()
-        manager.mark_loaded(saved_state, recovered=recovered)
-        self.window.update_window_title()
+        self.remember_project(directory)
         if issues:
             QtWidgets.QMessageBox.warning(
                 self.window,
@@ -265,6 +331,7 @@ class ProjectManager:
             return False
         self.window.project_dir = directory
         self.remember_directory(directory)
+        self.remember_project(directory)
         self.window.project_state_manager.mark_saved()
         self.window.project_state_manager.discard_autosave(directory)
         self.window.project_state_manager.discard_unsaved_autosave()

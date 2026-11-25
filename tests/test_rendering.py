@@ -222,3 +222,28 @@ def test_direct_restart_preserves_interpreter_and_arguments(monkeypatch, platfor
     monkeypatch.setattr(rendering.subprocess, "Popen", lambda args: calls.append(args))
     rendering.restart_application()
     assert calls == [[rendering.sys.executable, str(script), "--project", "my project"]]
+
+
+@pytest.mark.parametrize(
+    ("qt_platform", "integration", "expected"),
+    [
+        ("wayland", "", "egl"),
+        ("wayland-egl", "", "egl"),
+        ("xcb", "", "glx"),
+        ("xcb", "xcb_egl", "egl"),
+        ("offscreen", "", None),
+    ],
+)
+def test_pyopengl_matches_live_qt_backend(monkeypatch, qt_platform, integration, expected):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(rendering.sys, "platform", "linux")
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    monkeypatch.setenv("QT_XCB_GL_INTEGRATION", integration)
+    monkeypatch.delenv("PYOPENGL_PLATFORM", raising=False)
+    app = SimpleNamespace(platformName=lambda: qt_platform)
+    rendering.configure_pyopengl_platform(app)
+    assert os.environ.get("PYOPENGL_PLATFORM") == expected
+    monkeypatch.setenv("PYOPENGL_PLATFORM", "custom")
+    rendering.configure_pyopengl_platform(app)
+    assert os.environ["PYOPENGL_PLATFORM"] == "custom"

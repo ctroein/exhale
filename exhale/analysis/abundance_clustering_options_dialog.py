@@ -157,9 +157,7 @@ class AbundanceClusteringOptionsDialog(QtWidgets.QDialog, Ui_AbundanceClustering
         self._sample_id = None if sample is None else sample.sample_id
         self._units = project.abundance_units
         self._load_controls()
-        samples = sorted(
-            project.samples.values(), key=lambda item: (item.name.casefold(), item.sample_id)
-        )
+        samples = list(project.samples.values())
         channels = {
             item.sample_id: item.effective_channels(project.project_channels) for item in samples
         }
